@@ -1445,8 +1445,29 @@ button, input, select, textarea {
    RESPONSIVE SMARTPHONE UI (Adaptive Layouts)
    ============================================================================= */
 
+/* Tablet adjustments (between 768 and 1024) */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .main-content {
+    padding: 28px 24px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .dashboard-columns {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .stat-card {
+    padding: 18px;
+  }
+}
+
 @media (max-width: 768px) {
-  
+
   /* Sidebar transforms into Bottom Nav Bar */
   .sidebar {
     position: fixed;
@@ -1603,6 +1624,152 @@ button, input, select, textarea {
     padding: 10px 8px;
     font-size: 0.75rem;
   }
+
+  /* Card paddings tightened */
+  .card {
+    padding: 16px;
+  }
+
+  /* Header title scaling */
+  .header-title h2 {
+    font-size: 1.3rem;
+  }
+
+  .header-title p {
+    font-size: 0.72rem;
+  }
+
+  .column-header h3 {
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  /* Stat values shrink slightly */
+  .stat-card .stat-value {
+    font-size: 1.7rem;
+  }
+
+  .hud-card h2 {
+    font-size: 1.7rem;
+  }
+
+  /* View actions card may overflow with many filter buttons */
+  .view-actions-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .filters-group {
+    flex-wrap: wrap;
+  }
+
+  /* Card item content stack to prevent action button overflow */
+  .card-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .card-actions-right {
+    justify-content: flex-end;
+  }
+
+  /* Form row to single column to prevent narrow inputs */
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* Calendar form: stack input + button */
+  #config-calendar-form {
+    flex-direction: column;
+    gap: 10px !important;
+  }
+
+  /* Sub-details under chart wrap nicely */
+  .chart-sub-details {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  /* Profile switch & header controls - allow shrink */
+  .header-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-switch {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .user-select-dropdown {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #btn-logout {
+    width: 100%;
+  }
+
+  /* Modal padding/width adjustments */
+  .modal {
+    padding: 16px;
+  }
+
+  .modal-content {
+    max-width: 100%;
+  }
+
+  .wide-modal {
+    max-width: 100%;
+  }
+
+  /* Theme options - allow wrapping & full width */
+  .theme-option {
+    flex: 1 1 130px;
+  }
+}
+
+@media (max-width: 420px) {
+  .main-content {
+    padding: 18px 12px 88px 12px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .header-title h2 {
+    font-size: 1.2rem;
+  }
+
+  .stat-card .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .stat-card-badge-trend {
+    top: 14px;
+    right: 14px;
+    font-size: 0.6rem;
+  }
+
+  .welcome-card {
+    padding: 14px;
+  }
+
+  .menu-item {
+    font-size: 0.6rem;
+  }
+
+  .column-header h3 {
+    font-size: 0.88rem;
+  }
 }
 
 /* ==============================================================================
@@ -1675,6 +1842,13 @@ button, input, select, textarea {
   --ba-cyan-hover: #00AED8;
   --ba-cyan-dim:   rgba(2, 211, 251, 0.12);
   --ba-cyan-faint: rgba(2, 211, 251, 0.06);
+
+  /* 追加アクセント — ゲーム本編の MomoTalk / 優先度 / 警告色を再現 */
+  --ba-pink:     #FB90A4;  /* MomoTalk バナー・優先度高 */
+  --ba-pink-dim: rgba(251, 144, 164, 0.15);
+  --ba-lavender: #A3BAFF;  /* ゲーム内リンク色 */
+  --ba-yellow:   #FFD966;  /* 警告/注意 */
+  --ba-yellow-dim: rgba(255, 217, 102, 0.15);
 
   /* 背景 — 公式ゲーム画面に近い色 */
   --bg-primary:       #FBFCFF; /* ほぼ白・微青みがかった main content */
@@ -1866,6 +2040,78 @@ button, input, select, textarea {
     background-color: var(--ba-cyan-dim);
   }
 }
+
+/* ==============================================================================
+   BA — マルチアクセントカラー（ピンク / ラベンダー / イエロー）
+   ============================================================================== */
+
+/* リンク色：ゲーム内リンク色 (ラベンダー) */
+[data-theme="blue-archive"] a:not(.menu-item):not(.btn) {
+  color: var(--ba-lavender);
+}
+
+[data-theme="blue-archive"] a:not(.menu-item):not(.btn):hover {
+  color: var(--ba-cyan);
+}
+
+/* 緊急/期限切れバッジ — ピンク */
+[data-theme="blue-archive"] .badge-urgent {
+  background-color: var(--ba-pink-dim);
+  color: var(--ba-pink);
+  border: 1px solid var(--ba-pink);
+}
+
+/* 通常バッジは control 色のまま */
+[data-theme="blue-archive"] .badge-normal {
+  color: var(--ba-lavender);
+  border-color: #C8DCEA;
+}
+
+/* 優先度: タスクカード左ボーダー (動的クラス付与時用) */
+[data-theme="blue-archive"] .card-item.priority-high {
+  border-left: 3px solid var(--ba-pink);
+}
+
+[data-theme="blue-archive"] .card-item.priority-medium {
+  border-left: 3px solid var(--ba-yellow);
+}
+
+[data-theme="blue-archive"] .card-item.priority-low {
+  border-left: 3px solid var(--ba-lavender);
+}
+
+/* メタ情報内の "priority" マーカー */
+[data-theme="blue-archive"] .meta-item .priority-high { color: var(--ba-pink); }
+[data-theme="blue-archive"] .meta-item .priority-medium { color: var(--ba-yellow); }
+[data-theme="blue-archive"] .meta-item .priority-low { color: var(--ba-lavender); }
+
+/* ステータスバッジ — シアン枠 */
+[data-theme="blue-archive"] .stat-card-badge-trend {
+  color: var(--ba-cyan);
+  border-color: #C8DCEA;
+}
+
+/* アクセントバッジ — シアン (既存上書きで明示) */
+[data-theme="blue-archive"] .badge-accent {
+  color: var(--ba-cyan);
+  border-color: var(--ba-cyan);
+  background-color: var(--ba-cyan-faint);
+}
+
+/* 警告アイコン — ウォームイエロー */
+[data-theme="blue-archive"] .alert-icon-symbol {
+  color: var(--ba-yellow) !important;
+}
+
+[data-theme="blue-archive"] .alert-box {
+  border-left-color: var(--ba-yellow);
+  background-color: #FFFBEC;
+}
+
+/* ソースバッジを色分け */
+[data-theme="blue-archive"] .source-discord { color: var(--ba-lavender); }
+[data-theme="blue-archive"] .source-manual  { color: var(--ba-cyan); }
+[data-theme="blue-archive"] .source-web     { color: var(--ba-pink); }
 
 /* ==============================================================================
    THEME SELECTOR UI (設定タブ)

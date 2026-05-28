@@ -449,8 +449,15 @@ document.addEventListener("DOMContentLoaded", () => {
     donutSegment.setAttribute("stroke-dasharray", `${strokeDash} 251.2`);
     chartCenterPercentage.textContent = `${entPct}%`;
 
-    // Colors mapping for legend dots
-    const colors = {
+    // Colors mapping for legend dots (BA テーマ時は配色を切り替え)
+    const isBATheme = currentTheme() === "blue-archive";
+    const colors = isBATheme ? {
+      食費: "#02D3FB",   // BAシアン
+      日用品: "#A3BAFF", // ラベンダー
+      交通費: "#FB90A4", // MomoTalk ピンク
+      娯楽: "#FFD966",   // ウォームイエロー
+      その他: "#7A9BB0"  // ミュートグレー
+    } : {
       食費: "#00e676", // neon-green
       日用品: "#3b82f6", // blue
       交通費: "#ef4444", // red
