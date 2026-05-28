@@ -30,6 +30,9 @@ client.on("messageCreate", async (message: Message) => {
   // Bot自身のメッセージは無視
   if (message.author.bot) return;
 
+  // 許可されたユーザー以外からのメッセージは完全に無視する (ユーザーIDロック仕様)
+  if (config.allowedUserId && message.author.id !== config.allowedUserId) return;
+
   let isReplyToBot = false;
   let referencedMsg: Message | null = null;
 
