@@ -16,7 +16,8 @@
     "dotenv": "^16.5.0",
     "googleapis": "^144.0.0",
     "node-cron": "^3.0.3",
-    "puppeteer": "^25.1.0"
+    "puppeteer": "^25.1.0",
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

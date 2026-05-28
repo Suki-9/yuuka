@@ -51,6 +51,9 @@ export const config = {
   /** データベースファイルのパス */
   dbPath: getSetting("DB_PATH", "./data/yuuka.db"),
 
+  /** Redis接続用URL */
+  redisUrl: getSetting("REDIS_URL", "redis://127.0.0.1:6379"),
+
   /** リマインダーチェック間隔 (cron式) */
   reminderCron: getSetting("REMINDER_CRON", "* * * * *"),
 

@@ -56,10 +56,17 @@ client.on("messageCreate", async (message: Message) => {
   // メンションもDMも、ボットへの返信でもなければ無視
   if (!isMentioned && !isDM && !isReplyToBot) return;
 
+  // 「入力中...」を維持するためのタイマー
+  let typingInterval: NodeJS.Timeout | null = null;
+
   try {
-    // 「入力中...」を表示
-    if ("sendTyping" in message.channel) {
-      await message.channel.sendTyping();
+    // 「入力中...」を表示し、処理が終わるまで5秒ごとに維持する
+    if ("sendTyping" in message.channel && typeof (message.channel as any).sendTyping === "function") {
+      const channel = message.channel as any;
+      await channel.sendTyping().catch((err: unknown) => console.error("sendTyping error:", err));
+      typingInterval = setInterval(() => {
+        channel.sendTyping().catch((err: unknown) => console.error("sendTyping error:", err));
+      }, 5000);
     }
 
     const userId = message.author.id;
@@ -110,6 +117,12 @@ client.on("messageCreate", async (message: Message) => {
       response = "何かお手伝いできることはありますか？ 📋\n\nタスク管理、予定管理、家計管理ができますよ！";
     }
 
+    // 応答が完了したため、タイマーをクリア
+    if (typingInterval) {
+      clearInterval(typingInterval);
+      typingInterval = null;
+    }
+
     // Discord の文字数制限 (2000文字) に対応
     if (response.length > 2000) {
       const chunks = splitMessage(response, 2000);
@@ -120,6 +133,11 @@ client.on("messageCreate", async (message: Message) => {
       await message.reply(response);
     }
   } catch (error) {
+    // エラー発生時もタイマーを確実にクリア
+    if (typingInterval) {
+      clearInterval(typingInterval);
+      typingInterval = null;
+    }
     console.error("メッセージ処理エラー:", error);
     await message.reply(
       "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。"

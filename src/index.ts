@@ -2,12 +2,16 @@ import { runMigrations } from "./db/migrations.js";
 import { startBot, stopBot } from "./bot.js";
 import { closeDb } from "./db/database.js";
 import { startWebServer, stopWebServer } from "./server.js";
+import { initRedis, closeRedis } from "./db/redis.js";
 
 async function main() {
   console.log("🚀 Yuuka 起動中...");
 
   // データベース初期化
   runMigrations();
+
+  // Redis の初期化と接続
+  await initRedis();
 
   // Web管理画面サーバーの起動
   await startWebServer();
@@ -19,25 +23,28 @@ async function main() {
 }
 
 // グレースフルシャットダウン
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
   console.log("\n👋 シャットダウン中...");
   stopWebServer();
   stopBot();
   closeDb();
+  await closeRedis();
   process.exit(0);
 });
 
-process.on("SIGTERM", () => {
+process.on("SIGTERM", async () => {
   console.log("\n👋 シャットダウン中...");
   stopWebServer();
   stopBot();
   closeDb();
+  await closeRedis();
   process.exit(0);
 });
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("起動エラー:", err);
   stopWebServer();
   closeDb();
+  await closeRedis();
   process.exit(1);
 });

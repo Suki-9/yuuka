@@ -218,11 +218,11 @@ export async function processMessage(
 ): Promise<string> {
   // 1. ユーザーのメッセージをDB履歴に保存
   if (message.text) {
-    addChatMessage(userId, "user", message.text);
+    await addChatMessage(userId, "user", message.text);
   }
 
   // 2. 過去の会話履歴をDBから取得（直近15ターン分）
-  const history = getRecentChatHistory(userId, 15);
+  const history = await getRecentChatHistory(userId, 15);
 
   // 3. Geminiの入力形式（Contents配列）へ変換し、同じロールの連続を結合して交互にする
   const contents: Content[] = [];
@@ -327,7 +327,7 @@ export async function processMessage(
     // 最終テキスト応答を取得してDB履歴に保存
     const text = response.text();
     if (text) {
-      addChatMessage(userId, "model", text);
+      await addChatMessage(userId, "model", text);
     }
     return text || "処理が完了しました。";
   } catch (error) {
