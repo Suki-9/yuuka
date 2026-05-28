@@ -12,8 +12,18 @@
   --card-matte: #18181b;      /* Solid dark charcoal zinc card */
   --card-matte-hover: #202024;
   --border-matte: #27272a;    /* Thin solid zinc outline */
-  --border-focus: #52525b;
+  --border-focus: #38d5ff;
   --radius: 2px;              /* Minimal modern 2px rounded corners */
+
+  --accent-cyan: #38d5ff;
+  --accent-cyan-hover: #67e8f9;
+  --accent-cyan-dim: rgba(56, 213, 255, 0.14);
+  --accent-cyan-faint: rgba(56, 213, 255, 0.07);
+  --accent-pink: #fb7185;
+  --accent-pink-dim: rgba(251, 113, 133, 0.14);
+  --accent-lavender: #a78bfa;
+  --accent-yellow: #facc15;
+  --accent-yellow-dim: rgba(250, 204, 21, 0.14);
 
   --color-white: #fafafa;
   --color-zinc-light: #f4f4f5;
@@ -283,6 +293,7 @@ button, input, select, textarea {
 .form-group select:focus,
 .form-group textarea:focus {
   border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-cyan-dim);
 }
 
 .form-row {
@@ -325,12 +336,12 @@ button, input, select, textarea {
 }
 
 .btn-primary {
-  background-color: var(--color-white);
+  background-color: var(--accent-cyan);
   color: var(--bg-primary);
 }
 
 .btn-primary:hover {
-  background-color: var(--color-zinc-light);
+  background-color: var(--accent-cyan-hover);
 }
 
 .btn-secondary {
@@ -340,7 +351,7 @@ button, input, select, textarea {
 }
 
 .btn-secondary:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--accent-cyan-faint);
 }
 
 .btn-icon {
@@ -359,7 +370,7 @@ button, input, select, textarea {
 }
 
 .btn-icon:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--accent-cyan-faint);
   border-color: var(--border-focus);
 }
 
@@ -431,12 +442,12 @@ button, input, select, textarea {
 
 .menu-item:hover {
   color: var(--text-primary);
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--accent-cyan-faint);
 }
 
 .menu-item.active {
-  color: var(--color-white);
-  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--accent-cyan);
+  background-color: var(--accent-cyan-dim);
   font-weight: 600;
 }
 
@@ -629,7 +640,8 @@ button, input, select, textarea {
   padding: 2px 6px;
   border-radius: var(--radius);
   border: 1px solid var(--border-matte);
-  color: var(--text-secondary);
+  color: var(--accent-cyan);
+  white-space: nowrap;
 }
 
 .stat-card-badge-trend.positive {
@@ -642,13 +654,16 @@ button, input, select, textarea {
 
 .stat-card-header {
   margin-bottom: 8px;
+  padding-right: 72px;
 }
 
 .stat-label {
+  display: block;
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--color-zinc-muted);
+  line-height: 1.25;
 }
 
 .stat-card .stat-value {
@@ -733,11 +748,25 @@ button, input, select, textarea {
   font-family: var(--font-family-mono);
   font-size: 0.65rem;
   font-weight: 700;
-  color: var(--color-white);
+  color: var(--accent-cyan);
   border: 1px solid var(--border-matte);
   padding: 2px 6px;
   border-radius: var(--radius);
   background-color: var(--bg-primary);
+}
+
+#trend-line-path,
+#schedules-sparkline-path,
+#expenses-sparkline-path {
+  stroke: var(--accent-cyan);
+}
+
+#dashboard-trend-chart line {
+  stroke: var(--border-matte);
+}
+
+#donut-segment {
+  stroke: var(--accent-cyan);
 }
 
 .chart-sub-details {
@@ -841,7 +870,7 @@ button, input, select, textarea {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--color-white);
+  background-color: var(--accent-cyan);
 }
 
 .dashboard-list {
@@ -875,14 +904,14 @@ button, input, select, textarea {
 }
 
 .badge-urgent {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: var(--color-white);
-  border: 1px solid var(--border-matte);
+  background-color: var(--accent-pink-dim);
+  color: var(--accent-pink);
+  border: 1px solid var(--accent-pink);
 }
 
 .badge-normal {
   background-color: transparent;
-  color: var(--text-secondary);
+  color: var(--accent-lavender);
   border: 1px solid var(--border-matte);
 }
 
@@ -927,8 +956,8 @@ button, input, select, textarea {
 }
 
 .btn-filter.active {
-  background-color: var(--color-white);
-  border-color: var(--color-white);
+  background-color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
   color: var(--bg-primary);
   font-weight: 700;
 }
@@ -979,8 +1008,8 @@ button, input, select, textarea {
 }
 
 .checkbox-custom:checked {
-  background-color: var(--color-white);
-  border-color: var(--color-white);
+  background-color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
 }
 
 .checkbox-custom:checked::after {
@@ -1115,7 +1144,7 @@ button, input, select, textarea {
 .budget-progress-bar {
   height: 100%;
   width: 0%;
-  background-color: var(--color-white);
+  background-color: var(--accent-cyan);
   border-radius: var(--radius);
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1129,7 +1158,7 @@ button, input, select, textarea {
 }
 
 #expense-budget-percent {
-  color: var(--color-white);
+  color: var(--accent-cyan);
   font-family: var(--font-family-mono);
 }
 
@@ -1161,9 +1190,9 @@ button, input, select, textarea {
 }
 
 .badge-accent {
-  background-color: transparent;
-  color: var(--color-white);
-  border: 1px solid var(--border-matte);
+  background-color: var(--accent-cyan-faint);
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan);
 }
 
 /* AI Scan drag and drop zone */
@@ -1183,6 +1212,7 @@ button, input, select, textarea {
 
 .dropzone:hover, .dropzone.dragover {
   border-color: var(--border-focus);
+  background-color: var(--accent-cyan-faint);
 }
 
 .dropzone-content {
@@ -1203,7 +1233,7 @@ button, input, select, textarea {
 }
 
 .text-highlight {
-  color: var(--color-white);
+  color: var(--accent-cyan);
   text-decoration: underline;
 }
 
@@ -1227,8 +1257,8 @@ button, input, select, textarea {
 .spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: var(--color-white);
+  border: 2px solid var(--accent-cyan-dim);
+  border-top-color: var(--accent-cyan);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1286,6 +1316,26 @@ button, input, select, textarea {
   color: var(--text-secondary);
 }
 
+.source-web {
+  color: var(--accent-pink);
+}
+
+.source-manual {
+  color: var(--accent-cyan);
+}
+
+.source-discord {
+  color: var(--accent-lavender);
+}
+
+a:not(.menu-item):not(.btn) {
+  color: var(--accent-lavender);
+}
+
+a:not(.menu-item):not(.btn):hover {
+  color: var(--accent-cyan);
+}
+
 .expense-amount-val {
   font-family: var(--font-family-mono);
   font-weight: 700;
@@ -1330,9 +1380,13 @@ button, input, select, textarea {
 
 /* Warnings */
 .alert-box {
-  border-left: 3px solid var(--color-zinc-muted);
+  border-left: 3px solid var(--accent-yellow);
   background-color: var(--bg-primary);
   margin-top: 24px;
+}
+
+.alert-icon-symbol {
+  color: var(--accent-yellow) !important;
 }
 
 .alert-header {
@@ -1913,6 +1967,16 @@ button, input, select, textarea {
   --ba-yellow:   #FFD966;  /* 警告/注意 */
   --ba-yellow-dim: rgba(255, 217, 102, 0.15);
 
+  --accent-cyan: var(--ba-cyan);
+  --accent-cyan-hover: var(--ba-cyan-hover);
+  --accent-cyan-dim: var(--ba-cyan-dim);
+  --accent-cyan-faint: var(--ba-cyan-faint);
+  --accent-pink: var(--ba-pink);
+  --accent-pink-dim: var(--ba-pink-dim);
+  --accent-lavender: var(--ba-lavender);
+  --accent-yellow: var(--ba-yellow);
+  --accent-yellow-dim: var(--ba-yellow-dim);
+
   /* 背景 — 公式ゲーム画面に近い色 */
   --bg-primary:       #FBFCFF; /* ほぼ白・微青みがかった main content */
   --bg-secondary:     #F2F7F8; /* MomoTalkソース sidebar 値そのまま */
@@ -2209,7 +2273,7 @@ button, input, select, textarea {
 }
 
 .theme-option.active {
-  border-color: var(--color-white);
+  border-color: var(--accent-cyan);
   color: var(--text-primary);
 }
 
