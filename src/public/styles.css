@@ -168,6 +168,9 @@ button, input, select, textarea {
   border-radius: var(--radius);
   padding: 24px;
   transition: var(--transition-smooth);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .hover-lift:hover {
@@ -538,11 +541,16 @@ button, input, select, textarea {
   position: relative;
   width: 80px;
   height: 80px;
+  flex-shrink: 0;
 }
 
 .avatar-svg {
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  aspect-ratio: 1 / 1;
 }
 
 .avatar-badge {
@@ -939,12 +947,16 @@ button, input, select, textarea {
   border: 1px solid var(--border-matte);
   border-radius: var(--radius);
   padding: 16px 20px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .card-content-left {
   display: flex;
   align-items: flex-start;
   gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .checkbox-custom {
@@ -979,6 +991,9 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
 }
 
 .card-title {
@@ -1535,26 +1550,47 @@ button, input, select, textarea {
   .top-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 16px;
+    gap: 12px;
     border-bottom: 1px solid var(--border-matte);
     padding-bottom: 16px;
   }
 
+  .header-title {
+    min-width: 0;
+  }
+
   .header-controls {
+    flex-direction: row;
     flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 10px;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
     width: 100%;
   }
 
   .profile-switch {
-    flex-grow: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     justify-content: space-between;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .profile-switch label {
+    flex-shrink: 0;
+  }
+
+  .user-select-dropdown {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 0;
   }
 
   #btn-logout {
     padding: 8px 12px;
     font-size: 0.8rem;
+    flex: 0 0 auto;
+    width: auto;
   }
 
   /* Layout Grids Stacking to 1 Column */
@@ -1592,9 +1628,15 @@ button, input, select, textarea {
 
   .welcome-card {
     flex-direction: column;
+    align-items: center;
     text-align: center;
     gap: 14px;
     padding: 16px;
+  }
+
+  .speech-bubble-container {
+    width: 100%;
+    min-width: 0;
   }
 
   .speech-bubble::before {
@@ -1696,26 +1738,7 @@ button, input, select, textarea {
     gap: 8px;
   }
 
-  /* Profile switch & header controls - allow shrink */
-  .header-controls {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .profile-switch {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .user-select-dropdown {
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  #btn-logout {
-    width: 100%;
-  }
+  /* Profile switch & header controls - allow shrink (handled above) */
 
   /* Modal padding/width adjustments */
   .modal {
@@ -1769,6 +1792,37 @@ button, input, select, textarea {
 
   .column-header h3 {
     font-size: 0.88rem;
+  }
+}
+
+/* 360px 以下: ボトムナビはアイコンのみ・ラベル非表示でナビ高さを抑える */
+@media (max-width: 360px) {
+  .menu-text {
+    display: none;
+  }
+
+  .menu-item {
+    padding: 8px 4px;
+  }
+
+  .sidebar {
+    height: 54px;
+  }
+
+  .main-content {
+    padding: 16px 10px 74px 10px;
+  }
+
+  .login-card {
+    padding: 28px 20px;
+  }
+
+  .header-title h2 {
+    font-size: 1.1rem;
+  }
+
+  .header-title p {
+    font-size: 0.7rem;
   }
 }
 
