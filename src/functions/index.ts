@@ -309,6 +309,17 @@ export const functionDeclarations: FunctionDeclaration[] = [
       required: ["url"],
     },
   },
+  {
+    name: "searchWeb",
+    description: "インターネットでキーワード検索を行い、関連するウェブページのタイトル、URL、説明（スニペット）の一覧を取得します。現在の天気、最新ニュース、事実確認など、リアルタイムの情報を取得する最初のステップとして非常に有効です。必要に応じて、得られたURLから fetchDynamicPage を使って詳細なページ情報をさらに取得・巡回（クロール）し、複数回検索や巡回を繰り返して情報を比較精査することを推奨します。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: { type: SchemaType.STRING, description: "検索に入力するキーワード（例: '東京 明日の天気', 'ブルーアーカイブ 最新ニュース'）" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 
@@ -389,6 +400,8 @@ export async function dispatchFunction(
       return await browserFn.fetchDynamicPage(userId, args as Parameters<typeof browserFn.fetchDynamicPage>[1]);
     case "takePageScreenshot":
       return await browserFn.takePageScreenshot(userId, args as Parameters<typeof browserFn.takePageScreenshot>[1]);
+    case "searchWeb":
+      return await browserFn.searchWeb(userId, args as Parameters<typeof browserFn.searchWeb>[1]);
 
     default:
       return JSON.stringify({ success: false, message: `不明な関数: ${functionName}` });
