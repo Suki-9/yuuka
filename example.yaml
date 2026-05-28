@@ -1,0 +1,67 @@
+# ==============================================================================
+# Yuuka Hayase - Discord Gemini Secretary Bot Configuration Template
+# ==============================================================================
+# このファイルを "config.yaml" にコピーし、必要な設定項目を入力してください。
+# config.yaml はセキュリティ上の理由から、絶対にGit等にコミットしないでください。
+
+# Discord Bot Token
+# Discord Developer Portal (https://discord.com/developers/applications) で取得
+DISCORD_TOKEN: "YOUR_DISCORD_BOT_TOKEN"
+
+# Gemini API Key
+# Google AI Studio (https://aistudio.google.com/apikey) で取得
+GEMINI_API_KEY: "YOUR_GEMINI_API_KEY"
+
+# Gemini モデル名 (デフォルト: gemini-3.1-flash-lite)
+# 例: gemini-2.5-pro-preview-06-05, gemini-2.5-flash-preview-05-20, gemini-2.0-flash, gemini-1.5-pro
+GEMINI_MODEL: "gemini-3.1-flash-lite"
+
+# Discord Guild ID (テスト用サーバーのID)
+# サーバーを右クリック → 「IDをコピー」で取得
+GUILD_ID: "YOUR_DISCORD_GUILD_ID"
+
+# データベースファイルの保存パス
+DB_PATH: "./data/yuuka.db"
+
+# リマインダーをチェックする間隔 (cron式、デフォルトは毎分)
+REMINDER_CRON: "* * * * *"
+
+# ==============================================================================
+# Googleカレンダー連携設定 (オプション)
+# ==============================================================================
+# 同期させたいプライマリGoogleカレンダーのID (通常は自身のメールアドレス)
+GOOGLE_CALENDAR_ID: "your-email@gmail.com"
+
+# 外部カレンダー同期ID一覧 (YAML配列形式)
+GOOGLE_CALENDARS:
+  - "your-email@gmail.com"
+  - "another-group-calendar@group.calendar.google.com"
+
+# --- [認証方法 A: サービスアカウント方式（推奨）] ---
+# Google Cloud Console でサービスアカウントを作成し、カレンダーAPIを有効化して認証キーをJSONで取得
+GOOGLE_SERVICE_ACCOUNT_EMAIL: "your-service-account@your-project.iam.gserviceaccount.com"
+GOOGLE_PRIVATE_KEY: |
+  -----BEGIN PRIVATE KEY-----
+  YOUR_PRIVATE_KEY_HERE_LINE_1
+  YOUR_PRIVATE_KEY_HERE_LINE_2
+  -----END PRIVATE KEY-----
+
+# --- [認証方法 B: OAuth2方式（オプション）] ---
+# ユーザー承認フローを使用してトークンを取得する場合のみ指定
+GOOGLE_CLIENT_ID: ""
+GOOGLE_CLIENT_SECRET: ""
+GOOGLE_REFRESH_TOKEN: ""
+
+# ==============================================================================
+# 管理画面用セキュア設定 (Dashboard Settings)
+# ==============================================================================
+# 管理画面（ブラウザ）にログインするための安全なアクセスパスコード
+ADMIN_TOKEN: "yuuka-seminar-2026"
+
+# 管理画面サーバーがリスンするポート
+PORT: 7854
+
+# 管理画面サーバーがバインドするホスト名
+# セキュリティ確保のため、デフォルトではローカルからの接続のみ許可します (127.0.0.1)
+# 外部公開やリバースプロキシを介する場合は必要に応じて "0.0.0.0" 等に変更してください
+HOST: "127.0.0.1"

@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seminar Accounting - 早瀬ユウカの管理室</title>
+  <!-- Google Fonts for Modern & Matte Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Google Material Symbols (Outlined version matches shadcn/ui aesthetic perfectly) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ==========================================
+       LOGIN VIEW (Matte dark overlay)
+       ========================================== -->
+  <div id="login-overlay" class="overlay active">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="logo-icon-container">
+          <span class="material-symbols-outlined icon-display-large">calculate</span>
+        </div>
+        <h1>SEMINAR ACCOUNTING</h1>
+        <p>ミレニアムサイエンススクール 生徒会セミナー会計室</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="passcode">先生、アクセスパスコードを入力してください：</label>
+          <input type="password" id="passcode" required placeholder="••••••••••••" autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">アクセスを承認する</button>
+      </form>
+      <div id="login-error" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MAIN APP VIEW
+       ========================================== -->
+  <div id="app-container" class="hidden">
+    
+    <!-- Sidebar Navigation (Desktop: Left, Mobile: Bottom Bar) -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="material-symbols-outlined brand-icon-symbol">calculate</span>
+        <span class="brand-text">SEMINAR</span>
+      </div>
+
+      <nav class="sidebar-menu">
+        <a href="#dashboard" class="menu-item active" data-tab="dashboard">
+          <span class="material-symbols-outlined menu-icon-symbol">dashboard</span> <span class="menu-text">ダッシュボード</span>
+        </a>
+        <a href="#tasks" class="menu-item" data-tab="tasks">
+          <span class="material-symbols-outlined menu-icon-symbol">checklist</span> <span class="menu-text">タスク管理</span>
+        </a>
+        <a href="#schedules" class="menu-item" data-tab="schedules">
+          <span class="material-symbols-outlined menu-icon-symbol">calendar_today</span> <span class="menu-text">予定スケジュール</span>
+        </a>
+        <a href="#expenses" class="menu-item" data-tab="expenses">
+          <span class="material-symbols-outlined menu-icon-symbol">payments</span> <span class="menu-text">家計管理</span>
+        </a>
+        <a href="#config" class="menu-item" data-tab="config">
+          <span class="material-symbols-outlined menu-icon-symbol">settings</span> <span class="menu-text">システム設定</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Top Header (Desktop: Row, Mobile: Stacking Column) -->
+      <header class="top-header">
+        <div class="header-title">
+          <h2 id="current-tab-title">ダッシュボード</h2>
+          <p id="header-subtitle">ミレニアムの計算機、冷徹な算術師が先生をサポートします。</p>
+        </div>
+        
+        <!-- Interactive Controls (Switch Profiles & Logout) -->
+        <div class="header-controls">
+          <div class="profile-switch">
+            <label for="user-select">先生のID:</label>
+            <select id="user-select" class="user-select-dropdown">
+              <!-- Populated dynamically -->
+            </select>
+            <button id="btn-add-profile" class="btn-icon" title="新規ユーザープロファイル追加">
+              <span class="material-symbols-outlined icon-small">person_add</span>
+            </button>
+          </div>
+          <button id="btn-logout" class="btn btn-secondary btn-sm" title="ログアウト">
+            <span class="material-symbols-outlined icon-button-left">logout</span> ログアウト
+          </button>
+        </div>
+      </header>
+
+      <!-- Content Views -->
+      <div class="content-view-container">
+
+        <!-- ==========================================
+             1. DASHBOARD VIEW
+             ========================================== -->
+        <section id="tab-dashboard" class="tab-view active">
+          
+          <!-- Welcome Row with Yuuka speech bubble (Matte Card) -->
+          <div class="welcome-card card">
+            <div class="assistant-avatar-container">
+              <svg class="avatar-svg" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="48" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+                <!-- Hair (Millennium navy-blue style) -->
+                <path d="M20 50 C20 20, 80 20, 80 50 C80 65, 75 75, 70 85 C65 80, 60 70, 50 70 C40 70, 35 80, 30 85 C25 75, 20 65, 20 50 Z" fill="#27272a"/>
+                <path d="M30 30 Q50 15 70 30 Q50 35 30 30" fill="#18181b"/>
+                <!-- Face -->
+                <ellipse cx="50" cy="52" rx="25" ry="22" fill="#f4f4f5"/>
+                <!-- Twin tails -->
+                <path d="M18 35 Q10 40 8 55 Q13 60 20 45" fill="#27272a"/>
+                <path d="M82 35 Q90 40 92 55 Q87 60 80 45" fill="#27272a"/>
+                <!-- Millennium Hair clips -->
+                <rect x="22" y="32" width="6" height="8" rx="1.5" fill="#a1a1aa"/>
+                <rect x="72" y="32" width="6" height="8" rx="1.5" fill="#a1a1aa"/>
+                <!-- Eyes -->
+                <ellipse cx="42" cy="50" rx="3" ry="5" fill="#27272a"/>
+                <circle cx="41" cy="48" r="1" fill="#fff"/>
+                <ellipse cx="58" cy="50" rx="3" ry="5" fill="#27272a"/>
+                <circle cx="57" cy="48" r="1" fill="#fff"/>
+                <!-- Mouth -->
+                <path d="M48 58 Q50 60 52 58" stroke="#27272a" stroke-width="1.5" fill="none"/>
+              </svg>
+              <div class="avatar-badge">セミナー</div>
+            </div>
+            
+            <div class="speech-bubble-container">
+              <div class="character-name">早瀬ユウカ</div>
+              <div class="speech-bubble">
+                <p id="yuuka-bubble-text">ロード中...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Price Ticker Stats Cards Grid (Chic Matte Style) -->
+          <div class="stats-grid">
+            
+            <!-- Card 1: Tasks -->
+            <div class="stat-card card">
+              <div class="stat-card-badge-trend" id="stat-tasks-badge-trend">ACTIVE</div>
+              <div class="stat-card-header">
+                <span class="stat-label">ACTIVE TASKS</span>
+              </div>
+              <div class="stat-value" id="stat-pending-tasks">0</div>
+              <div class="stat-sparkline" id="tasks-priority-bar-chart" style="display: flex; align-items: flex-end; gap: 8px; height: 28px; margin-bottom: 8px;">
+                <!-- Dynamically generated mini bar chart representing priorities -->
+              </div>
+              <div class="stat-footer-text">後で困らないよう、早めに処理を！</div>
+            </div>
+
+            <!-- Card 2: Schedules -->
+            <div class="stat-card card">
+              <div class="stat-card-badge-trend" id="stat-schedules-badge-trend">7 DAYS</div>
+              <div class="stat-card-header">
+                <span class="stat-label">UPCOMING EVENTS</span>
+              </div>
+              <div class="stat-value" id="stat-upcoming-schedules">0</div>
+              <div class="stat-sparkline">
+                <svg class="sparkline-svg" viewBox="0 0 100 20">
+                  <path id="schedules-sparkline-path" d="" fill="none" stroke="#e4e4e7" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <div class="stat-footer-text">時間は有限です。計画的な予定を。</div>
+            </div>
+
+            <!-- Card 3: Expenses -->
+            <div class="stat-card card">
+              <div class="stat-card-badge-trend" id="expense-trend-badge">30 DAYS</div>
+              <div class="stat-card-header">
+                <span class="stat-label">SEMINAR BUDGET</span>
+              </div>
+              <div class="stat-value" id="stat-expenses-total">¥0</div>
+              <div class="stat-sparkline">
+                <svg class="sparkline-svg" viewBox="0 0 100 20">
+                  <path id="expenses-sparkline-path" d="" fill="none" stroke="#fafafa" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <div class="stat-footer-text">計算の狂いは、即ち家計の乱れです！</div>
+            </div>
+
+          </div>
+
+          <!-- Dashboard Charts / High-tech Analytical Columns -->
+          <div class="dashboard-columns">
+            
+            <!-- Cryptographic Price Chart Style Line Chart (Matte Style) -->
+            <div class="dashboard-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">trending_up</span>経費支出推移 (財務チャート)</h3>
+                <span class="hud-tag">LIVE</span>
+              </div>
+              <div class="chart-main-wrapper">
+                <div class="chart-y-axis">
+                  <span>50k</span>
+                  <span>30k</span>
+                  <span>10k</span>
+                  <span>0k</span>
+                </div>
+                <div class="chart-body">
+                  <svg id="dashboard-trend-chart" class="trend-chart-svg" viewBox="0 0 400 150">
+                    <!-- Grid Lines -->
+                    <line x1="0" y1="20" x2="400" y2="20" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
+                    <line x1="0" y1="60" x2="400" y2="60" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
+                    <line x1="0" y1="100" x2="400" y2="100" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
+                    <line x1="0" y1="130" x2="400" y2="130" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
+                    
+                    <!-- Matte solid lines with no gradient area -->
+                    <path id="trend-area-path" d="M0,130 L80,120 L160,110 L240,90 L320,60 L400,120 L400,130 Z" fill="transparent"/>
+                    <path id="trend-line-path" d="M0,130 L80,120 L160,110 L240,90 L320,60 L400,120" fill="none" stroke="#fafafa" stroke-width="2.2" stroke-linecap="round"/>
+                    
+                    <!-- Solid white dots with dark outline -->
+                    <circle cx="80" cy="120" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
+                    <circle cx="160" cy="110" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
+                    <circle cx="240" cy="90" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
+                    <circle cx="320" cy="60" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
+                  </svg>
+                  <div class="chart-x-axis">
+                    <span>5日前</span>
+                    <span>昨日</span>
+                    <span>今日</span>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-sub-details">
+                <div class="detail-item">
+                  <span class="det-label">最大単発支出</span>
+                  <span class="det-value" id="dashboard-highest-expense">¥0</span>
+                </div>
+                <div class="detail-item">
+                  <span class="det-label">主要カテゴリ</span>
+                  <span class="det-value" id="dashboard-highest-category">なし</span>
+                </div>
+                <div class="detail-item">
+                  <span class="det-label">日次平均</span>
+                  <span class="det-value" id="dashboard-average-expense">¥0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Category Breakdown with Matte Rings -->
+            <div class="dashboard-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">pie_chart</span>財務カテゴリ別監査</h3>
+              </div>
+              <div class="chart-container-flex">
+                <div class="pie-chart-wrapper">
+                  <svg id="dashboard-donut-chart" class="donut-chart" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#27272a" stroke-width="9"/>
+                    <circle id="donut-segment" cx="50" cy="50" r="40" fill="transparent" stroke="#fafafa" stroke-width="9" stroke-dasharray="0 251.2" stroke-dashoffset="0" stroke-linecap="round"/>
+                  </svg>
+                  <div class="chart-center-label">
+                    <div id="chart-center-percentage">0%</div>
+                    <div class="chart-center-sub">娯楽比率</div>
+                  </div>
+                </div>
+                <div class="chart-legend" id="dashboard-category-legend">
+                  <!-- Generated dynamically -->
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Urgent Schedules & ToDos HUD Column -->
+          <div class="full-width-urgent-row card">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">bolt</span>今日の緊急予定 ＆ 滞留タスク</h3>
+              <span class="hud-pulse-dot"></span>
+            </div>
+            <div class="dashboard-list" id="dashboard-urgent-list">
+              <!-- Generated dynamically -->
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ==========================================
+             2. TASKS VIEW
+             ========================================== -->
+        <section id="tab-tasks" class="tab-view">
+          <div class="view-actions-card card">
+            <div class="filters-group">
+              <button class="btn btn-filter active" data-filter="all">全て</button>
+              <button class="btn btn-filter" data-filter="pending">未完了</button>
+              <button class="btn btn-filter" data-filter="done">完了済み</button>
+            </div>
+            <button id="btn-new-task" class="btn btn-primary">＋ タスク追加</button>
+          </div>
+          
+          <div class="list-container" id="tasks-list">
+            <!-- Generated dynamically -->
+          </div>
+        </section>
+
+        <!-- ==========================================
+             3. SCHEDULES VIEW
+             ========================================== -->
+        <section id="tab-schedules" class="tab-view">
+          <div class="view-actions-card card">
+            <div class="filters-group">
+              <span class="label-text">表示期間:</span>
+              <button class="btn btn-filter active" data-days="7">直近7日間</button>
+              <button class="btn btn-filter" data-days="30">直近30日間</button>
+            </div>
+            <button id="btn-new-schedule" class="btn btn-primary">＋ 予定追加</button>
+          </div>
+
+          <div class="list-container" id="schedules-list">
+            <!-- Generated dynamically -->
+          </div>
+        </section>
+
+        <!-- ==========================================
+             4. EXPENSES VIEW
+             ========================================== -->
+        <section id="tab-expenses" class="tab-view">
+          <!-- Header and Overview Stats for Expenses (Trading Hud Style) -->
+          <div class="expense-hud-grid">
+            <div class="hud-card card">
+              <p>当月支出合計</p>
+              <h2 id="expense-month-total">¥0</h2>
+              <div class="hud-card-sub">先週比 -8.3%</div>
+            </div>
+            <!-- Dynamic Category Progress Bar -->
+            <div class="hud-card card col-span-2">
+              <p>カテゴリー別上限進捗 (目標上限: ¥50,000)</p>
+              <div class="budget-progress-container">
+                <div class="budget-progress-bar" id="expense-budget-bar"></div>
+              </div>
+              <div class="budget-info">
+                <span id="expense-budget-percent">0%</span>
+                <span id="expense-budget-status">健全な支出状況です！</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions: receipt dropzone & manual add -->
+          <div class="expense-actions-columns">
+            
+            <!-- Receipt Scanning Card -->
+            <div class="action-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">document_scanner</span>AIレシートスキャナー</h3>
+                <span class="badge badge-accent">Gemini連携</span>
+              </div>
+              <p class="description-text">レシート画像をドラッグ＆ドロップするか、ファイルを選択してください。ユウカが自動的に分類・登録を行います。</p>
+              
+              <!-- Drag and drop zone -->
+              <div id="receipt-dropzone" class="dropzone">
+                <div class="dropzone-content">
+                  <span class="material-symbols-outlined dropzone-icon-symbol">cloud_upload</span>
+                  <p>画像をドロップ、または<span class="text-highlight">ブラウズ</span></p>
+                  <span class="dropzone-sub">PNG, JPEG / 最大 5MB</span>
+                  <input type="file" id="receipt-file-input" accept="image/*" class="hidden">
+                </div>
+              </div>
+
+              <!-- Scanning status / Result preview -->
+              <div id="scan-status" class="scan-status-box hidden">
+                <div class="spinner"></div>
+                <p id="scan-status-text">画像を解析中...</p>
+              </div>
+            </div>
+
+            <!-- Manual Adding Card -->
+            <div class="action-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">edit_document</span>支出を手動で記録</h3>
+              </div>
+              <form id="expense-form">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="exp-amount">金額 (円) *</label>
+                    <input type="number" id="exp-amount" required placeholder="1200">
+                  </div>
+                  <div class="form-group">
+                    <label for="exp-category">カテゴリー *</label>
+                    <select id="exp-category" required>
+                      <option value="食費">食費</option>
+                      <option value="日用品">日用品</option>
+                      <option value="交通費">交通費</option>
+                      <option value="光熱費">光熱費</option>
+                      <option value="通信費">通信費</option>
+                      <option value="医療費">医療費</option>
+                      <option value="娯楽">娯楽</option>
+                      <option value="衣服">衣服</option>
+                      <option value="その他">その他</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="exp-description">メモ・用途</label>
+                  <input type="text" id="exp-description" placeholder="昼食代、書籍代など">
+                </div>
+                <div class="form-group">
+                  <label for="exp-date">日付</label>
+                  <input type="date" id="exp-date">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">経費登録</button>
+              </form>
+            </div>
+
+          </div>
+
+          <!-- Recent Expenses List Table -->
+          <div class="expense-table-card card">
+            <div class="column-header">
+              <h3>直近の支出履歴 (30件)</h3>
+              <span class="hud-tag">LEDGER</span>
+            </div>
+            <div class="table-responsive">
+              <table class="expense-table">
+                <thead>
+                  <tr>
+                    <th>日付</th>
+                    <th>カテゴリー</th>
+                    <th>メモ/詳細</th>
+                    <th>登録元</th>
+                    <th>金額</th>
+                  </tr>
+                </thead>
+                <tbody id="expenses-table-body">
+                  <!-- Generated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ==========================================
+             5. CONFIG VIEW
+             ========================================== -->
+        <section id="tab-config" class="tab-view">
+          <div class="config-card card">
+            <div class="column-header">
+              <h3>システム構成ステータス (`config.yaml`)</h3>
+            </div>
+            <p class="description-text">現在ロードされているサーバー設定です。機密情報は自動的に安全にマスクされています。</p>
+            
+            <div class="config-items-grid" id="config-settings-grid">
+              <!-- Generated dynamically -->
+            </div>
+          </div>
+
+          <!-- Google Calendars Management Card (Matte Flat Style) -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">calendar_today</span>Google連携カレンダー管理</h3>
+            </div>
+            <p class="description-text">同期対象のGoogleカレンダーIDを追加または削除できます。変更内容は `config.yaml` に即時反映されます。</p>
+            
+            <!-- Calendar IDs List -->
+            <div id="config-calendars-list" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; margin-bottom: 20px;">
+              <!-- Generated dynamically -->
+            </div>
+            
+            <!-- Add Calendar Form -->
+            <form id="config-calendar-form" style="display: flex; gap: 12px; margin-top: 16px;">
+              <input type="text" id="config-new-calendar-id" required placeholder="example@group.calendar.google.com" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">追加</button>
+            </form>
+          </div>
+
+          <div class="config-card card alert-box">
+            <div class="alert-header">
+              <span class="material-symbols-outlined alert-icon-symbol">warning</span>
+              <h4>会計管理人よりお知らせ</h4>
+            </div>
+            <p>設定ファイルを直接編集する場合は、ボットプロセスを再起動する必要があります。設定内容はMillennium生徒会セミナー局の監査対象となりますので、計画的かつ慎重に変更を行ってください。</p>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ==========================================
+       MODALS DIALOGS
+       ========================================== -->
+  
+  <!-- Add Profile Modal -->
+  <div id="modal-profile" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>新規プロファイルの追加</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="profile-form">
+        <div class="form-group">
+          <label for="profile-user-id">Discord ユーザーID：</label>
+          <input type="text" id="profile-user-id" required placeholder="例: 123456789012345678">
+          <span class="field-sub">※Discord上でユーザーを右クリックし、「IDをコピー」で取得できます。</span>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">追加</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Task Modal -->
+  <div id="modal-task" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>新規タスクの追加</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="task-form">
+        <div class="form-group">
+          <label for="task-title">タイトル *</label>
+          <input type="text" id="task-title" required placeholder="タスク of Seminar">
+        </div>
+        <div class="form-group">
+          <label for="task-description">詳細説明</label>
+          <textarea id="task-description" placeholder="タスクのメモ書き"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-due">期限日</label>
+            <input type="date" id="task-due">
+          </div>
+          <div class="form-group">
+            <label for="task-priority">優先度</label>
+            <select id="task-priority">
+              <option value="0">低</option>
+              <option value="1">中</option>
+              <option value="2">高</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">タスク登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Schedule Modal -->
+  <div id="modal-schedule" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>新規予定の登録</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="schedule-form">
+        <div class="form-group">
+          <label for="sched-title">タイトル *</label>
+          <input type="text" id="sched-title" required placeholder="予定の件名">
+        </div>
+        <div class="form-group">
+          <label for="sched-description">予定詳細</label>
+          <textarea id="sched-description" placeholder="予定のメモ"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="sched-start">開始日時 *</label>
+            <input type="datetime-local" id="sched-start" required>
+          </div>
+          <div class="form-group">
+            <label for="sched-end">終了日時</label>
+            <input type="datetime-local" id="sched-end">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="sched-remind">何分前にリマインドするか</label>
+          <input type="number" id="sched-remind" value="30" placeholder="30">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">予定登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- AI Receipt Result Modal -->
+  <div id="modal-receipt-result" class="modal">
+    <div class="modal-content card wide-modal">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">analytics</span>AI解析結果の報告</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="receipt-result-body">
+        <div class="receipt-result-icon-container">
+          <span class="material-symbols-outlined icon-display-large">analytics</span>
+        </div>
+        <h4>早瀬ユウカの監査結果：</h4>
+        <div class="receipt-ai-comment" id="receipt-ai-response">
+          <!-- Text response from Gemini -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary btn-close-modal">確認しました</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,342 @@
+import { google } from "googleapis";
+import { config } from "../config.js";
+import * as scheduleRepo from "../db/scheduleRepo.js";
+
+/**
+ * Google Calendar API クライアントを取得
+ */
+function getCalendarClient() {
+  if (!config.googleCalendarId) {
+    return null;
+  }
+
+  try {
+    // 方式 A: サービスアカウント
+    if (config.googleServiceAccountEmail && config.googlePrivateKey) {
+      const auth = new google.auth.JWT(
+        config.googleServiceAccountEmail,
+        undefined,
+        config.googlePrivateKey,
+        ["https://www.googleapis.com/auth/calendar"]
+      );
+      return google.calendar({ version: "v3", auth });
+    }
+
+    // 方式 B: OAuth2
+    if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
+      const auth = new google.auth.OAuth2(
+        config.googleClientId,
+        config.googleClientSecret
+      );
+      auth.setCredentials({
+        refresh_token: config.googleRefreshToken,
+      });
+      return google.calendar({ version: "v3", auth });
+    }
+  } catch (error) {
+    console.error("Google Calendar 認証クライアントの初期化に失敗しました:", error);
+  }
+
+  return null;
+}
+
+/**
+ * Googleカレンダー連携が有効かどうかを判定
+ */
+export function isCalendarEnabled(): boolean {
+  return !!config.googleCalendarId && getCalendarClient() !== null;
+}
+
+/**
+ * 利用可能なカレンダーの一覧をGoogle APIから取得する
+ */
+export async function fetchAvailableCalendars(): Promise<{ id: string; summary: string }[]> {
+  const calendar = getCalendarClient();
+  if (!calendar) return [];
+
+  // 1. config.yaml に GOOGLE_CALENDARS が指定されている場合はそちらを最優先
+  const envCalendarIds = config.googleCalendars || [];
+
+  if (envCalendarIds.length > 0) {
+    const list: { id: string; summary: string }[] = [];
+    for (const id of envCalendarIds) {
+      try {
+        const response = await calendar.calendars.get({ calendarId: id });
+        if (response.data.summary) {
+          list.push({ id, summary: response.data.summary });
+        }
+      } catch (err) {
+        console.error(`カレンダー情報取得失敗 (${id}):`, err);
+        // 取得に失敗してもIDと最低限の仮名を設定しておく
+        list.push({ id, summary: id === config.googleCalendarId ? "メインカレンダー" : `カレンダー (${id})` });
+      }
+    }
+    return list;
+  }
+
+  // 2. 指定がない場合は calendarList.list をフォールバックとして試行
+  try {
+    const response = await calendar.calendarList.list({
+      minAccessRole: "writer", // 書き込み権限があるもののみ（予定の追加・削除用）
+    });
+    
+    const list = (response.data.items || [])
+      .filter((item) => item.id && item.summary)
+      .map((item) => ({
+        id: item.id!,
+        summary: item.summary!,
+      }));
+
+    // デフォルトカレンダーが入っていなければ追加
+    if (config.googleCalendarId && !list.some(item => item.id === config.googleCalendarId)) {
+      try {
+        const primaryRes = await calendar.calendars.get({ calendarId: config.googleCalendarId });
+        list.unshift({ id: config.googleCalendarId, summary: primaryRes.data.summary || "デフォルトカレンダー" });
+      } catch {
+        list.unshift({ id: config.googleCalendarId, summary: "デフォルトカレンダー" });
+      }
+    }
+    return list;
+  } catch (error) {
+    console.error("カレンダー一覧の取得に失敗しました:", error);
+    // 失敗した場合は最低限、デフォルトのカレンダー情報を返す
+    if (config.googleCalendarId) {
+      return [{ id: config.googleCalendarId, summary: "デフォルトカレンダー" }];
+    }
+    return [];
+  }
+}
+
+let cachedCalendars: { id: string; summary: string }[] = [];
+let lastFetchedTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5分キャッシュ
+
+/**
+ * キャッシュ付きで利用可能なカレンダーの一覧を返す
+ */
+export async function getCachedCalendars(): Promise<{ id: string; summary: string }[]> {
+  const now = Date.now();
+  if (cachedCalendars.length === 0 || now - lastFetchedTime > CACHE_TTL) {
+    cachedCalendars = await fetchAvailableCalendars();
+    lastFetchedTime = now;
+  }
+  return cachedCalendars;
+}
+
+/**
+ * ISO 8601日時文字列をローカル日時形式（YYYY-MM-DD HH:mm:ss）に変換
+ */
+function formatToLocalString(isoOrDateStr: string): string {
+  const d = new Date(isoOrDateStr);
+  if (isNaN(d.getTime())) {
+    throw new Error(`不正な日付フォーマットです: ${isoOrDateStr}`);
+  }
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const date = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  const seconds = pad(d.getSeconds());
+  return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+}
+
+/**
+ * ローカルの日時文字列（YYYY-MM-DD HH:mm:ss）を ISO 8601形式に変換
+ */
+function formatToISOString(localStr: string): string {
+  const d = new Date(localStr.replace(" ", "T"));
+  return d.toISOString();
+}
+
+/**
+ * Googleカレンダーにイベントを作成
+ */
+export async function createCalendarEvent(
+  title: string,
+  startAt: string,
+  endAt?: string,
+  description?: string,
+  calendarId?: string
+): Promise<{ eventId: string; calendarId: string } | null> {
+  const calendar = getCalendarClient();
+  if (!calendar) return null;
+
+  try {
+    const isoStart = formatToISOString(startAt);
+    // 終了時刻がない場合は開始から1時間後を設定
+    const isoEnd = endAt 
+      ? formatToISOString(endAt) 
+      : new Date(new Date(isoStart).getTime() + 60 * 60 * 1000).toISOString();
+
+    const targetCalendarId = calendarId || config.googleCalendarId;
+
+    const response = await calendar.events.insert({
+      calendarId: targetCalendarId,
+      requestBody: {
+        summary: title,
+        description: description || "",
+        start: {
+          dateTime: isoStart,
+        },
+        end: {
+          dateTime: isoEnd,
+        },
+      },
+    });
+
+    if (response.data.id) {
+      return {
+        eventId: response.data.id,
+        calendarId: targetCalendarId,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Googleカレンダーのイベント作成に失敗しました:", error);
+    return null;
+  }
+}
+
+/**
+ * Googleカレンダーのイベントを削除
+ */
+export async function deleteCalendarEvent(eventId: string, calendarId?: string): Promise<boolean> {
+  const calendar = getCalendarClient();
+  if (!calendar) return false;
+
+  try {
+    const targetCalendarId = calendarId || config.googleCalendarId;
+    await calendar.events.delete({
+      calendarId: targetCalendarId,
+      eventId: eventId,
+    });
+    return true;
+  } catch (error: any) {
+    if (error.status === 404) {
+      return true;
+    }
+    console.error(`Googleカレンダーのイベント削除に失敗しました (EventID: ${eventId}, CalendarID: ${calendarId}):`, error);
+    return false;
+  }
+}
+
+/**
+ * すべての利用可能カレンダーとローカルDBの双方向同期を実行する
+ */
+export async function syncGoogleCalendarToLocal(
+  userId: string,
+  daysWindow: number = 30
+): Promise<void> {
+  const calendar = getCalendarClient();
+  if (!calendar) return;
+
+  try {
+    const calendars = await getCachedCalendars();
+    console.log(`🔄 Googleカレンダー同期中... (対象ユーザー: ${userId}, カレンダー数: ${calendars.length})`);
+
+    const now = new Date();
+    // 1日前から同期ウィンドウの終わりまでを取得
+    const timeMin = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const timeMax = new Date(now.getTime() + daysWindow * 24 * 60 * 60 * 1000).toISOString();
+
+    // 1. ローカルの該当期間内の「Google同期済み予定」をマップとして取得
+    const localSchedules = scheduleRepo.listAllFutureSchedulesWithGoogleId(userId);
+    const localMap = new Map<string, scheduleRepo.Schedule>();
+    for (const s of localSchedules) {
+      if (s.google_event_id) {
+        localMap.set(s.google_event_id, s);
+      }
+    }
+
+    // 2. 各カレンダーから最新のイベントをフェッチしてマージ
+    for (const cal of calendars) {
+      try {
+        const response = await calendar.events.list({
+          calendarId: cal.id,
+          timeMin: timeMin,
+          timeMax: timeMax,
+          singleEvents: true,
+          orderBy: "startTime",
+        });
+
+        const googleEvents = response.data.items || [];
+
+        for (const event of googleEvents) {
+          const googleEventId = event.id;
+          if (!googleEventId) continue;
+          if (event.status === "cancelled") continue;
+
+          const title = event.summary || "無題の予定";
+          const description = event.description || "";
+          
+          const startDateTime = event.start?.dateTime || event.start?.date;
+          const endDateTime = event.end?.dateTime || event.end?.date;
+          if (!startDateTime) continue;
+
+          const startAtLocal = formatToLocalString(startDateTime);
+          const endAtLocal = endDateTime ? formatToLocalString(endDateTime) : null;
+
+          const existingLocal = localMap.get(googleEventId);
+
+          if (existingLocal) {
+            // A. 既にローカルに存在する -> 差分があれば更新
+            const hasChanges = 
+              existingLocal.title !== title ||
+              existingLocal.start_at !== startAtLocal ||
+              existingLocal.end_at !== endAtLocal ||
+              existingLocal.description !== description ||
+              existingLocal.google_calendar_id !== cal.id;
+
+            if (hasChanges) {
+              scheduleRepo.updateScheduleFromGoogle(
+                existingLocal.id,
+                title,
+                startAtLocal,
+                endAtLocal,
+                description,
+                cal.id
+              );
+              console.log(`✏️ [同期] 予定更新: ${title} (${cal.summary})`);
+            }
+
+            // マップから削除して生存マークをつける
+            localMap.delete(googleEventId);
+          } else {
+            // B. ローカルに存在しない -> 新規作成、または未リンクのローカルイベントの紐付け
+            const unlinkedLocal = scheduleRepo.getScheduleByTitleAndStart(userId, title, startAtLocal);
+            
+            if (unlinkedLocal) {
+              scheduleRepo.linkGoogleEventId(unlinkedLocal.id, googleEventId, cal.id);
+              console.log(`🔗 [同期] 予定紐付け: ${title} -> ${cal.summary}`);
+            } else {
+              scheduleRepo.addSchedule(
+                userId,
+                title,
+                startAtLocal,
+                endAtLocal || undefined,
+                30,
+                description,
+                googleEventId,
+                cal.id
+              );
+              console.log(`✨ [同期] 新規登録: ${title} (${cal.summary})`);
+            }
+          }
+        }
+      } catch (calError) {
+        console.error(`カレンダー ${cal.summary} (${cal.id}) の同期中にエラーが発生しました:`, calError);
+      }
+    }
+
+    // 3. カレンダー側で削除されたため、マップに残ったローカル予定を削除
+    for (const [googleEventId, localEvent] of localMap.entries()) {
+      scheduleRepo.deleteSchedule(localEvent.id, userId);
+      console.log(`🗑️ [同期] 削除検知: ${localEvent.title}`);
+    }
+
+    console.log("✅ 全Googleカレンダーの同期完了");
+  } catch (error) {
+    console.error("Googleカレンダーの同期処理全般でエラーが発生しました:", error);
+  }
+}
