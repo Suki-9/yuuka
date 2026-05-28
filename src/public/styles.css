@@ -316,6 +316,7 @@ button, input, select, textarea {
   border: none;
   outline: none;
   transition: var(--transition-smooth);
+  white-space: nowrap;
 }
 
 .btn-block {
@@ -492,6 +493,8 @@ button, input, select, textarea {
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-weight: bold;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .user-select-dropdown {
@@ -1591,6 +1594,12 @@ button, input, select, textarea {
     font-size: 0.8rem;
     flex: 0 0 auto;
     width: auto;
+    white-space: nowrap;
+  }
+
+  /* モバイルではログアウトボタンのアイコンを非表示にしてテキストのみ */
+  #btn-logout .icon-button-left {
+    display: none;
   }
 
   /* Layout Grids Stacking to 1 Column */
