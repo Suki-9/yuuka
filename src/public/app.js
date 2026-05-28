@@ -317,7 +317,7 @@ document.addEventListener("DOMContentLoaded", () => {
           
           const isLight = currentTheme() === "blue-archive";
           const colors = isLight
-            ? ["#b8d4ec", "#6eb6ef", "#4a9ded"]
+            ? ["#B8E8F8", "#51C8E8", "#02D3FB"]  // BA: light/mid/full cyan
             : ["#71717a", "#e4e4e7", "#fafafa"]; // Low: Slate, Medium: Zinc, High: White
           const labels = ["低", "中", "高"];
 
@@ -540,8 +540,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 3. Render circular vertices and add dynamic tooltips on hover
     const isLightChart = currentTheme() === "blue-archive";
-    const dotNormal = isLightChart ? "#4a9ded" : "#fafafa";
-    const dotHover = isLightChart ? "#2e88de" : "#a1a1aa";
+    const dotNormal = isLightChart ? "#02D3FB" : "#fafafa";
+    const dotHover  = isLightChart ? "#00AED8" : "#a1a1aa";
 
     points.forEach(p => {
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");

@@ -1663,126 +1663,207 @@ button, input, select, textarea {
 
 /* ==============================================================================
    BLUE ARCHIVE LIGHT THEME
-   白ベース＋スカイブルーアクセント
+   実際のゲームUI配色を再現
+   Sources: Blue Archive Wiki (#02D3FB), MomoTalk Discord theme
+            (#F2F7F8 sidebar / #E7F0F7 header / #DDE6ED border)
    ============================================================================== */
+
+/* BA共通アクセントカラー変数 */
 [data-theme="blue-archive"] {
-  --bg-primary: #f0f6ff;
-  --bg-secondary: #e6f0fb;
-  --bg-sidebar: #ffffff;
-  --card-matte: #ffffff;
-  --card-matte-hover: #f5f9ff;
-  --border-matte: #ccdff2;
-  --border-focus: #4a9ded;
+  /* BA公式シアン (#02D3FB は wiki confirmed, #00AED8 は hover用) */
+  --ba-cyan:       #02D3FB;
+  --ba-cyan-hover: #00AED8;
+  --ba-cyan-dim:   rgba(2, 211, 251, 0.12);
+  --ba-cyan-faint: rgba(2, 211, 251, 0.06);
+
+  /* 背景 — 公式ゲーム画面に近い色 */
+  --bg-primary:       #FBFCFF; /* ほぼ白・微青みがかった main content */
+  --bg-secondary:     #F2F7F8; /* MomoTalkソース sidebar 値そのまま */
+  --bg-sidebar:       #F2F7F8; /* サイドバー */
+  --card-matte:       #FFFFFF;
+  --card-matte-hover: #F5FAFE;
+
+  /* ボーダー */
+  --border-matte: #DDE6ED; /* MomoTalkソース値そのまま */
+  --border-focus: #02D3FB;
+
   --radius: 2px;
 
-  --color-white: #1a2740;
-  --color-zinc-light: #2d4264;
-  --color-zinc-muted: #7a9ab8;
+  /* テキスト */
+  --color-white:      #1B2B3A; /* ダークネイビー（heading/icon用） */
+  --color-zinc-light: #2E4A62;
+  --color-zinc-muted: #7A9BB0;
   --color-green: #16a34a;
-  --color-red: #dc2626;
+  --color-red:   #dc2626;
 
-  --text-primary: #1a2740;
-  --text-secondary: #6687a8;
+  --text-primary:   #1B2B3A;
+  --text-secondary: #5A7A95;
 }
 
-/* Primary accent color used in BA theme */
+/* ---- ヘッダーエリア: ゲームのパネル上部の薄青を再現 ---- */
+[data-theme="blue-archive"] .top-header {
+  background-color: #E7F0F7; /* MomoTalkソース channeltopbar 値 */
+  border-bottom-color: #C8DCEA;
+  margin: -40px -40px 30px -40px;
+  padding: 20px 40px;
+}
+
+@media (max-width: 768px) {
+  [data-theme="blue-archive"] .top-header {
+    margin: -24px -16px 20px -16px;
+    padding: 14px 16px;
+  }
+}
+
+/* ---- サイドバー ---- */
+[data-theme="blue-archive"] .sidebar {
+  background-color: #F2F7F8;
+  border-right-color: #DDE6ED;
+}
+
+/* ---- ナビメニュー ---- */
+[data-theme="blue-archive"] .menu-item:hover {
+  background-color: var(--ba-cyan-faint);
+  color: #1B2B3A;
+}
+
+[data-theme="blue-archive"] .menu-item.active {
+  background-color: var(--ba-cyan-dim);
+  color: #02D3FB;
+  font-weight: 700;
+}
+
+/* ---- ボタン ---- */
 [data-theme="blue-archive"] .btn-primary {
-  background-color: #4a9ded;
+  background-color: #02D3FB;
   color: #ffffff;
 }
 
 [data-theme="blue-archive"] .btn-primary:hover {
-  background-color: #2e88de;
+  background-color: #00AED8;
 }
 
 [data-theme="blue-archive"] .btn-filter.active {
-  background-color: #4a9ded;
-  border-color: #4a9ded;
+  background-color: #02D3FB;
+  border-color: #02D3FB;
   color: #ffffff;
 }
 
-[data-theme="blue-archive"] .menu-item:hover {
-  background-color: rgba(74, 157, 237, 0.07);
-  color: #1a2740;
-}
-
-[data-theme="blue-archive"] .menu-item.active {
-  background-color: rgba(74, 157, 237, 0.12);
-  color: #1d8fe1;
-}
-
 [data-theme="blue-archive"] .btn-secondary:hover {
-  background-color: rgba(74, 157, 237, 0.07);
+  background-color: var(--ba-cyan-faint);
 }
 
 [data-theme="blue-archive"] .btn-icon:hover {
-  background-color: rgba(74, 157, 237, 0.07);
-  border-color: #4a9ded;
+  background-color: var(--ba-cyan-faint);
+  border-color: #02D3FB;
+}
+
+/* ---- フォームコントロール ---- */
+[data-theme="blue-archive"] .form-group input:focus,
+[data-theme="blue-archive"] .form-group select:focus,
+[data-theme="blue-archive"] .form-group textarea:focus {
+  border-color: #02D3FB;
+  box-shadow: 0 0 0 2px rgba(2, 211, 251, 0.15);
 }
 
 [data-theme="blue-archive"] .checkbox-custom:checked {
-  background-color: #4a9ded;
-  border-color: #4a9ded;
+  background-color: #02D3FB;
+  border-color: #02D3FB;
 }
 
+/* ---- 各種パーツ ---- */
 [data-theme="blue-archive"] .budget-progress-bar {
-  background-color: #4a9ded;
+  background-color: #02D3FB;
 }
 
 [data-theme="blue-archive"] .hud-pulse-dot {
-  background-color: #4a9ded;
+  background-color: #02D3FB;
+}
+
+[data-theme="blue-archive"] .avatar-badge {
+  background-color: #02D3FB;
+  color: #ffffff;
+}
+
+[data-theme="blue-archive"] .badge-accent {
+  color: #02D3FB;
+  border-color: #02D3FB;
+}
+
+[data-theme="blue-archive"] .hud-tag {
+  color: #02D3FB;
+  border-color: #C8DCEA;
+  background-color: #F2F7F8;
 }
 
 [data-theme="blue-archive"] .spinner {
-  border-color: rgba(74, 157, 237, 0.2);
-  border-top-color: #4a9ded;
+  border-color: rgba(2, 211, 251, 0.18);
+  border-top-color: #02D3FB;
 }
 
-/* SVG chart overrides */
+[data-theme="blue-archive"] .alert-box {
+  border-left-color: #02D3FB;
+  background-color: #F0FAFF;
+}
+
+/* ---- SVG チャート ---- */
 [data-theme="blue-archive"] #trend-line-path {
-  stroke: #4a9ded;
+  stroke: #02D3FB;
 }
 
 [data-theme="blue-archive"] #dashboard-trend-chart line {
-  stroke: #d4e9f8;
+  stroke: #C8DCEA;
 }
 
 [data-theme="blue-archive"] #schedules-sparkline-path,
 [data-theme="blue-archive"] #expenses-sparkline-path {
-  stroke: #4a9ded;
+  stroke: #02D3FB;
 }
 
 [data-theme="blue-archive"] .donut-chart circle:not(#donut-segment) {
-  stroke: #deeef9;
+  stroke: #DDE6ED;
 }
 
 [data-theme="blue-archive"] #donut-segment {
-  stroke: #4a9ded;
+  stroke: #02D3FB;
 }
 
-/* Modal overlay */
+/* ---- ドロップゾーン ---- */
+[data-theme="blue-archive"] .dropzone:hover,
+[data-theme="blue-archive"] .dropzone.dragover {
+  border-color: #02D3FB;
+  background-color: var(--ba-cyan-faint);
+}
+
+[data-theme="blue-archive"] .text-highlight {
+  color: #02D3FB;
+}
+
+/* ---- モーダルオーバーレイ ---- */
 [data-theme="blue-archive"] .modal {
-  background-color: rgba(190, 220, 248, 0.7);
+  background-color: rgba(211, 232, 245, 0.8);
 }
 
-/* Scrollbar */
+/* ---- スクロールバー ---- */
 [data-theme="blue-archive"] ::-webkit-scrollbar-thumb {
-  background: #c4dcf0;
+  background: #C8DCEA;
 }
 
 [data-theme="blue-archive"] ::-webkit-scrollbar-thumb:hover {
-  background: #4a9ded;
+  background: #02D3FB;
 }
 
-/* Mobile sidebar shadow */
+/* ---- モバイル ---- */
 @media (max-width: 768px) {
   [data-theme="blue-archive"] .sidebar {
-    box-shadow: 0 -2px 12px rgba(74, 157, 237, 0.12);
+    background-color: #F2F7F8;
+    border-top-color: #DDE6ED;
+    box-shadow: 0 -2px 12px rgba(2, 211, 251, 0.1);
   }
 
   [data-theme="blue-archive"] .menu-item.active {
-    color: #1d8fe1;
-    background-color: rgba(74, 157, 237, 0.08);
+    color: #02D3FB;
+    background-color: var(--ba-cyan-dim);
   }
 }
 
@@ -1824,7 +1905,7 @@ button, input, select, textarea {
 }
 
 [data-theme="blue-archive"] .theme-option.active {
-  border-color: #4a9ded;
+  border-color: #02D3FB;
 }
 
 .theme-preview {
@@ -1871,18 +1952,18 @@ button, input, select, textarea {
 
 /* Blue Archive theme preview */
 .ba-preview {
-  background-color: #f0f6ff;
+  background-color: #FBFCFF;
 }
 
 .ba-preview .preview-sidebar {
-  background-color: #ffffff;
-  border-right: 1px solid #ccdff2;
+  background-color: #F2F7F8;
+  border-right: 1px solid #DDE6ED;
 }
 
 .ba-preview .preview-card {
-  background-color: #deeef9;
+  background-color: #E7F0F7;
 }
 
 .ba-preview .preview-card:first-child {
-  background-color: #4a9ded;
+  background-color: #02D3FB;
 }
