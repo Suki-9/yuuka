@@ -5,12 +5,24 @@ use std::error::Error;
 use std::time::Duration;
 use tokio::time::sleep;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 struct SearchResult {
     title: String,
     url: String,
     snippet: String,
 }
+
+#[derive(Debug, Clone)]
+struct ScoredResult {
+    title: String,
+    url: String,
+    snippet: String,
+    rrf_score: f64,
+    authority_score: f64,
+    keyword_score: f64,
+    final_score: f64,
+}
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -253,48 +265,193 @@ fn traverse(node: ego_tree::NodeRef<scraper::node::Node>, is_pre: bool) -> Strin
 // ─── SEARCH 機能 ────────────────────────────────────────────────────────
 
 async fn run_search(query: &str) -> Result<(), Box<dyn Error>> {
-    // まず Google 検索を試みる
     let google_url = format!("https://www.google.com/search?q={}", urlencoding::encode(query));
-    
-    match fetch_html_with_retry(&google_url).await {
-        Ok(html) => {
-            let results = parse_google_results(&html);
-            if !results.is_empty() {
-                let json_output = serde_json::to_string(&results)?;
-                println!("{}", json_output);
-                return Ok(());
-            }
-            eprintln!("Google returned 0 results. Falling back to DuckDuckGo...");
-        }
-        Err(e) => {
-            eprintln!("Google Search failed: {}. Falling back to DuckDuckGo...", e);
-        }
-    }
-
-    // Googleが失敗または結果0件の場合、DuckDuckGo (HTML版) にフォールバック
     let ddg_url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding::encode(query));
-    let html = fetch_html_with_retry(&ddg_url).await?;
-    let results = parse_ddg_results(&html);
-    
-    if results.is_empty() {
-        return Err("No results found in Google and DuckDuckGo.".into());
+
+    // GoogleとDuckDuckGoの検索を非同期で並行実行
+    let google_future = fetch_html_with_retry(&google_url);
+    let ddg_future = fetch_html_with_retry(&ddg_url);
+
+    let (google_res, ddg_res) = tokio::join!(google_future, ddg_future);
+
+    let google_results = match google_res {
+        Ok(html) => parse_google_results(&html),
+        Err(e) => {
+            eprintln!("Google Search failed: {}", e);
+            Vec::new()
+        }
+    };
+
+    let ddg_results = match ddg_res {
+        Ok(html) => parse_ddg_results(&html),
+        Err(e) => {
+            eprintln!("DuckDuckGo Search failed: {}", e);
+            Vec::new()
+        }
+    };
+
+    if google_results.is_empty() && ddg_results.is_empty() {
+        return Err("No results found in both Google and DuckDuckGo.".into());
     }
 
-    let json_output = serde_json::to_string(&results)?;
+    // RRFマージ、権威性フィルタ、キーワードブーストを適用して再ランク付け
+    let merged_results = merge_and_rank_results(query, google_results, ddg_results);
+
+    if merged_results.is_empty() {
+        return Err("All results were filtered out or empty.".into());
+    }
+
+    let json_output = serde_json::to_string(&merged_results)?;
     println!("{}", json_output);
     Ok(())
+}
+
+fn merge_and_rank_results(
+    query: &str,
+    google_results: Vec<SearchResult>,
+    ddg_results: Vec<SearchResult>,
+) -> Vec<SearchResult> {
+    use std::collections::HashMap;
+
+    let mut scored_map: HashMap<String, ScoredResult> = HashMap::new();
+    let k = 60.0;
+
+    // Google結果のRRFスコアリング
+    for (i, res) in google_results.into_iter().enumerate() {
+        let rank = (i + 1) as f64;
+        let rrf_score = 1.0 / (k + rank);
+        let key = res.url.clone();
+        
+        scored_map.insert(key, ScoredResult {
+            title: res.title,
+            url: res.url,
+            snippet: res.snippet,
+            rrf_score,
+            authority_score: 0.0,
+            keyword_score: 0.0,
+            final_score: 0.0,
+        });
+    }
+
+    // DuckDuckGo結果のRRFスコアリングと統合
+    for (i, res) in ddg_results.into_iter().enumerate() {
+        let rank = (i + 1) as f64;
+        let rrf_score = 1.0 / (k + rank);
+        let key = res.url.clone();
+
+        if let Some(existing) = scored_map.get_mut(&key) {
+            existing.rrf_score += rrf_score;
+        } else {
+            scored_map.insert(key, ScoredResult {
+                title: res.title,
+                url: res.url,
+                snippet: res.snippet,
+                rrf_score,
+                authority_score: 0.0,
+                keyword_score: 0.0,
+                final_score: 0.0,
+            });
+        }
+    }
+    
+    let mut results: Vec<ScoredResult> = scored_map.into_values().collect();
+    
+    // 権威性およびキーワード密度による追加スコアリング
+    for doc in &mut results {
+        doc.authority_score = evaluate_authority(&doc.url);
+        doc.keyword_score = evaluate_keyword_relevance(query, &doc.title, &doc.snippet);
+        
+        // 最終スコアの合成
+        // rrf_score: 0.016〜0.033
+        // authority_score: -1.0 〜 1.0
+        // keyword_score: 0.0 〜 3.0
+        doc.final_score = doc.rrf_score + (doc.authority_score * 0.02) + (doc.keyword_score * 0.01);
+    }
+    
+    // スパム判定された低品質ドメインの除外 (-0.9未満は切り捨て)
+    results.retain(|doc| doc.authority_score > -0.9);
+
+    // 最終スコアで降順ソート
+    results.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal));
+
+    // SearchResultの型に戻して最大8件を返す
+    results.into_iter().map(|doc| SearchResult {
+        title: doc.title,
+        url: doc.url,
+        snippet: doc.snippet,
+    }).take(8).collect()
+}
+
+fn evaluate_authority(url: &str) -> f64 {
+    let url_lower = url.to_lowercase();
+    let mut score = 0.0;
+
+    // 1. 公式および公的機関のドメイン（強加点）
+    if url_lower.contains(".go.jp") || url_lower.contains("jma.go.jp") {
+        score += 1.0;
+    } else if url_lower.contains(".ac.jp") || url_lower.contains(".edu") {
+        score += 0.5;
+    } else if url_lower.contains(".or.jp") || url_lower.contains(".org") {
+        score += 0.3;
+    }
+
+    // 2. 信頼できる一次ソース・大手ドメインへの加点
+    let trusted_sources = [
+        "itmedia.co.jp", "impress.co.jp", "nikkei.com", "asahi.com", "yomiuri.co.jp", 
+        "mainichi.jp", "nhk.or.jp", "wikipedia.org", "github.com", "microsoft.com", 
+        "transit.yahoo.co.jp", "weather.yahoo.co.jp", "jma.go.jp"
+    ];
+    for source in &trusted_sources {
+        if url_lower.contains(source) {
+            score += 0.6;
+        }
+    }
+
+    // 3. まとめサイト、アフィリエイト、2ch/5ch転載、スパムドメインへの減点
+    let spam_keywords = [
+        "matome", "blog.jp", "livedoor.biz", "2ch", "5ch", "geha", "affiliate",
+        "hachima", "jin115", "matomedane", "togetter"
+    ];
+    for keyword in &spam_keywords {
+        if url_lower.contains(keyword) {
+            score -= 1.0;
+        }
+    }
+
+    score
+}
+
+fn evaluate_keyword_relevance(query: &str, title: &str, snippet: &str) -> f64 {
+    let title_lower = title.to_lowercase();
+    let snippet_lower = snippet.to_lowercase();
+    let query_lower = query.to_lowercase();
+    
+    let words: Vec<&str> = query_lower.split_whitespace().collect();
+    if words.is_empty() {
+        return 0.0;
+    }
+
+    let mut match_count = 0.0;
+    for word in &words {
+        if title_lower.contains(word) {
+            match_count += 2.0; // タイトル内ヒットを重視
+        }
+        if snippet_lower.contains(word) {
+            match_count += 1.0;
+        }
+    }
+
+    match_count / (words.len() as f64)
 }
 
 fn parse_google_results(html: &str) -> Vec<SearchResult> {
     let mut results = Vec::new();
     let document = Html::parse_document(html);
     
-    // div.g はGoogleの検索結果のコンテナ
     let container_selector = Selector::parse("div.g").unwrap();
     let title_selector = Selector::parse("h3").unwrap();
     let anchor_selector = Selector::parse("a").unwrap();
     
-    // スニペット用の一般的なクラス群
     let snippet_selectors = [
         Selector::parse("div.VwiC3b").unwrap(),
         Selector::parse("span.aCOpbc").unwrap(),
@@ -307,7 +464,6 @@ fn parse_google_results(html: &str) -> Vec<SearchResult> {
                 let title = title_el.text().collect::<Vec<_>>().join(" ").trim().to_string();
                 let url = anchor.attr("href").unwrap_or("").to_string();
                 
-                // スニペットの抽出
                 let mut snippet = String::new();
                 for sel in &snippet_selectors {
                     if let Some(snippet_el) = container.select(sel).next() {
@@ -385,7 +541,6 @@ async fn fetch_html_with_retry(url: &str) -> Result<String, Box<dyn Error>> {
                     last_err = format!("Server returned status code {}", status);
                     eprintln!("Attempt {} failed: {}", i + 1, last_err);
                     
-                    // 403や401などの認証/アクセス制限系エラーの場合はリトライせず即時終了してフォールバックする
                     if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::UNAUTHORIZED {
                         return Err(last_err.into());
                     }
@@ -405,3 +560,4 @@ async fn fetch_html_with_retry(url: &str) -> Result<String, Box<dyn Error>> {
 
     Err(last_err.into())
 }
+
