@@ -4,6 +4,8 @@ import * as taskFn from "./taskFunctions.js";
 import * as scheduleFn from "./scheduleFunctions.js";
 import * as expenseFn from "./expenseFunctions.js";
 import * as fileFn from "./fileFunctions.js";
+import * as commandFn from "./commandFunctions.js";
+import * as browserFn from "./browserFunctions.js";
 import * as gitFn from "./gitFunctions.js";
 
 // ─── Function Declarations for Gemini ──────────────────────────────────
@@ -232,7 +234,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         command: {
           type: SchemaType.STRING,
-          description: "実行するコマンド (許可: 'npm run build', 'npx tsc', 'npm test', 'git status', 'git diff', 'git diff --cached', 'git log -n 5')",
+          description: "実行するコマンド (許可: 'npm run build', 'npx tsc', 'npm test', 'git status', 'git diff', 'git diff --cached', 'git log -n 5', および安全な 'curl' コマンド。シェル制御記号を含むものは不可)",
         },
       },
       required: ["command"],
@@ -283,6 +285,28 @@ export const functionDeclarations: FunctionDeclaration[] = [
         branchName: { type: SchemaType.STRING, description: "プッシュするブランチ名 (例: feature/add-new-command)" },
       },
       required: ["branchName"],
+    },
+  },
+  {
+    name: "fetchDynamicPage",
+    description: "JavaScriptで動的に生成されるSPAなどのウェブページを開き、不要なタグ（スクリプト、スタイル、ナビゲーション、フッター、画像、メタデータ等）を完全に除去して超軽量化したHTMLを取得します（ヘッドレスブラウザを使用）。これにより、トークン消費を最小限に抑えつつ構造化データを正確に把握できます。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        url: { type: SchemaType.STRING, description: "アクセスするウェブページのURL" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "takePageScreenshot",
+    description: "指定されたURLのウェブページ全体のスクリーンショットを撮影し、画像としてサーバーに保存します（ヘッドレスブラウザを使用）。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        url: { type: SchemaType.STRING, description: "スクリーンショットを撮影するウェブページのURL" },
+      },
+      required: ["url"],
     },
   },
 ];
@@ -348,7 +372,7 @@ export async function dispatchFunction(
     case "searchCodeFiles":
       return fileFn.searchCodeFiles(userId, args as Parameters<typeof fileFn.searchCodeFiles>[1]);
     case "verifyCodeChanges":
-      return fileFn.verifyCodeChanges(userId, args as Parameters<typeof fileFn.verifyCodeChanges>[1]);
+      return commandFn.verifyCodeChanges(userId, args as Parameters<typeof commandFn.verifyCodeChanges>[1]);
 
     // Git連携
     case "checkoutBranch":
@@ -359,6 +383,12 @@ export async function dispatchFunction(
       return gitFn.mergeBranch(userId, args as Parameters<typeof gitFn.mergeBranch>[1]);
     case "pushChanges":
       return gitFn.pushChanges(userId, args as Parameters<typeof gitFn.pushChanges>[1]);
+    
+    // ヘッドレスブラウザ操作
+    case "fetchDynamicPage":
+      return await browserFn.fetchDynamicPage(userId, args as Parameters<typeof browserFn.fetchDynamicPage>[1]);
+    case "takePageScreenshot":
+      return await browserFn.takePageScreenshot(userId, args as Parameters<typeof browserFn.takePageScreenshot>[1]);
 
     default:
       return JSON.stringify({ success: false, message: `不明な関数: ${functionName}` });

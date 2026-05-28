@@ -76,21 +76,3 @@ export function searchCodeFiles(userId: string, args: { query: string; dirPath?:
   }
 }
 
-/**
- * ホワイトリストコマンドを実行してコードのコンパイルや動作検証を行うツール関数
- */
-export function verifyCodeChanges(userId: string, args: { command: string }): string {
-  try {
-    const output = fileService.runSandboxCommand(args.command);
-    return JSON.stringify({
-      success: true,
-      command: args.command,
-      output,
-    });
-  } catch (err: any) {
-    return JSON.stringify({
-      success: false,
-      message: err.message,
-    });
-  }
-}
