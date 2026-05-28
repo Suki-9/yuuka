@@ -438,6 +438,37 @@
              5. CONFIG VIEW
              ========================================== -->
         <section id="tab-config" class="tab-view">
+
+          <!-- Theme Selector Card -->
+          <div class="config-card card" style="margin-bottom: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">palette</span>テーマ設定</h3>
+            </div>
+            <p class="description-text">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
+            <div class="theme-options">
+              <button class="theme-option" data-theme="dark">
+                <div class="theme-preview dark-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>ダーク</span>
+              </button>
+              <button class="theme-option" data-theme="blue-archive">
+                <div class="theme-preview ba-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>ブルーアーカイブ</span>
+              </button>
+            </div>
+          </div>
+
           <div class="config-card card">
             <div class="column-header">
               <h3>システム構成ステータス (`config.yaml`)</h3>
