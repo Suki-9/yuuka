@@ -46,7 +46,6 @@ export const config = {
   discordToken: requireSetting("DISCORD_TOKEN"),
   geminiApiKey: requireSetting("GEMINI_API_KEY"),
   geminiModel: getSetting("GEMINI_MODEL", "gemini-3.1-flash-lite"),
-  guildId: getSetting("GUILD_ID"),
   allowedUserId: getSetting("ALLOWED_USER_ID"),
 
   /** データベースファイルのパス */

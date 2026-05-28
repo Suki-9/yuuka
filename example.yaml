@@ -16,10 +16,6 @@ GEMINI_API_KEY: "YOUR_GEMINI_API_KEY"
 # 例: gemini-2.5-pro-preview-06-05, gemini-2.5-flash-preview-05-20, gemini-2.0-flash, gemini-1.5-pro
 GEMINI_MODEL: "gemini-3.1-flash-lite"
 
-# Discord Guild ID (テスト用サーバーのID)
-# サーバーを右クリック → 「IDをコピー」で取得
-GUILD_ID: "YOUR_DISCORD_GUILD_ID"
-
 # 応答を許可するDiscordユーザーID (このIDのユーザーからのメッセージにのみ反応します)
 # 未設定の場合はすべてのユーザーに反応します
 ALLOWED_USER_ID: ""

@@ -70,7 +70,6 @@ cp example.yaml config.yaml
 #### 主な設定項目:
 *   **`DISCORD_TOKEN`**: [Discord Developer Portal](https://discord.com/developers/applications) で取得したBotトークン。
 *   **`GEMINI_API_KEY`**: [Google AI Studio](https://aistudio.google.com/apikey) で発行したAPIキー。
-*   **`GUILD_ID`**: 動作させるDiscordサーバーのID。
 *   **`ALLOWED_USER_ID`**: 応答を許可する特定のDiscordユーザーID（空白の場合はすべてのユーザーに応答。自身のIDを指定することで完全なプライベート化が可能）。
 *   **`GOOGLE_CALENDARS`**: 同期させたいGoogleカレンダーIDの配列（管理画面からも動的に追加・削除可能です）。
 *   **`GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY`**: Google Cloud Console で作成したサービスアカウントのメールアドレスと秘密鍵（Googleカレンダー連携に必要）。

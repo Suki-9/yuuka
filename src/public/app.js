@@ -1148,7 +1148,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (data.success) {
         const entries = [
-          { label: "ギルドID (Guild ID)", value: data.config.guildId || "未設定 (ローカル起動)" },
           { label: "データベースファイルのパス (DB Path)", value: data.config.dbPath },
           { label: "リマインダーチェック実行Cron (Reminder Cron)", value: data.config.reminderCron },
           { label: "GoogleカレンダーID (Google Calendar ID)", value: data.config.googleCalendarId || "未設定 (カレンダー同期なし)" },

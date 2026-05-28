@@ -329,7 +329,6 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
           expenseTrend,
         },
         config: {
-          guildId: config.guildId,
           dbPath: config.dbPath,
           reminderCron: config.reminderCron,
           googleCalendarId: config.googleCalendarId,
