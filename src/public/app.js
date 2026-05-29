@@ -5,7 +5,34 @@
    ============================================================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
-  
+
+  // ==========================================
+  // THEME MANAGEMENT
+  // ==========================================
+  const THEME_KEY = "yuuka-theme";
+
+  function applyTheme(theme) {
+    if (theme === "blue-archive") {
+      document.documentElement.setAttribute("data-theme", "blue-archive");
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+    }
+    localStorage.setItem(THEME_KEY, theme);
+    document.querySelectorAll(".theme-option").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-theme") === theme);
+    });
+  }
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) || "dark";
+  }
+
+  applyTheme(currentTheme());
+
+  document.querySelectorAll(".theme-option").forEach(btn => {
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme")));
+  });
+
   // State management
   let activeTab = "dashboard";
   let activeUserId = "sensei_default";
@@ -288,7 +315,10 @@ document.addEventListener("DOMContentLoaded", () => {
           const priorities = statusData.stats.pendingPriorities || { 0: 0, 1: 0, 2: 0 };
           const maxPrioCount = Math.max(priorities[0], priorities[1], priorities[2], 1);
           
-          const colors = ["#71717a", "#e4e4e7", "#fafafa"]; // Low: Slate, Medium: Zinc, High: White
+          const isLight = currentTheme() === "blue-archive";
+          const colors = isLight
+            ? ["#B8E8F8", "#51C8E8", "#02D3FB"]  // BA: light/mid/full cyan
+            : ["#71717a", "#e4e4e7", "#fafafa"]; // Low: Slate, Medium: Zinc, High: White
           const labels = ["低", "中", "高"];
 
           [0, 1, 2].forEach(p => {
@@ -419,8 +449,15 @@ document.addEventListener("DOMContentLoaded", () => {
     donutSegment.setAttribute("stroke-dasharray", `${strokeDash} 251.2`);
     chartCenterPercentage.textContent = `${entPct}%`;
 
-    // Colors mapping for legend dots
-    const colors = {
+    // Colors mapping for legend dots (BA テーマ時は配色を切り替え)
+    const isBATheme = currentTheme() === "blue-archive";
+    const colors = isBATheme ? {
+      食費: "#02D3FB",   // BAシアン
+      日用品: "#A3BAFF", // ラベンダー
+      交通費: "#FB90A4", // MomoTalk ピンク
+      娯楽: "#FFD966",   // ウォームイエロー
+      その他: "#7A9BB0"  // ミュートグレー
+    } : {
       食費: "#00e676", // neon-green
       日用品: "#3b82f6", // blue
       交通費: "#ef4444", // red
@@ -491,7 +528,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Normalize height calculations
     const maxVal = Math.max(...dailyTotals, 10000); // minimum scale is 10k
-    
+
     // Coordinates mapping
     // SVG viewbox is 400x150. We want Y coordinate between 20 (max) and 130 (min).
     const points = dailyTotals.map((val, idx) => {
@@ -509,12 +546,16 @@ document.addEventListener("DOMContentLoaded", () => {
     trendAreaPath.setAttribute("d", areaPathStr);
 
     // 3. Render circular vertices and add dynamic tooltips on hover
+    const isLightChart = currentTheme() === "blue-archive";
+    const dotNormal = isLightChart ? "#02D3FB" : "#fafafa";
+    const dotHover  = isLightChart ? "#00AED8" : "#a1a1aa";
+
     points.forEach(p => {
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("cx", p.x);
       circle.setAttribute("cy", p.y);
       circle.setAttribute("r", "4.5");
-      circle.setAttribute("fill", "#fafafa");
+      circle.setAttribute("fill", dotNormal);
       circle.setAttribute("stroke", "var(--card-matte)");
       circle.setAttribute("stroke-width", "1.5");
       circle.style.cursor = "pointer";
@@ -523,14 +564,14 @@ document.addEventListener("DOMContentLoaded", () => {
       // Interactive Hover effects
       circle.addEventListener("mouseenter", () => {
         circle.setAttribute("r", "7.5");
-        circle.setAttribute("fill", "var(--color-zinc-muted)");
+        circle.setAttribute("fill", dotHover);
         // Update assistant text with specific sum
         yuukaBubbleText.textContent = `${p.x === 400 ? "今日" : p.x === 320 ? "昨日" : "この日"}の出費額は ¥${p.amount.toLocaleString()} ですよ、先生！`;
       });
 
       circle.addEventListener("mouseleave", () => {
         circle.setAttribute("r", "4.5");
-        circle.setAttribute("fill", "#fafafa");
+        circle.setAttribute("fill", dotNormal);
         updateYuukaSpeechBubble();
       });
 

@@ -12,8 +12,18 @@
   --card-matte: #18181b;      /* Solid dark charcoal zinc card */
   --card-matte-hover: #202024;
   --border-matte: #27272a;    /* Thin solid zinc outline */
-  --border-focus: #52525b;
+  --border-focus: #38d5ff;
   --radius: 2px;              /* Minimal modern 2px rounded corners */
+
+  --accent-cyan: #38d5ff;
+  --accent-cyan-hover: #67e8f9;
+  --accent-cyan-dim: rgba(56, 213, 255, 0.14);
+  --accent-cyan-faint: rgba(56, 213, 255, 0.07);
+  --accent-pink: #fb7185;
+  --accent-pink-dim: rgba(251, 113, 133, 0.14);
+  --accent-lavender: #a78bfa;
+  --accent-yellow: #facc15;
+  --accent-yellow-dim: rgba(250, 204, 21, 0.14);
 
   --color-white: #fafafa;
   --color-zinc-light: #f4f4f5;
@@ -168,6 +178,9 @@ button, input, select, textarea {
   border-radius: var(--radius);
   padding: 24px;
   transition: var(--transition-smooth);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .hover-lift:hover {
@@ -230,6 +243,14 @@ button, input, select, textarea {
   margin-bottom: 16px;
 }
 
+.login-avatar-img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 50%;
+  margin-bottom: 12px;
+}
+
 .login-header h1 {
   font-size: 1.8rem;
   font-weight: 800;
@@ -280,6 +301,7 @@ button, input, select, textarea {
 .form-group select:focus,
 .form-group textarea:focus {
   border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-cyan-dim);
 }
 
 .form-row {
@@ -313,6 +335,7 @@ button, input, select, textarea {
   border: none;
   outline: none;
   transition: var(--transition-smooth);
+  white-space: nowrap;
 }
 
 .btn-block {
@@ -321,12 +344,12 @@ button, input, select, textarea {
 }
 
 .btn-primary {
-  background-color: var(--color-white);
+  background-color: var(--accent-cyan);
   color: var(--bg-primary);
 }
 
 .btn-primary:hover {
-  background-color: var(--color-zinc-light);
+  background-color: var(--accent-cyan-hover);
 }
 
 .btn-secondary {
@@ -336,7 +359,7 @@ button, input, select, textarea {
 }
 
 .btn-secondary:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--accent-cyan-faint);
 }
 
 .btn-icon {
@@ -355,7 +378,7 @@ button, input, select, textarea {
 }
 
 .btn-icon:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--accent-cyan-faint);
   border-color: var(--border-focus);
 }
 
@@ -427,12 +450,12 @@ button, input, select, textarea {
 
 .menu-item:hover {
   color: var(--text-primary);
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--accent-cyan-faint);
 }
 
 .menu-item.active {
-  color: var(--color-white);
-  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--accent-cyan);
+  background-color: var(--accent-cyan-dim);
   font-weight: 600;
 }
 
@@ -489,6 +512,8 @@ button, input, select, textarea {
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-weight: bold;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .user-select-dropdown {
@@ -538,11 +563,16 @@ button, input, select, textarea {
   position: relative;
   width: 80px;
   height: 80px;
+  flex-shrink: 0;
 }
 
-.avatar-svg {
+.avatar-img {
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  aspect-ratio: 1 / 1;
 }
 
 .avatar-badge {
@@ -618,7 +648,8 @@ button, input, select, textarea {
   padding: 2px 6px;
   border-radius: var(--radius);
   border: 1px solid var(--border-matte);
-  color: var(--text-secondary);
+  color: var(--accent-cyan);
+  white-space: nowrap;
 }
 
 .stat-card-badge-trend.positive {
@@ -631,13 +662,16 @@ button, input, select, textarea {
 
 .stat-card-header {
   margin-bottom: 8px;
+  padding-right: 72px;
 }
 
 .stat-label {
+  display: block;
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--color-zinc-muted);
+  line-height: 1.25;
 }
 
 .stat-card .stat-value {
@@ -722,11 +756,25 @@ button, input, select, textarea {
   font-family: var(--font-family-mono);
   font-size: 0.65rem;
   font-weight: 700;
-  color: var(--color-white);
+  color: var(--accent-cyan);
   border: 1px solid var(--border-matte);
   padding: 2px 6px;
   border-radius: var(--radius);
   background-color: var(--bg-primary);
+}
+
+#trend-line-path,
+#schedules-sparkline-path,
+#expenses-sparkline-path {
+  stroke: var(--accent-cyan);
+}
+
+#dashboard-trend-chart line {
+  stroke: var(--border-matte);
+}
+
+#donut-segment {
+  stroke: var(--accent-cyan);
 }
 
 .chart-sub-details {
@@ -830,7 +878,7 @@ button, input, select, textarea {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--color-white);
+  background-color: var(--accent-cyan);
 }
 
 .dashboard-list {
@@ -864,14 +912,14 @@ button, input, select, textarea {
 }
 
 .badge-urgent {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: var(--color-white);
-  border: 1px solid var(--border-matte);
+  background-color: var(--accent-pink-dim);
+  color: var(--accent-pink);
+  border: 1px solid var(--accent-pink);
 }
 
 .badge-normal {
   background-color: transparent;
-  color: var(--text-secondary);
+  color: var(--accent-lavender);
   border: 1px solid var(--border-matte);
 }
 
@@ -916,8 +964,8 @@ button, input, select, textarea {
 }
 
 .btn-filter.active {
-  background-color: var(--color-white);
-  border-color: var(--color-white);
+  background-color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
   color: var(--bg-primary);
   font-weight: 700;
 }
@@ -939,12 +987,16 @@ button, input, select, textarea {
   border: 1px solid var(--border-matte);
   border-radius: var(--radius);
   padding: 16px 20px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .card-content-left {
   display: flex;
   align-items: flex-start;
   gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .checkbox-custom {
@@ -964,8 +1016,8 @@ button, input, select, textarea {
 }
 
 .checkbox-custom:checked {
-  background-color: var(--color-white);
-  border-color: var(--color-white);
+  background-color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
 }
 
 .checkbox-custom:checked::after {
@@ -979,6 +1031,9 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
 }
 
 .card-title {
@@ -1097,7 +1152,7 @@ button, input, select, textarea {
 .budget-progress-bar {
   height: 100%;
   width: 0%;
-  background-color: var(--color-white);
+  background-color: var(--accent-cyan);
   border-radius: var(--radius);
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1111,7 +1166,7 @@ button, input, select, textarea {
 }
 
 #expense-budget-percent {
-  color: var(--color-white);
+  color: var(--accent-cyan);
   font-family: var(--font-family-mono);
 }
 
@@ -1143,9 +1198,9 @@ button, input, select, textarea {
 }
 
 .badge-accent {
-  background-color: transparent;
-  color: var(--color-white);
-  border: 1px solid var(--border-matte);
+  background-color: var(--accent-cyan-faint);
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan);
 }
 
 /* AI Scan drag and drop zone */
@@ -1165,6 +1220,7 @@ button, input, select, textarea {
 
 .dropzone:hover, .dropzone.dragover {
   border-color: var(--border-focus);
+  background-color: var(--accent-cyan-faint);
 }
 
 .dropzone-content {
@@ -1185,7 +1241,7 @@ button, input, select, textarea {
 }
 
 .text-highlight {
-  color: var(--color-white);
+  color: var(--accent-cyan);
   text-decoration: underline;
 }
 
@@ -1209,8 +1265,8 @@ button, input, select, textarea {
 .spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: var(--color-white);
+  border: 2px solid var(--accent-cyan-dim);
+  border-top-color: var(--accent-cyan);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1268,6 +1324,26 @@ button, input, select, textarea {
   color: var(--text-secondary);
 }
 
+.source-web {
+  color: var(--accent-pink);
+}
+
+.source-manual {
+  color: var(--accent-cyan);
+}
+
+.source-discord {
+  color: var(--accent-lavender);
+}
+
+a:not(.menu-item):not(.btn) {
+  color: var(--accent-lavender);
+}
+
+a:not(.menu-item):not(.btn):hover {
+  color: var(--accent-cyan);
+}
+
 .expense-amount-val {
   font-family: var(--font-family-mono);
   font-weight: 700;
@@ -1312,9 +1388,13 @@ button, input, select, textarea {
 
 /* Warnings */
 .alert-box {
-  border-left: 3px solid var(--color-zinc-muted);
+  border-left: 3px solid var(--accent-yellow);
   background-color: var(--bg-primary);
   margin-top: 24px;
+}
+
+.alert-icon-symbol {
+  color: var(--accent-yellow) !important;
 }
 
 .alert-header {
@@ -1445,8 +1525,29 @@ button, input, select, textarea {
    RESPONSIVE SMARTPHONE UI (Adaptive Layouts)
    ============================================================================= */
 
+/* Tablet adjustments (between 768 and 1024) */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .main-content {
+    padding: 28px 24px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .dashboard-columns {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .stat-card {
+    padding: 18px;
+  }
+}
+
 @media (max-width: 768px) {
-  
+
   /* Sidebar transforms into Bottom Nav Bar */
   .sidebar {
     position: fixed;
@@ -1514,26 +1615,53 @@ button, input, select, textarea {
   .top-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 16px;
+    gap: 12px;
     border-bottom: 1px solid var(--border-matte);
     padding-bottom: 16px;
   }
 
+  .header-title {
+    min-width: 0;
+  }
+
   .header-controls {
+    flex-direction: row;
     flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 10px;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
     width: 100%;
   }
 
   .profile-switch {
-    flex-grow: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     justify-content: space-between;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .profile-switch label {
+    flex-shrink: 0;
+  }
+
+  .user-select-dropdown {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 0;
   }
 
   #btn-logout {
     padding: 8px 12px;
     font-size: 0.8rem;
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  /* モバイルではログアウトボタンのアイコンを非表示にしてテキストのみ */
+  #btn-logout .icon-button-left {
+    display: none;
   }
 
   /* Layout Grids Stacking to 1 Column */
@@ -1571,9 +1699,15 @@ button, input, select, textarea {
 
   .welcome-card {
     flex-direction: column;
+    align-items: center;
     text-align: center;
     gap: 14px;
     padding: 16px;
+  }
+
+  .speech-bubble-container {
+    width: 100%;
+    min-width: 0;
   }
 
   .speech-bubble::before {
@@ -1602,6 +1736,164 @@ button, input, select, textarea {
   .expense-table th, .expense-table td {
     padding: 10px 8px;
     font-size: 0.75rem;
+  }
+
+  /* Card paddings tightened */
+  .card {
+    padding: 16px;
+  }
+
+  /* Header title scaling */
+  .header-title h2 {
+    font-size: 1.3rem;
+  }
+
+  .header-title p {
+    font-size: 0.72rem;
+  }
+
+  .column-header h3 {
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  /* Stat values shrink slightly */
+  .stat-card .stat-value {
+    font-size: 1.7rem;
+  }
+
+  .hud-card h2 {
+    font-size: 1.7rem;
+  }
+
+  /* View actions card may overflow with many filter buttons */
+  .view-actions-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .filters-group {
+    flex-wrap: wrap;
+  }
+
+  /* Card item content stack to prevent action button overflow */
+  .card-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .card-actions-right {
+    justify-content: flex-end;
+  }
+
+  /* Form row to single column to prevent narrow inputs */
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* Calendar form: stack input + button */
+  #config-calendar-form {
+    flex-direction: column;
+    gap: 10px !important;
+  }
+
+  /* Sub-details under chart wrap nicely */
+  .chart-sub-details {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  /* Profile switch & header controls - allow shrink (handled above) */
+
+  /* Modal padding/width adjustments */
+  .modal {
+    padding: 16px;
+  }
+
+  .modal-content {
+    max-width: 100%;
+  }
+
+  .wide-modal {
+    max-width: 100%;
+  }
+
+  /* Theme options - allow wrapping & full width */
+  .theme-option {
+    flex: 1 1 130px;
+  }
+}
+
+@media (max-width: 420px) {
+  .main-content {
+    padding: 18px 12px 88px 12px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .header-title h2 {
+    font-size: 1.2rem;
+  }
+
+  .stat-card .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .stat-card-badge-trend {
+    top: 14px;
+    right: 14px;
+    font-size: 0.6rem;
+  }
+
+  .welcome-card {
+    padding: 14px;
+  }
+
+  .menu-item {
+    font-size: 0.6rem;
+  }
+
+  .column-header h3 {
+    font-size: 0.88rem;
+  }
+}
+
+/* 360px 以下: ボトムナビはアイコンのみ・ラベル非表示でナビ高さを抑える */
+@media (max-width: 360px) {
+  .menu-text {
+    display: none;
+  }
+
+  .menu-item {
+    padding: 8px 4px;
+  }
+
+  .sidebar {
+    height: 54px;
+  }
+
+  .main-content {
+    padding: 16px 10px 74px 10px;
+  }
+
+  .login-card {
+    padding: 28px 20px;
+  }
+
+  .header-title h2 {
+    font-size: 1.1rem;
+  }
+
+  .header-title p {
+    font-size: 0.7rem;
   }
 }
 
@@ -1660,3 +1952,399 @@ button, input, select, textarea {
   color: var(--color-red);
 }
 
+
+/* ==============================================================================
+   BLUE ARCHIVE LIGHT THEME
+   実際のゲームUI配色を再現
+   Sources: Blue Archive Wiki (#02D3FB), MomoTalk Discord theme
+            (#F2F7F8 sidebar / #E7F0F7 header / #DDE6ED border)
+   ============================================================================== */
+
+/* BA共通アクセントカラー変数 */
+[data-theme="blue-archive"] {
+  /* BA公式シアン (#02D3FB は wiki confirmed, #00AED8 は hover用) */
+  --ba-cyan:       #02D3FB;
+  --ba-cyan-hover: #00AED8;
+  --ba-cyan-dim:   rgba(2, 211, 251, 0.12);
+  --ba-cyan-faint: rgba(2, 211, 251, 0.06);
+
+  /* 追加アクセント — ゲーム本編の MomoTalk / 優先度 / 警告色を再現 */
+  --ba-pink:     #FB90A4;  /* MomoTalk バナー・優先度高 */
+  --ba-pink-dim: rgba(251, 144, 164, 0.15);
+  --ba-lavender: #A3BAFF;  /* ゲーム内リンク色 */
+  --ba-yellow:   #FFD966;  /* 警告/注意 */
+  --ba-yellow-dim: rgba(255, 217, 102, 0.15);
+
+  --accent-cyan: var(--ba-cyan);
+  --accent-cyan-hover: var(--ba-cyan-hover);
+  --accent-cyan-dim: var(--ba-cyan-dim);
+  --accent-cyan-faint: var(--ba-cyan-faint);
+  --accent-pink: var(--ba-pink);
+  --accent-pink-dim: var(--ba-pink-dim);
+  --accent-lavender: var(--ba-lavender);
+  --accent-yellow: var(--ba-yellow);
+  --accent-yellow-dim: var(--ba-yellow-dim);
+
+  /* 背景 — 公式ゲーム画面に近い色 */
+  --bg-primary:       #FBFCFF; /* ほぼ白・微青みがかった main content */
+  --bg-secondary:     #F2F7F8; /* MomoTalkソース sidebar 値そのまま */
+  --bg-sidebar:       #F2F7F8; /* サイドバー */
+  --card-matte:       #FFFFFF;
+  --card-matte-hover: #F5FAFE;
+
+  /* ボーダー */
+  --border-matte: #DDE6ED; /* MomoTalkソース値そのまま */
+  --border-focus: #02D3FB;
+
+  --radius: 2px;
+
+  /* テキスト */
+  --color-white:      #1B2B3A; /* ダークネイビー（heading/icon用） */
+  --color-zinc-light: #2E4A62;
+  --color-zinc-muted: #7A9BB0;
+  --color-green: #16a34a;
+  --color-red:   #dc2626;
+
+  --text-primary:   #1B2B3A;
+  --text-secondary: #5A7A95;
+}
+
+/* ---- ヘッダーエリア: ゲームのパネル上部の薄青を再現 ---- */
+[data-theme="blue-archive"] .top-header {
+  background-color: #E7F0F7; /* MomoTalkソース channeltopbar 値 */
+  border-bottom-color: #C8DCEA;
+  margin: -40px -40px 30px -40px;
+  padding: 20px 40px;
+}
+
+@media (max-width: 768px) {
+  [data-theme="blue-archive"] .top-header {
+    margin: -24px -16px 20px -16px;
+    padding: 14px 16px;
+  }
+}
+
+/* ---- サイドバー ---- */
+[data-theme="blue-archive"] .sidebar {
+  background-color: #F2F7F8;
+  border-right-color: #DDE6ED;
+}
+
+/* ---- ナビメニュー ---- */
+[data-theme="blue-archive"] .menu-item:hover {
+  background-color: var(--ba-cyan-faint);
+  color: #1B2B3A;
+}
+
+[data-theme="blue-archive"] .menu-item.active {
+  background-color: var(--ba-cyan-dim);
+  color: #02D3FB;
+  font-weight: 700;
+}
+
+/* ---- ボタン ---- */
+[data-theme="blue-archive"] .btn-primary {
+  background-color: #02D3FB;
+  color: #ffffff;
+}
+
+[data-theme="blue-archive"] .btn-primary:hover {
+  background-color: #00AED8;
+}
+
+[data-theme="blue-archive"] .btn-filter.active {
+  background-color: #02D3FB;
+  border-color: #02D3FB;
+  color: #ffffff;
+}
+
+[data-theme="blue-archive"] .btn-secondary:hover {
+  background-color: var(--ba-cyan-faint);
+}
+
+[data-theme="blue-archive"] .btn-icon:hover {
+  background-color: var(--ba-cyan-faint);
+  border-color: #02D3FB;
+}
+
+/* ---- フォームコントロール ---- */
+[data-theme="blue-archive"] .form-group input:focus,
+[data-theme="blue-archive"] .form-group select:focus,
+[data-theme="blue-archive"] .form-group textarea:focus {
+  border-color: #02D3FB;
+  box-shadow: 0 0 0 2px rgba(2, 211, 251, 0.15);
+}
+
+[data-theme="blue-archive"] .checkbox-custom:checked {
+  background-color: #02D3FB;
+  border-color: #02D3FB;
+}
+
+/* ---- 各種パーツ ---- */
+[data-theme="blue-archive"] .budget-progress-bar {
+  background-color: #02D3FB;
+}
+
+[data-theme="blue-archive"] .hud-pulse-dot {
+  background-color: #02D3FB;
+}
+
+[data-theme="blue-archive"] .avatar-badge {
+  background-color: #02D3FB;
+  color: #ffffff;
+}
+
+[data-theme="blue-archive"] .badge-accent {
+  color: #02D3FB;
+  border-color: #02D3FB;
+}
+
+[data-theme="blue-archive"] .hud-tag {
+  color: #02D3FB;
+  border-color: #C8DCEA;
+  background-color: #F2F7F8;
+}
+
+[data-theme="blue-archive"] .spinner {
+  border-color: rgba(2, 211, 251, 0.18);
+  border-top-color: #02D3FB;
+}
+
+[data-theme="blue-archive"] .alert-box {
+  border-left-color: #02D3FB;
+  background-color: #F0FAFF;
+}
+
+/* ---- SVG チャート ---- */
+[data-theme="blue-archive"] #trend-line-path {
+  stroke: #02D3FB;
+}
+
+[data-theme="blue-archive"] #dashboard-trend-chart line {
+  stroke: #C8DCEA;
+}
+
+[data-theme="blue-archive"] #schedules-sparkline-path,
+[data-theme="blue-archive"] #expenses-sparkline-path {
+  stroke: #02D3FB;
+}
+
+[data-theme="blue-archive"] .donut-chart circle:not(#donut-segment) {
+  stroke: #DDE6ED;
+}
+
+[data-theme="blue-archive"] #donut-segment {
+  stroke: #02D3FB;
+}
+
+/* ---- ドロップゾーン ---- */
+[data-theme="blue-archive"] .dropzone:hover,
+[data-theme="blue-archive"] .dropzone.dragover {
+  border-color: #02D3FB;
+  background-color: var(--ba-cyan-faint);
+}
+
+[data-theme="blue-archive"] .text-highlight {
+  color: #02D3FB;
+}
+
+/* ---- モーダルオーバーレイ ---- */
+[data-theme="blue-archive"] .modal {
+  background-color: rgba(211, 232, 245, 0.8);
+}
+
+/* ---- スクロールバー ---- */
+[data-theme="blue-archive"] ::-webkit-scrollbar-thumb {
+  background: #C8DCEA;
+}
+
+[data-theme="blue-archive"] ::-webkit-scrollbar-thumb:hover {
+  background: #02D3FB;
+}
+
+/* ---- モバイル ---- */
+@media (max-width: 768px) {
+  [data-theme="blue-archive"] .sidebar {
+    background-color: #F2F7F8;
+    border-top-color: #DDE6ED;
+    box-shadow: 0 -2px 12px rgba(2, 211, 251, 0.1);
+  }
+
+  [data-theme="blue-archive"] .menu-item.active {
+    color: #02D3FB;
+    background-color: var(--ba-cyan-dim);
+  }
+}
+
+/* ==============================================================================
+   BA — マルチアクセントカラー（ピンク / ラベンダー / イエロー）
+   ============================================================================== */
+
+/* リンク色：ゲーム内リンク色 (ラベンダー) */
+[data-theme="blue-archive"] a:not(.menu-item):not(.btn) {
+  color: var(--ba-lavender);
+}
+
+[data-theme="blue-archive"] a:not(.menu-item):not(.btn):hover {
+  color: var(--ba-cyan);
+}
+
+/* 緊急/期限切れバッジ — ピンク */
+[data-theme="blue-archive"] .badge-urgent {
+  background-color: var(--ba-pink-dim);
+  color: var(--ba-pink);
+  border: 1px solid var(--ba-pink);
+}
+
+/* 通常バッジは control 色のまま */
+[data-theme="blue-archive"] .badge-normal {
+  color: var(--ba-lavender);
+  border-color: #C8DCEA;
+}
+
+/* 優先度: タスクカード左ボーダー (動的クラス付与時用) */
+[data-theme="blue-archive"] .card-item.priority-high {
+  border-left: 3px solid var(--ba-pink);
+}
+
+[data-theme="blue-archive"] .card-item.priority-medium {
+  border-left: 3px solid var(--ba-yellow);
+}
+
+[data-theme="blue-archive"] .card-item.priority-low {
+  border-left: 3px solid var(--ba-lavender);
+}
+
+/* メタ情報内の "priority" マーカー */
+[data-theme="blue-archive"] .meta-item .priority-high { color: var(--ba-pink); }
+[data-theme="blue-archive"] .meta-item .priority-medium { color: var(--ba-yellow); }
+[data-theme="blue-archive"] .meta-item .priority-low { color: var(--ba-lavender); }
+
+/* ステータスバッジ — シアン枠 */
+[data-theme="blue-archive"] .stat-card-badge-trend {
+  color: var(--ba-cyan);
+  border-color: #C8DCEA;
+}
+
+/* アクセントバッジ — シアン (既存上書きで明示) */
+[data-theme="blue-archive"] .badge-accent {
+  color: var(--ba-cyan);
+  border-color: var(--ba-cyan);
+  background-color: var(--ba-cyan-faint);
+}
+
+/* 警告アイコン — ウォームイエロー */
+[data-theme="blue-archive"] .alert-icon-symbol {
+  color: var(--ba-yellow) !important;
+}
+
+[data-theme="blue-archive"] .alert-box {
+  border-left-color: var(--ba-yellow);
+  background-color: #FFFBEC;
+}
+
+/* ソースバッジを色分け */
+[data-theme="blue-archive"] .source-discord { color: var(--ba-lavender); }
+[data-theme="blue-archive"] .source-manual  { color: var(--ba-cyan); }
+[data-theme="blue-archive"] .source-web     { color: var(--ba-pink); }
+
+/* ==============================================================================
+   THEME SELECTOR UI (設定タブ)
+   ============================================================================== */
+.theme-options {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 2px solid var(--border-matte);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-family-sans);
+}
+
+.theme-option:hover {
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.theme-option.active {
+  border-color: var(--accent-cyan);
+  color: var(--text-primary);
+}
+
+[data-theme="blue-archive"] .theme-option.active {
+  border-color: #02D3FB;
+}
+
+.theme-preview {
+  width: 88px;
+  height: 56px;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  border: 1px solid var(--border-matte);
+}
+
+.preview-sidebar {
+  width: 22px;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.preview-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  justify-content: center;
+}
+
+.preview-card {
+  height: 14px;
+  border-radius: 2px;
+}
+
+/* Dark theme preview */
+.dark-preview {
+  background-color: #09090b;
+}
+
+.dark-preview .preview-sidebar {
+  background-color: #18181b;
+}
+
+.dark-preview .preview-card {
+  background-color: #27272a;
+}
+
+/* Blue Archive theme preview */
+.ba-preview {
+  background-color: #FBFCFF;
+}
+
+.ba-preview .preview-sidebar {
+  background-color: #F2F7F8;
+  border-right: 1px solid #DDE6ED;
+}
+
+.ba-preview .preview-card {
+  background-color: #E7F0F7;
+}
+
+.ba-preview .preview-card:first-child {
+  background-color: #02D3FB;
+}
