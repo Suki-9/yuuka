@@ -1449,4 +1449,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Start initialization
   checkSessionHandshake();
 
+  // Service Worker 登録
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
 });

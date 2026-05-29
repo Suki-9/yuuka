@@ -46,6 +46,8 @@ const MIME_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".json": "application/json",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
 };
 
 /**
@@ -116,7 +118,7 @@ function sendJson(res: http.ServerResponse, status: number, data: any) {
     "Content-Type": "application/json",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
-    "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'self';",
+    "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data:; worker-src 'self'; frame-ancestors 'self';",
   });
   res.end(JSON.stringify(data));
 }
@@ -157,7 +159,7 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
       "Content-Type": contentType,
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "SAMEORIGIN",
-      "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'self';",
+      "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data:; worker-src 'self'; frame-ancestors 'self';",
     });
 
     const stream = fs.createReadStream(resolvedPath);
