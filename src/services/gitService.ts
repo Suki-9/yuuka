@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import { config } from "../config.js";
 
-const SANDBOX_DIR = path.resolve(process.cwd());
+const SANDBOX_DIR = path.resolve(config.sandboxPath || process.cwd());
 
 /**
  * Gitコマンドを安全に実行するヘルパー

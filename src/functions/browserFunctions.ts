@@ -59,3 +59,88 @@ export async function searchWeb(userId: string, args: { query: string }): Promis
     });
   }
 }
+
+/**
+ * 永続インタラクティブブラウザで指定されたURLを開く
+ */
+export async function browserInteractiveOpen(
+  userId: string,
+  args: { url: string }
+): Promise<string> {
+  try {
+    const res = await browserService.browserInteractiveOpen(args.url);
+    return JSON.stringify(res);
+  } catch (err: any) {
+    return JSON.stringify({ success: false, message: err.message });
+  }
+}
+
+/**
+ * 永続インタラクティブブラウザの要素（または文言）をクリックする
+ */
+export async function browserInteractiveClick(
+  userId: string,
+  args: { selector: string }
+): Promise<string> {
+  try {
+    const res = await browserService.browserInteractiveClick(args.selector);
+    return JSON.stringify(res);
+  } catch (err: any) {
+    return JSON.stringify({ success: false, message: err.message });
+  }
+}
+
+/**
+ * 永続インタラクティブブラウザの入力フィールドにテキストを入力する
+ */
+export async function browserInteractiveType(
+  userId: string,
+  args: { selector: string; text: string }
+): Promise<string> {
+  try {
+    const res = await browserService.browserInteractiveType(args.selector, args.text);
+    return JSON.stringify(res);
+  } catch (err: any) {
+    return JSON.stringify({ success: false, message: err.message });
+  }
+}
+
+/**
+ * 永続インタラクティブブラウザで待機する
+ */
+export async function browserInteractiveWait(
+  userId: string,
+  args: { selector?: string; timeoutMs?: number }
+): Promise<string> {
+  try {
+    const res = await browserService.browserInteractiveWait(args.selector, args.timeoutMs);
+    return JSON.stringify(res);
+  } catch (err: any) {
+    return JSON.stringify({ success: false, message: err.message });
+  }
+}
+
+/**
+ * 永続インタラクティブブラウザのアクティブ状態を取得する
+ */
+export async function browserInteractiveStatus(userId: string): Promise<string> {
+  try {
+    const res = await browserService.browserInteractiveStatus();
+    return JSON.stringify(res);
+  } catch (err: any) {
+    return JSON.stringify({ success: false, message: err.message });
+  }
+}
+
+/**
+ * 永続インタラクティブブラウザセッションをクローズする
+ */
+export async function browserInteractiveClose(userId: string): Promise<string> {
+  try {
+    const res = await browserService.browserInteractiveClose();
+    return JSON.stringify(res);
+  } catch (err: any) {
+    return JSON.stringify({ success: false, message: err.message });
+  }
+}
+

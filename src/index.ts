@@ -3,9 +3,13 @@ import { startBot, stopBot } from "./bot.js";
 import { closeDb } from "./db/database.js";
 import { startWebServer, stopWebServer } from "./server.js";
 import { initRedis, closeRedis } from "./db/redis.js";
+import { initializeDynamicFunctions } from "./functions/index.js";
 
 async function main() {
   console.log("🚀 Yuuka 起動中...");
+
+  // 動的関数の初期化とロード
+  await initializeDynamicFunctions();
 
   // データベース初期化
   runMigrations();

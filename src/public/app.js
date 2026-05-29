@@ -45,8 +45,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalTask = document.getElementById("modal-task");
   const modalSchedule = document.getElementById("modal-schedule");
   const modalReceiptResult = document.getElementById("modal-receipt-result");
+  const modalCredential = document.getElementById("modal-credential");
   const profileForm = document.getElementById("profile-form");
   const taskForm = document.getElementById("task-form");
+  const credentialForm = document.getElementById("credential-form");
   const scheduleForm = document.getElementById("schedule-form");
   const receiptAiResponse = document.getElementById("receipt-ai-response");
 
@@ -166,6 +168,7 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalTask);
       closeModal(modalSchedule);
       closeModal(modalReceiptResult);
+      closeModal(modalCredential);
     });
   });
 
@@ -173,6 +176,7 @@ document.addEventListener("DOMContentLoaded", () => {
   btnAddProfile.addEventListener("click", () => openModal(modalProfile));
   document.getElementById("btn-new-task").addEventListener("click", () => openModal(modalTask));
   document.getElementById("btn-new-schedule").addEventListener("click", () => openModal(modalSchedule));
+  document.getElementById("btn-new-credential").addEventListener("click", () => openModal(modalCredential));
 
   // ==========================================
   // API FETCH & CORE LOGIC
@@ -1235,6 +1239,9 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
       }
+      
+      // Load AI Credentials List
+      fetchCredentialsSettings();
     } catch(e) {
       console.error(e);
     }
@@ -1285,6 +1292,133 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } catch (e) {
         console.error(e);
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // ==========================================
+  // AI CREDENTIALS MANAGEMENT
+  // ==========================================
+  async function fetchCredentialsSettings() {
+    const configCredentialsList = document.getElementById("config-credentials-list");
+    if (!configCredentialsList) return;
+
+    configCredentialsList.replaceChildren();
+
+    try {
+      const res = await fetch("/api/credentials");
+      const data = await res.json();
+
+      if (data.success && data.credentials.length > 0) {
+        data.credentials.forEach(cred => {
+          const tr = document.createElement("tr");
+          tr.style.borderBottom = "1px solid var(--border-matte)";
+
+          const tdService = document.createElement("td");
+          tdService.style.padding = "12px 10px";
+          tdService.style.fontSize = "0.85rem";
+          tdService.style.color = "var(--color-white)";
+          tdService.style.fontWeight = "700";
+          tdService.textContent = cred.serviceName;
+
+          const tdUser = document.createElement("td");
+          tdUser.style.padding = "12px 10px";
+          tdUser.style.fontSize = "0.85rem";
+          tdUser.style.fontFamily = "var(--font-family-mono)";
+          tdUser.textContent = cred.username;
+
+          const tdPass = document.createElement("td");
+          tdPass.style.padding = "12px 10px";
+          tdPass.style.fontSize = "0.85rem";
+          tdPass.style.color = "var(--color-zinc-muted)";
+          tdPass.style.fontFamily = "var(--font-family-mono)";
+          tdPass.textContent = "•••••••••••• (暗号化)";
+
+          const tdUpdated = document.createElement("td");
+          tdUpdated.style.padding = "12px 10px";
+          tdUpdated.style.fontSize = "0.75rem";
+          tdUpdated.style.color = "var(--color-zinc-muted)";
+          tdUpdated.textContent = cred.updatedAt;
+
+          const tdAction = document.createElement("td");
+          tdAction.style.padding = "12px 10px";
+          tdAction.style.textAlign = "right";
+
+          const btnDelete = document.createElement("button");
+          btnDelete.className = "btn-credential-delete";
+          btnDelete.type = "button";
+          btnDelete.innerHTML = `<span class="material-symbols-outlined" style="font-size: 0.95rem;">delete</span> 削除`;
+          btnDelete.addEventListener("click", () => handleDeleteCredential(cred.serviceName));
+
+          tdAction.appendChild(btnDelete);
+
+          tr.appendChild(tdService);
+          tr.appendChild(tdUser);
+          tr.appendChild(tdPass);
+          tr.appendChild(tdUpdated);
+          tr.appendChild(tdAction);
+          configCredentialsList.appendChild(tr);
+        });
+      } else {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.style.padding = "16px 10px";
+        td.style.fontSize = "0.8rem";
+        td.style.color = "var(--color-zinc-muted)";
+        td.textContent = "登録されている認証情報はありません。";
+        tr.appendChild(td);
+        configCredentialsList.appendChild(tr);
+      }
+    } catch (err) {
+      console.error("認証情報の取得に失敗:", err);
+    }
+  }
+
+  async function handleDeleteCredential(serviceName) {
+    if (!confirm(`本当にサービス "${serviceName}" の認証情報を削除しますか？`)) return;
+    try {
+      const res = await fetch("/api/credentials/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceName })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchCredentialsSettings();
+      } else {
+        alert("削除に失敗しました。");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("通信エラーが発生しました。");
+    }
+  }
+
+  if (credentialForm) {
+    credentialForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const serviceName = document.getElementById("cred-service-name").value.trim().toLowerCase();
+      const username = document.getElementById("cred-username").value.trim();
+      const password = document.getElementById("cred-password").value;
+
+      try {
+        const res = await fetch("/api/credentials/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ serviceName, username, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeModal(modalCredential);
+          credentialForm.reset();
+          fetchCredentialsSettings();
+        } else {
+          alert(`登録に失敗しました: ${data.message}`);
+        }
+      } catch (err) {
+        console.error(err);
         alert("通信エラーが発生しました。");
       }
     });

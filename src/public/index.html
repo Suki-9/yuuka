@@ -468,6 +468,38 @@
             </form>
           </div>
 
+          <!-- AI Credentials Management Card (Matte Flat Style) -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">lock</span>AI認証情報管理 (AI Credentials)</h3>
+              <span class="badge badge-accent">セキュア暗号化</span>
+            </div>
+            <p class="description-text">AIエージェント（ユウカ）が自動ブラウジング等でログインするために使用するユーザー名とパスワードを安全に登録します。パスワードはAES-256-GCMにより強固に暗号化され、必要な時にのみオンデマンドで復号されます。</p>
+            
+            <!-- Credentials List Table -->
+            <div class="table-responsive" style="margin-top: 16px;">
+              <table class="expense-table" style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 1px solid #27272a;">
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">対象サービス名</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">ユーザー名 (ID)</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">パスワード</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">最終更新</th>
+                    <th style="text-align: right; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa; width: 80px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="config-credentials-list">
+                  <!-- Generated dynamically -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Add Credential Button trigger -->
+            <div style="margin-top: 18px; display: flex; justify-content: flex-end;">
+              <button id="btn-new-credential" class="btn btn-primary">＋ 認証情報を追加</button>
+            </div>
+          </div>
+
           <div class="config-card card alert-box">
             <div class="alert-header">
               <span class="material-symbols-outlined alert-icon-symbol">warning</span>
@@ -501,6 +533,35 @@
           <span class="field-sub">※Discord上でユーザーを右クリックし、「IDをコピー」で取得できます。</span>
         </div>
         <button type="submit" class="btn btn-primary btn-block">追加</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Credential Modal -->
+  <div id="modal-credential" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>新規認証情報の登録</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="credential-form">
+        <div class="form-group">
+          <label for="cred-service-name">対象サービス名 (小文字英数字・ハイフン) *</label>
+          <input type="text" id="cred-service-name" required placeholder="例: github, millennium-portal" pattern="[a-z0-9\-]+">
+          <span class="field-sub">※AIに指示する際の名前になります。</span>
+        </div>
+        <div class="form-group">
+          <label for="cred-username">ユーザー名 (ID / メールアドレス) *</label>
+          <input type="text" id="cred-username" required placeholder="例: sensei_millennium">
+        </div>
+        <div class="form-group">
+          <label for="cred-password">パスワード *</label>
+          <input type="password" id="cred-password" required placeholder="••••••••••••" autocomplete="new-password">
+          <span class="field-sub">※AES-256-GCMでローカルDBに安全に暗号化保存されます。</span>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">認証情報を保存</button>
       </form>
     </div>
   </div>

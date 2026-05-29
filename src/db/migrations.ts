@@ -82,5 +82,19 @@ export function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS credentials (
+      service_name TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      encrypted_password TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      auth_tag TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_credentials_updated_at ON credentials(updated_at);
+  `);
+
   console.log("✅ データベースマイグレーション完了");
 }
+

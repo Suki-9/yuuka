@@ -23,6 +23,7 @@ import {
   getMonthlyCategoryBreakdown,
 } from "./db/expenseRepo.js";
 import { parseReceipt } from "./services/receiptParser.js";
+import * as secretService from "./services/secretService.js";
 
 // セッション管理（有効期限付き）
 const SESSION_TTL = 24 * 60 * 60 * 1000; // 24時間
@@ -412,6 +413,51 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       sendJson(res, 200, { success: true, users: userIds });
     } catch (err: any) {
       sendError(res, 500, "ユーザー一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // ── 資格情報API ──
+  if (pathname === "/api/credentials" && method === "GET") {
+    try {
+      const list = secretService.listCredentials();
+      sendJson(res, 200, { success: true, credentials: list });
+    } catch (err: any) {
+      sendError(res, 500, "資格情報一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/credentials/register" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { serviceName, username, password } = JSON.parse(body);
+
+      if (!serviceName || !username || !password) {
+        return sendError(res, 400, "サービス名、ユーザー名、およびパスワードは必須です。");
+      }
+
+      secretService.registerCredential(serviceName, username, password);
+      sendJson(res, 200, { success: true, message: "資格情報を正常に登録しました。" });
+    } catch (err: any) {
+      sendError(res, 500, "資格情報の登録に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/credentials/delete" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { serviceName } = JSON.parse(body);
+
+      if (!serviceName) {
+        return sendError(res, 400, "サービス名は必須です。");
+      }
+
+      const success = secretService.deleteCredential(serviceName);
+      sendJson(res, 200, { success });
+    } catch (err: any) {
+      sendError(res, 500, "資格情報の削除に失敗しました。");
     }
     return;
   }

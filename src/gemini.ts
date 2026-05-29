@@ -5,7 +5,7 @@ import {
   type FunctionCall,
 } from "@google/generative-ai";
 import { config } from "./config.js";
-import { functionDeclarations, dispatchFunction } from "./functions/index.js";
+import { getAllFunctionDeclarations, dispatchFunction } from "./functions/index.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import { addChatMessage, getRecentChatHistory } from "./db/chatHistoryRepo.js";
 
@@ -174,7 +174,7 @@ async function generateWithRetry(
   const model = genAI.getGenerativeModel({
     model: config.geminiModel,
     systemInstruction: await buildSystemInstruction(),
-    tools: [{ functionDeclarations }],
+    tools: [{ functionDeclarations: getAllFunctionDeclarations() }],
   });
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -298,7 +298,7 @@ export async function processMessage(
         console.log(`🔧 Function Call: ${name}`, JSON.stringify(args));
 
         const functionResult = await dispatchFunction(name, args as Record<string, unknown>, userId);
-        console.log(`📤 Function Result: ${functionResult.substring(0, 200)}`);
+        console.log(`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`);
 
         let parsedResult: object;
         try {

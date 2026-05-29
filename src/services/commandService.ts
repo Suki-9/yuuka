@@ -1,7 +1,9 @@
 import { execSync } from "node:child_process";
+import path from "node:path";
+import { config } from "../config.js";
 
-// サンドボックスディレクトリをプロジェクトルートに固定
-const SANDBOX_DIR = process.cwd();
+// サンドボックスディレクトリの解決 (config.sandboxPath があればそれを使用、なければ process.cwd())
+const SANDBOX_DIR = path.resolve(config.sandboxPath || process.cwd());
 
 /**
  * 許可されたホワイトリストコマンドのみをシェルで実行する

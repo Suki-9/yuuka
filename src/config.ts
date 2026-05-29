@@ -93,6 +93,9 @@ export const config = {
 
   /** フォークした自身のリポジトリ名 (owner/repo) */
   githubForkRepo: getSetting("GITHUB_FORK_REPO"),
+
+  /** 自己開発（自己強化）サンドボックス対象パス */
+  sandboxPath: getSetting("SANDBOX_PATH"),
 } as const;
 
 export function updateGoogleCalendarsInYaml(newCalendars: string[]): void {

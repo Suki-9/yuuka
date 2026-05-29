@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { config } from "../config.js";
 
-// サンドボックスディレクトリをプロジェクトルートに固定
-const SANDBOX_DIR = path.resolve(process.cwd());
+// サンドボックスディレクトリの解決 (config.sandboxPath があればそれを使用、なければ process.cwd())
+const SANDBOX_DIR = path.resolve(config.sandboxPath || process.cwd());
 
 /**
  * 対象パスを解決し、サンドボックスディレクトリ内にあるか検証する
