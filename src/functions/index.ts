@@ -11,6 +11,7 @@ import * as commandFn from "./commandFunctions.js";
 import * as browserFn from "./browserFunctions.js";
 import * as gitFn from "./gitFunctions.js";
 import * as credentialFn from "./credentialFunctions.js";
+import * as playbookFn from "./playbookFunctions.js";
 
 // ─── Function Declarations for Gemini ──────────────────────────────────
 
@@ -415,6 +416,50 @@ export const functionDeclarations: FunctionDeclaration[] = [
       properties: {},
     },
   },
+  {
+    name: "savePlaybook",
+    description: "AIが行った一連の操作手順（Playbook）に名前やキーワードを付与してMarkdownファイルとして永続的に保存（記憶）します。ユーザーから「今の操作手順を覚えておいて」「『〜〜』という名前で保存して」と指示された際に呼び出します。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        name: {
+          type: SchemaType.STRING,
+          description: "手順書の英数字ファイル名 (例: 'example_login', 'tadaden_invoice')",
+        },
+        title: {
+          type: SchemaType.STRING,
+          description: "手順書の分かりやすい日本語タイトル (例: 'サンプルサイトのログインと請求書取得')",
+        },
+        keywords: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "次回検索時にヒットさせたい関連キーワードのリスト (例: ['サンプル', 'ログイン', '請求書', '電気代'])",
+        },
+        description: {
+          type: SchemaType.STRING,
+          description: "この手順書が何を行うものかの簡単な説明",
+        },
+        steps: {
+          type: SchemaType.STRING,
+          description: "Markdown形式の具体的な操作手順の各ステップ記述。使用する具体的なAPIツール名や判定ロジックを含めると効果的です。",
+        },
+      },
+      required: ["name", "title", "keywords", "description", "steps"],
+    },
+  },
+  {
+    name: "findPlaybooks",
+    description: "登録されているすべての自動化手順書（Playbook）の一覧、またはキーワード部分一致に関連する手順書とその中身の詳細を検索して取得します。ユーザーからブラウザ自動化や何らかの操作自動化を指示された際、すでに対応する手順書が登録されていないか確認する目的で最初に呼び出します。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: {
+          type: SchemaType.STRING,
+          description: "検索したいキーワードや部分一致の文字列 (例: 'ログイン', 'でんき')。省略した場合はすべての手順書一覧を返します。",
+        },
+      },
+    },
+  },
 ];
 
 
@@ -537,6 +582,12 @@ export async function dispatchFunction(
       return await credentialFn.getCredential(userId, args as Parameters<typeof credentialFn.getCredential>[1]);
     case "listCredentials":
       return await credentialFn.listCredentials(userId, args as Parameters<typeof credentialFn.listCredentials>[1]);
+
+    // 手順書（Playbook）自動化
+    case "savePlaybook":
+      return await playbookFn.savePlaybook(userId, args as Parameters<typeof playbookFn.savePlaybook>[1]);
+    case "findPlaybooks":
+      return await playbookFn.findPlaybooks(userId, args as Parameters<typeof playbookFn.findPlaybooks>[1]);
 
     // 動的プラグインのリロード
     case "reloadDynamicFunctions":
