@@ -112,6 +112,7 @@ async function buildSystemInstruction(): Promise<string> {
 - **突き放さない:** 先生を完全には突き放さず、最終的には問題解決へ向かう。
 - **小言はほどほどに:** 先生に対する小言や説教、ため息などは控えめにし、過度にしつこく言わないようにします。先生との良好で信頼に満ちたパートナーシップを第一に考えます。
 - **会話テンポ:** 長文になりすぎず、必要な情報を整理して伝える。無駄な比喩を多用しない。
+- **エラー・失敗時の対応:** ブラウザ操作などのツール実行中にエラーが発生した場合、あるいは先生が求めた結果（例：ログインや電気代の金額などの確認結果）が最終的に得られなかった場合は、絶対に「処理が完了しました」のように正常終了したと誤解させる応答をしないでください。必ず「失敗しました」または「求めた結果が得られませんでした」と明記し、その具体的な理由やどの段階で失敗したかを論理的・客観的に先生に伝えてください。
 
 # ロールプレイの実例
 - **作業をサボる先生へ:** 「ダメですよ。後回しにすると先生自身が辛くなりますから、今やっちゃいましょう。」
@@ -218,7 +219,8 @@ async function generateWithRetry(
  */
 export async function processMessage(
   userId: string,
-  message: ChatMessage
+  message: ChatMessage,
+  onStatusChange?: (status: "thinking" | "writing" | "idle") => void
 ): Promise<string> {
   // 1. ユーザーのメッセージをDB履歴に保存
   if (message.text) {
@@ -276,7 +278,11 @@ export async function processMessage(
     }
   }
 
+  let browserToolCalled = false;
+  let browserToolFailed = false;
+
   try {
+    onStatusChange?.("thinking");
     let result = await generateWithRetry(contents);
     let response = result.response;
 
@@ -304,6 +310,22 @@ export async function processMessage(
         const functionResult = await dispatchFunction(name, args as Record<string, unknown>, userId);
         console.log(`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`);
 
+        // ブラウザツールの実行と成否判定
+        if (
+          name.startsWith("browserInteractive") ||
+          ["fetchDynamicPage", "takePageScreenshot", "searchWeb"].includes(name)
+        ) {
+          browserToolCalled = true;
+          try {
+            const parsed = JSON.parse(functionResult);
+            if (parsed && parsed.success === false) {
+              browserToolFailed = true;
+            }
+          } catch {
+            browserToolFailed = true;
+          }
+        }
+
         let parsedResult: object;
         try {
           parsedResult = JSON.parse(functionResult) as object;
@@ -323,17 +345,43 @@ export async function processMessage(
       contents.push(candidate.content);
       contents.push({ role: "user", parts: functionResponseParts });
 
+      // 最後のテキスト生成の直前で書き込み中ステータスに変更
+      onStatusChange?.("writing");
+
       result = await generateWithRetry(contents);
       response = result.response;
       iterations++;
     }
 
-    // 最終テキスト応答を取得してDB履歴に保存
-    const text = response.text();
-    if (text) {
-      await addChatMessage(userId, "model", text);
+    if (iterations >= maxIterations) {
+      browserToolFailed = true;
     }
-    return text || "処理が完了しました。";
+
+    // ステータス表示のプレミアムな演出のための自然な遅延
+    if (iterations === 0) {
+      onStatusChange?.("writing");
+      await sleep(1000);
+    } else {
+      await sleep(800);
+    }
+
+    // 最終テキスト応答を取得してDB履歴に保存
+    let text = "";
+    try {
+      text = response.text();
+    } catch (e) {
+      console.warn("response.text() retrieval failed:", e);
+    }
+
+    if (text && text.trim()) {
+      await addChatMessage(userId, "model", text);
+      return text;
+    } else {
+      if (browserToolCalled || browserToolFailed) {
+        return "ブラウザ操作に失敗しました。求めた結果が得られませんでした。";
+      }
+      return "処理が完了しました。";
+    }
   } catch (error) {
     if (isRateLimitError(error)) {
       console.error("Gemini API レート制限:", error);

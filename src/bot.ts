@@ -2,6 +2,7 @@ import {
   Client,
   GatewayIntentBits,
   Partials,
+  ActivityType,
   type Message,
 } from "discord.js";
 import { config } from "./config.js";
@@ -19,8 +20,43 @@ export const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
+export function setBotStatus(status: "thinking" | "writing" | "idle") {
+  if (!client.user) return;
+  try {
+    if (status === "thinking") {
+      client.user.setPresence({
+        activities: [{
+          name: "custom",
+          type: ActivityType.Custom,
+          state: "考え中...",
+        }],
+        status: "dnd",
+      });
+    } else if (status === "writing") {
+      client.user.setPresence({
+        activities: [{
+          name: "custom",
+          type: ActivityType.Custom,
+          state: "書き込み中...",
+        }],
+        status: "online",
+      });
+    } else {
+      client.user.setPresence({
+        activities: [],
+        status: "online",
+      });
+    }
+  } catch (err) {
+    console.error("Failed to set bot presence status:", err);
+  }
+}
+
 client.once("clientReady", (c) => {
   console.log(`✅ ${c.user.tag} としてログインしました`);
+
+  // 初期ステータスの設定
+  setBotStatus("idle");
 
   // リマインダーサービスを開始
   startReminderService(client);
@@ -98,6 +134,9 @@ client.on("messageCreate", async (message: Message) => {
     }
 
     let response: string;
+    const statusCallback = (status: "thinking" | "writing" | "idle") => {
+      setBotStatus(status);
+    };
 
     if (imageAttachment) {
       // 画像がある場合：レシート解析を試める
@@ -108,11 +147,11 @@ client.on("messageCreate", async (message: Message) => {
       const imageBase64 = imageBuffer.toString("base64");
       const mimeType = imageAttachment.contentType || "image/jpeg";
 
-      response = await parseReceipt(userId, imageBase64, mimeType, text || undefined);
+      response = await parseReceipt(userId, imageBase64, mimeType, text || undefined, statusCallback);
     } else if (fullText.trim()) {
       // テキストのみ
       const chatMessage: ChatMessage = { text: fullText };
-      response = await processMessage(userId, chatMessage);
+      response = await processMessage(userId, chatMessage, statusCallback);
     } else {
       response = "何かお手伝いできることはありますか？ 📋\n\nタスク管理、予定管理、家計管理ができますよ！";
     }
@@ -142,6 +181,9 @@ client.on("messageCreate", async (message: Message) => {
     await message.reply(
       "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。"
     );
+  } finally {
+    // 処理完了後、またはエラー終了後にステータスを確実にidleに戻す
+    setBotStatus("idle");
   }
 });
 
