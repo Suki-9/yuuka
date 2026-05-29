@@ -163,6 +163,15 @@ function isRateLimitError(error: unknown): boolean {
   return false;
 }
 
+/** サーバー側の一時的なエラー(503など)かどうか判定 */
+function isServerError(error: unknown): boolean {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = (error as { status: number }).status;
+    return status === 500 || status === 502 || status === 503 || status === 504;
+  }
+  return false;
+}
+
 /** 指定ミリ秒待機 */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -186,7 +195,7 @@ async function generateWithRetry(
     try {
       return await model.generateContent({ contents });
     } catch (error) {
-      if (isRateLimitError(error) && attempt < maxRetries) {
+      if ((isRateLimitError(error) || isServerError(error)) && attempt < maxRetries) {
         // RetryInfo からリトライ待機時間を取得、なければ指数バックオフ
         let waitMs = Math.min(1000 * Math.pow(2, attempt + 1), 60000);
 
@@ -204,7 +213,8 @@ async function generateWithRetry(
           }
         }
 
-        console.log(`⏳ レート制限 (${attempt + 1}/${maxRetries})、${Math.ceil(waitMs / 1000)}秒後にリトライ...`);
+        const errorType = isRateLimitError(error) ? "レート制限(枯渇)" : "サーバー高負荷";
+        console.log(`⏳ ${errorType} (${attempt + 1}/${maxRetries})、${Math.ceil(waitMs / 1000)}秒後にリトライ...`);
         await sleep(waitMs);
         continue;
       }
@@ -385,7 +395,11 @@ export async function processMessage(
   } catch (error) {
     if (isRateLimitError(error)) {
       console.error("Gemini API レート制限:", error);
-      return "⚠️ 現在APIの利用制限に達しています。しばらく待ってからもう一度お試しください。";
+      return "⚠️ 現在APIの利用制限（トークン枯渇など）に達しています。しばらく待ってからもう一度お試しください。";
+    }
+    if (isServerError(error)) {
+      console.error("Gemini API サーバーエラー:", error);
+      return "⚠️ AIサーバーが現在混み合っているか、一時的なエラーが発生しています（503等）。しばらく待ってからもう一度お試しください。";
     }
     console.error("Gemini API エラー:", error);
     throw error;
