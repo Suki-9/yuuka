@@ -7,11 +7,40 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const SCREENSHOT_DIR = path.resolve(process.cwd(), "data/screenshots");
+const DEBUG_SCRAPES_DIR = path.resolve(process.cwd(), "data/debug_scrapes");
 
-// スクリーンショット保存用ディレクトリの確保
-if (!fs.existsSync(SCREENSHOT_DIR)) {
-  fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+// 保存用ディレクトリの確保
+[SCREENSHOT_DIR, DEBUG_SCRAPES_DIR].forEach((dir) => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+// 1時間以上経過した不要な画像やMDファイルを削除する
+function cleanupOldFiles() {
+  const ONE_HOUR = 60 * 60 * 1000;
+  const now = Date.now();
+  
+  [SCREENSHOT_DIR, DEBUG_SCRAPES_DIR].forEach((dir) => {
+    if (!fs.existsSync(dir)) return;
+    fs.readdir(dir, (err, files) => {
+      if (err) return;
+      files.forEach((file) => {
+        const filePath = path.join(dir, file);
+        fs.stat(filePath, (err, stats) => {
+          if (err) return;
+          if (now - stats.mtimeMs > ONE_HOUR) {
+            fs.unlink(filePath, () => {});
+          }
+        });
+      });
+    });
+  });
 }
+
+// 起動時とその後1時間ごとにクリーンアップを実行
+cleanupOldFiles();
+setInterval(cleanupOldFiles, 60 * 60 * 1000);
 
 // バイナリパス候補
 const CRAWLER_BIN_PATHS = [
@@ -389,17 +418,12 @@ export async function fetchCleanPageContent(url: string): Promise<{ title: strin
 
   // 結果のMarkdownファイルをデバッグ用に保存する
   try {
-    const outputDir = path.resolve(process.cwd(), "data/debug_scrapes");
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-    
-    const lastFetchPath = path.join(outputDir, "debug_last_fetch.md");
+    const lastFetchPath = path.join(DEBUG_SCRAPES_DIR, "debug_last_fetch.md");
     fs.writeFileSync(lastFetchPath, result.markdown, "utf-8");
     
     const sanitizedUrl = url.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 100);
     const uniqueFilename = `fetch_${Date.now()}_${sanitizedUrl}.md`;
-    const uniqueFetchPath = path.join(outputDir, uniqueFilename);
+    const uniqueFetchPath = path.join(DEBUG_SCRAPES_DIR, uniqueFilename);
     fs.writeFileSync(uniqueFetchPath, result.markdown, "utf-8");
     
     console.log(`[Debug] Saved scraped markdown to: ${uniqueFetchPath}`);
