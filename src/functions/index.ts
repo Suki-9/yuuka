@@ -338,22 +338,22 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "browserInteractiveClick",
-    description: "インタラクティブブラウザのアクティブなページ上で、指定された要素をクリックします。CSSセレクタ（例: 'button#login'、'a[href=\"/home\"]'）の他、スマートフォールバックとしてクリックしたいボタンやリンクのテキスト（例: 'ログイン'、'送信'）を直接指定可能です。",
+    description: "インタラクティブブラウザのアクティブなページ上で、指定された要素をクリックします。画面上の操作可能な要素には [ID: 数値] または [Button ID: 数値] のように一意の数値IDがマークダウン内に付与されているため、最優先でその数値ID（例: '3'）を selector 引数に直接指定してください。CSSセレクタやテキストでの指定も可能ですが、数値IDが最も確実で推奨されます。",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        selector: { type: SchemaType.STRING, description: "クリック対象のCSSセレクタ、または要素内のテキスト" },
+        selector: { type: SchemaType.STRING, description: "クリック対象の一意の数値ID（最推奨、例: '3'）、またはCSSセレクタ/要素内のテキスト" },
       },
       required: ["selector"],
     },
   },
   {
     name: "browserInteractiveType",
-    description: "インタラクティブブラウザのアクティブなページ上の指定された入力フィールドにテキストを入力します。CSSセレクタの他、スマートフォールバックとしてプレースホルダーやname属性などのテキスト指定（例: 'ユーザー名'、'パスワード'、'username'）も指定可能です。",
+    description: "インタラクティブブラウザのアクティブなページ上の指定された入力フィールドにテキストを入力します。画面上の入力フィールドには [Input (text) ID: 数値] のように一意の数値IDがマークダウン内に付与されているため、最優先でその数値ID（例: '2'）を selector 引数に直接指定してください。CSSセレクタやプレースホルダー名での指定も可能ですが、数値IDが最も確実で推奨されます。",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        selector: { type: SchemaType.STRING, description: "入力対象のCSSセレクタ、またはプレースホルダー/name属性の一部" },
+        selector: { type: SchemaType.STRING, description: "入力対象の一意の数値ID（最推奨、例: '2'）、またはCSSセレクタ/プレースホルダー名/name属性の一部" },
         text: { type: SchemaType.STRING, description: "入力するテキスト内容" },
       },
       required: ["selector", "text"],
