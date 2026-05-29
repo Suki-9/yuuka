@@ -1,4 +1,4 @@
-const CACHE = 'yuuka-v1';
+const CACHE = 'yuuka-v2';
 const PRECACHE = [
   '/',
   '/styles.css',
@@ -24,8 +24,11 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // API・認証リクエストはキャッシュしない
-  if (e.request.method !== 'GET' || e.request.url.includes('/api/')) return;
+  // API・認証・外部リクエストはキャッシュしない
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET') return;
+  if (url.origin !== location.origin) return;
+  if (url.pathname.includes('/api/')) return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
