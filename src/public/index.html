@@ -508,6 +508,28 @@
             </form>
           </div>
 
+          <!-- Discord Bot & Persona Settings -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot ＆ ペルソナ設定</h3>
+              <span class="badge badge-accent">任意設定</span>
+            </div>
+            <p class="description-text">先生独自の Discord Bot Token や、AIのペルソナ（システム指示）をカスタマイズできます。未設定の場合は、システムデフォルトのボットおよび「早瀬ユウカ」のペルソナが適用されます。</p>
+            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="discord-token">Discord Bot Token (任意)</label>
+                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)" autocomplete="off">
+                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="discord-persona">AI ペルソナ設定 (任意)</label>
+                <textarea id="discord-persona" placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。など。空欄の場合は「早瀬ユウカ」のペルソナが適用されます。"></textarea>
+                <span class="field-sub">※キャラクター設定、話し方、行動指針などを自由に記述できます。</span>
+              </div>
+              <button type="submit" class="btn btn-primary">Discord ＆ ペルソナ設定を保存</button>
+            </form>
+          </div>
+
           <!-- Google OAuth settings -->
           <div class="config-card card" style="margin-top: 24px;">
             <div class="column-header">

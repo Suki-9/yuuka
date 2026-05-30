@@ -17,6 +17,10 @@ export interface UserRecord {
   google_drive_backup_enabled: number;
   google_drive_backup_folder_id: string | null;
   backup_cron: string;
+  discord_token_encrypted: string | null;
+  discord_token_iv: string | null;
+  discord_token_tag: string | null;
+  persona: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -26,6 +30,13 @@ export interface GeminiConfig {
   apiKeyIv: string | null;
   apiKeyTag: string | null;
   model: string;
+}
+
+export interface DiscordBotConfig {
+  tokenEncrypted: string | null;
+  tokenIv: string | null;
+  tokenTag: string | null;
+  persona: string | null;
 }
 
 export interface GoogleConfig {
@@ -274,4 +285,51 @@ export function updateGoogleRefreshToken(discordId: string, refreshToken: string
     WHERE discord_id = ?
   `).run(refreshToken, discordId);
   return result.changes > 0;
+}
+
+/**
+ * ユーザーの独自Discord Botおよびペルソナ設定を更新する
+ */
+export function updateDiscordBotSettings(
+  discordId: string,
+  tokenEncrypted: string | null,
+  tokenIv: string | null,
+  tokenTag: string | null,
+  persona: string | null
+): boolean {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE users SET
+      discord_token_encrypted = ?,
+      discord_token_iv = ?,
+      discord_token_tag = ?,
+      persona = ?,
+      updated_at = datetime('now', 'localtime')
+    WHERE discord_id = ?
+  `).run(tokenEncrypted, tokenIv, tokenTag, persona, discordId);
+  return result.changes > 0;
+}
+
+/**
+ * ユーザーの独自Discord Botおよびペルソナ設定を取得する
+ */
+export function getUserDiscordBotConfig(discordId: string): DiscordBotConfig | null {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT discord_token_encrypted, discord_token_iv, discord_token_tag, persona
+    FROM users WHERE discord_id = ?
+  `).get(discordId) as {
+    discord_token_encrypted: string | null;
+    discord_token_iv: string | null;
+    discord_token_tag: string | null;
+    persona: string | null;
+  } | undefined;
+
+  if (!row) return null;
+  return {
+    tokenEncrypted: row.discord_token_encrypted,
+    tokenIv: row.discord_token_iv,
+    tokenTag: row.discord_token_tag,
+    persona: row.persona,
+  };
 }

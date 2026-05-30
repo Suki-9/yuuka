@@ -35,7 +35,10 @@ import {
   getUserGeminiConfig,
   getUserGoogleConfig,
   verifyPassword,
+  getUserDiscordBotConfig,
+  updateDiscordBotSettings,
 } from "./db/userRepo.js";
+import { startCustomBotForUser, stopCustomBotForUser } from "./bot.js";
 import { isValidCode, validateAndConsumeCode } from "./db/inviteRepo.js";
 import { encryptText } from "./utils/crypto.js";
 
@@ -557,6 +560,95 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     } catch (err: any) {
       console.error("Gemini 設定更新エラー:", err);
       sendError(res, 500, "Gemini 設定の更新に失敗しました。");
+    }
+    return;
+  }
+
+  // Discord 独自Bot & ペルソナ設定取得
+  if (pathname === "/api/settings/discord" && method === "GET") {
+    try {
+      const current = getUserDiscordBotConfig(userId);
+      const hasToken = !!(current?.tokenEncrypted && current?.tokenIv && current?.tokenTag);
+      const tokenMasked = hasToken ? "••••••••••••" : "";
+      
+      sendJson(res, 200, {
+        success: true,
+        hasToken,
+        tokenMasked,
+        persona: current?.persona ?? "",
+      });
+    } catch (err: any) {
+      console.error("Discord 設定取得エラー:", err);
+      sendError(res, 500, "Discord 設定の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Discord 独自Bot & ペルソナ設定更新
+  if (pathname === "/api/settings/discord" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { token, persona } = JSON.parse(body);
+
+      const current = getUserDiscordBotConfig(userId);
+      let encrypted: string | null = null;
+      let iv: string | null = null;
+      let tag: string | null = null;
+      let tokenChanged = false;
+      let tokenCleared = false;
+
+      // トークンの処理
+      if (token === undefined || token === null || token.trim() === "") {
+        // 空欄の場合はクリア（削除）
+        encrypted = null;
+        iv = null;
+        tag = null;
+        if (current?.tokenEncrypted) {
+          tokenChanged = true;
+          tokenCleared = true;
+        }
+      } else if (token.startsWith("••••")) {
+        // マスクの場合は変更なし
+        encrypted = current?.tokenEncrypted ?? null;
+        iv = current?.tokenIv ?? null;
+        tag = current?.tokenTag ?? null;
+      } else {
+        // 新しいトークンが入力された
+        const enc = encryptText(token.trim());
+        encrypted = enc.encrypted;
+        iv = enc.iv;
+        tag = enc.authTag;
+        tokenChanged = true;
+      }
+
+      // ペルソナの処理 (空欄の場合は null にする)
+      const personaVal = (persona && persona.trim() !== "") ? persona.trim() : null;
+
+      // データベースを更新
+      updateDiscordBotSettings(userId, encrypted, iv, tag, personaVal);
+
+      // トークンがクリアされた場合、動作中の独自Botを完全にクローズする
+      if (tokenCleared) {
+        stopCustomBotForUser(userId);
+      }
+
+      // トークンが変更された場合、新しいBotを非同期でログイン・動的起動する
+      let botStartupMessage = "";
+      if (tokenChanged && encrypted !== null) {
+        console.log(`[Discord Bot] ユーザー ${userId} の独自Botの再起動を試みます...`);
+        const startupSuccess = await startCustomBotForUser(userId);
+        if (!startupSuccess) {
+          botStartupMessage = " 設定は保存されましたが、独自Botの起動に失敗しました。トークンが有効か再度ご確認ください。";
+        }
+      }
+
+      sendJson(res, 200, { 
+        success: true, 
+        message: `設定を保存しました。${botStartupMessage}`.trim() 
+      });
+    } catch (err: any) {
+      console.error("Discord 設定更新エラー:", err);
+      sendError(res, 500, "Discord 設定の更新に失敗しました。");
     }
     return;
   }

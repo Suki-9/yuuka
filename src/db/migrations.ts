@@ -22,12 +22,30 @@ export function runMigrations(): void {
       google_drive_backup_enabled INTEGER DEFAULT 0,
       google_drive_backup_folder_id TEXT,
       backup_cron TEXT DEFAULT '0 3 * * *',
+      discord_token_encrypted TEXT,
+      discord_token_iv TEXT,
+      discord_token_tag TEXT,
+      persona TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
   `);
+
+  // users テーブルのマイグレーション（既存DBへのカラム追加）
+  try {
+    const tableInfo = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+    const columnsToAdd = ["discord_token_encrypted", "discord_token_iv", "discord_token_tag", "persona"];
+    for (const col of columnsToAdd) {
+      if (!tableInfo.some(c => c.name === col)) {
+        db.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT;`);
+        console.log(`ℹ️ users テーブルに ${col} カラムを追加しました`);
+      }
+    }
+  } catch (e) {
+    console.error("users テーブルのマイグレーションに失敗しました:", e);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS invite_codes (

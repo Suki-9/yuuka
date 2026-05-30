@@ -1154,6 +1154,21 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("backup-folder-id").value = data.config.backupFolderId === "未設定" ? "" : data.config.backupFolderId;
         document.getElementById("backup-cron").value = data.config.backupCron;
 
+        // Fetch and fill Discord / Persona config values
+        try {
+          fetch("/api/settings/discord")
+            .then(res => res.json())
+            .then(discordData => {
+              if (discordData.success) {
+                document.getElementById("discord-token").value = discordData.tokenMasked;
+                document.getElementById("discord-persona").value = discordData.persona;
+              }
+            })
+            .catch(err => console.error("Failed to load Discord settings:", err));
+        } catch (err) {
+          console.error("Failed to load Discord settings:", err);
+        }
+
         // Render Calendars List (Matte Flat Style)
         const configCalendarsList = document.getElementById("config-calendars-list");
         if (configCalendarsList) {
@@ -1267,6 +1282,33 @@ document.addEventListener("DOMContentLoaded", () => {
         if (data.success) {
           alert("Gemini 設定を更新しました。");
           document.getElementById("gemini-api-key").value = "";
+          fetchConfigSettings();
+        } else {
+          alert(data.message);
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Handle Discord & Persona settings update
+  const discordConfigForm = document.getElementById("discord-config-form");
+  if (discordConfigForm) {
+    discordConfigForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const token = document.getElementById("discord-token").value.trim();
+      const persona = document.getElementById("discord-persona").value.trim();
+      
+      try {
+        const res = await fetch("/api/settings/discord", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, persona })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
           fetchConfigSettings();
         } else {
           alert(data.message);

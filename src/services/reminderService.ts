@@ -3,6 +3,7 @@ import { Client } from "discord.js";
 import { getUnremindedSchedules, markReminded } from "../db/scheduleRepo.js";
 import { buildReminderEmbed } from "../utils/embeds.js";
 import { config } from "../config.js";
+import { getBotClientForUser } from "../bot.js";
 
 let task: cron.ScheduledTask | null = null;
 
@@ -10,14 +11,15 @@ let task: cron.ScheduledTask | null = null;
  * リマインダーサービスを開始する。
  * 1分ごとに未通知のスケジュールをチェックし、時間が来たらDMで通知する。
  */
-export function startReminderService(client: Client): void {
+export function startReminderService(): void {
   task = cron.schedule(config.reminderCron, async () => {
     try {
       const schedules = getUnremindedSchedules();
 
       for (const schedule of schedules) {
         try {
-          const user = await client.users.fetch(schedule.user_id);
+          const botClient = getBotClientForUser(schedule.user_id);
+          const user = await botClient.users.fetch(schedule.user_id);
           const embed = buildReminderEmbed(schedule);
           await user.send({ embeds: [embed] });
           markReminded(schedule.id);
