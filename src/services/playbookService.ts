@@ -1,12 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-
-const PLAYBOOK_DIR = path.resolve(process.cwd(), "data/playbooks");
-
-// プレイブック保存用ディレクトリの確保
-if (!fs.existsSync(PLAYBOOK_DIR)) {
-  fs.mkdirSync(PLAYBOOK_DIR, { recursive: true });
-}
+import { getDb } from "../db/database.js";
 
 export interface Playbook {
   name: string;
@@ -17,106 +9,77 @@ export interface Playbook {
 }
 
 /**
- * 手順書（Playbook）をMarkdownとして保存する
+ * 手順書（Playbook）をデータベースに保存する（INSERT または REPLACE）
  */
-export async function savePlaybook(
+export function savePlaybook(
+  userId: string,
   name: string,
   title: string,
   keywords: string[],
   description: string,
   steps: string
-): Promise<{ success: boolean; message: string; path: string }> {
-  // 安全なファイル名にするためのクレンジング (英数字、ハイフン、アンダースコアのみ)
-  const safeName = name.replace(/[^a-zA-Z0-9\-_]/g, "_").toLowerCase() + ".md";
-  const filePath = path.join(PLAYBOOK_DIR, safeName);
+): { success: boolean; message: string } {
+  const db = getDb();
+  const safeName = name.replace(/[^a-zA-Z0-9\-_]/g, "_").toLowerCase();
+  const keywordsJson = JSON.stringify(keywords);
 
-  // Markdownのフロントマターを組み立てる
-  const frontmatter = [
-    "---",
-    `title: ${title}`,
-    `keywords: [${keywords.join(", ")}]`,
-    `description: ${description}`,
-    "---",
-    "",
-    steps
-  ].join("\n");
-
-  fs.writeFileSync(filePath, frontmatter, "utf-8");
+  const stmt = db.prepare(`
+    INSERT INTO playbooks (user_id, name, title, keywords, description, steps)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, name) DO UPDATE SET
+      title = excluded.title,
+      keywords = excluded.keywords,
+      description = excluded.description,
+      steps = excluded.steps,
+      updated_at = datetime('now', 'localtime')
+  `);
+  stmt.run(userId, safeName, title, keywordsJson, description, steps);
 
   return {
     success: true,
     message: `手順書「${title}」を ${safeName} として正常に保存しました。`,
-    path: path.relative(process.cwd(), filePath),
   };
 }
 
 /**
  * キーワードや部分一致で手順書（Playbook）を検索し、その中身を返す
  */
-export async function findPlaybooks(query?: string): Promise<Playbook[]> {
-  if (!fs.existsSync(PLAYBOOK_DIR)) {
-    return [];
+export function findPlaybooks(userId: string, query?: string): Playbook[] {
+  const db = getDb();
+
+  let rows: any[];
+  if (query) {
+    const likePattern = `%${query}%`;
+    rows = db.prepare(`
+      SELECT name, title, keywords, description, steps
+      FROM playbooks
+      WHERE user_id = ? AND (
+        title LIKE ? OR description LIKE ? OR steps LIKE ? OR keywords LIKE ?
+      )
+      ORDER BY updated_at DESC
+    `).all(userId, likePattern, likePattern, likePattern, likePattern);
+  } else {
+    rows = db.prepare(`
+      SELECT name, title, keywords, description, steps
+      FROM playbooks
+      WHERE user_id = ?
+      ORDER BY updated_at DESC
+    `).all(userId);
   }
 
-  const files = fs.readdirSync(PLAYBOOK_DIR).filter(file => file.endsWith(".md"));
-  const playbooks: Playbook[] = [];
-
-  for (const file of files) {
-    const filePath = path.join(PLAYBOOK_DIR, file);
-    const content = fs.readFileSync(filePath, "utf-8");
-
-    // フロントマターの簡易パース
-    const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!frontmatterMatch) continue;
-
-    const yamlStr = frontmatterMatch[1];
-    const steps = content.substring(frontmatterMatch[0].length).trim();
-
-    let title = "無題の手順書";
+  return rows.map((row: any) => {
     let keywords: string[] = [];
-    let description = "";
-
-    const lines = yamlStr.split("\n");
-    for (const line of lines) {
-      const parts = line.split(":");
-      if (parts.length < 2) continue;
-      const key = parts[0].trim().toLowerCase();
-      const val = parts.slice(1).join(":").trim();
-
-      if (key === "title") {
-        title = val;
-      } else if (key === "keywords") {
-        // [keyword1, keyword2] のパース
-        const cleanVal = val.replace(/[\[\]]/g, "");
-        keywords = cleanVal.split(",").map(k => k.trim()).filter(Boolean);
-      } else if (key === "description") {
-        description = val;
-      }
+    try {
+      keywords = JSON.parse(row.keywords || "[]");
+    } catch {
+      keywords = [];
     }
-
-    const name = path.basename(file, ".md");
-
-    // 検索クエリがある場合、フィルタリングを行う
-    if (query) {
-      const lowerQuery = query.toLowerCase();
-      const matchTitle = title.toLowerCase().includes(lowerQuery);
-      const matchKeywords = keywords.some(k => k.toLowerCase().includes(lowerQuery));
-      const matchDesc = description.toLowerCase().includes(lowerQuery);
-      const matchSteps = steps.toLowerCase().includes(lowerQuery);
-
-      if (!matchTitle && !matchKeywords && !matchDesc && !matchSteps) {
-        continue;
-      }
-    }
-
-    playbooks.push({
-      name,
-      title,
+    return {
+      name: row.name,
+      title: row.title,
       keywords,
-      description,
-      steps
-    });
-  }
-
-  return playbooks;
+      description: row.description || "",
+      steps: row.steps || "",
+    };
+  });
 }

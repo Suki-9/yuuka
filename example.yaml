@@ -1,88 +1,56 @@
 # ==============================================================================
 # Yuuka Hayase - Discord Gemini Secretary Bot Configuration Template
 # ==============================================================================
-# このファイルを "config.yaml" にコピーし、必要な設定項目を入力してください。
-# config.yaml はセキュリティ上の理由から、絶対にGit等にコミットしないでください。
+# このファイルを "config.yaml" にコピーし、必要に応じて設定を変更してください。
+# config.yaml はセキュリティ上、絶対に公開リポジトリ等にコミットしないでください。
+# ==============================================================================
 
 # Discord Bot Token
 # Discord Developer Portal (https://discord.com/developers/applications) で取得
 DISCORD_TOKEN: "YOUR_DISCORD_BOT_TOKEN"
 
-# Gemini API Key
-# Google AI Studio (https://aistudio.google.com/apikey) で取得
-GEMINI_API_KEY: "YOUR_GEMINI_API_KEY"
-
-# Gemini モデル名 (デフォルト: gemini-3.1-flash-lite)
-# 例: gemini-2.5-pro-preview-06-05, gemini-2.5-flash-preview-05-20, gemini-2.0-flash, gemini-1.5-pro
-GEMINI_MODEL: "gemini-3.1-flash-lite"
-
-# 応答を許可するDiscordユーザーID (このIDのユーザーからのメッセージにのみ反応します)
-# 未設定の場合はすべてのユーザーに反応します
-ALLOWED_USER_ID: ""
-
 # データベースファイルの保存パス
 DB_PATH: "./data/yuuka.db"
+
+# Redis接続用URL (インメモリDBキャッシュ用)
+REDIS_URL: "redis://127.0.0.1:6379"
 
 # リマインダーをチェックする間隔 (cron式、デフォルトは毎分)
 REMINDER_CRON: "* * * * *"
 
 # ==============================================================================
-# Googleカレンダー連携設定 (オプション)
+# 管理画面サーバー設定 (Dashboard Settings)
 # ==============================================================================
-# 同期させたいプライマリGoogleカレンダーのID (通常は自身のメールアドレス)
-GOOGLE_CALENDAR_ID: "your-email@gmail.com"
-
-# 外部カレンダー同期ID一覧 (YAML配列形式)
-GOOGLE_CALENDARS:
-  - "your-email@gmail.com"
-  - "another-group-calendar@group.calendar.google.com"
-
-# --- [認証方法 A: サービスアカウント方式（推奨）] ---
-# Google Cloud Console でサービスアカウントを作成し、カレンダーAPIを有効化して認証キーをJSONで取得
-GOOGLE_SERVICE_ACCOUNT_EMAIL: "your-service-account@your-project.iam.gserviceaccount.com"
-GOOGLE_PRIVATE_KEY: |
-  -----BEGIN PRIVATE KEY-----
-  YOUR_PRIVATE_KEY_HERE_LINE_1
-  YOUR_PRIVATE_KEY_HERE_LINE_2
-  -----END PRIVATE KEY-----
-
-# --- [認証方法 B: OAuth2方式（オプション）] ---
-# ユーザー承認フローを使用してトークンを取得する場合のみ指定
-GOOGLE_CLIENT_ID: ""
-GOOGLE_CLIENT_SECRET: ""
-GOOGLE_REFRESH_TOKEN: ""
-
-# ==============================================================================
-# 管理画面用セキュア設定 (Dashboard Settings)
-# ==============================================================================
-# 管理画面（ブラウザ）にログインするための安全なアクセスパスコード
-ADMIN_TOKEN: "yuuka-seminar-2026"
-
 # 管理画面サーバーがリスンするポート
 PORT: 7854
 
 # 管理画面サーバーがバインドするホスト名
-# セキュリティ確保のため、デフォルトではローカルからの接続のみ許可します (127.0.0.1)
-# 外部公開やリバースプロキシを介する場合は必要に応じて "0.0.0.0" 等に変更してください
-HOST: "127.0.0.1"
+# Cloudflare Tunnels や Docker 等のリバースプロキシを介して公開するために、すべてのインターフェース (0.0.0.0) を指定します。
+# 完全にローカルからの接続のみにする場合は "127.0.0.1" に戻してください。
+HOST: "0.0.0.0"
 
 # ==============================================================================
-# GitHub 連携設定 (GitHub Integration Settings)
+# 招待コード (Invite Codes)
 # ==============================================================================
-# 自己機能追加・コード保存のための GitHub アクセストークン (PAT: repoスコープ必須)
-GITHUB_TOKEN: ""
-
-# 上流（本家）の GitHub リポジトリ (フォーマット: owner/repo)
-GITHUB_REPO: "suki/yuuka"
-
-# フォークした自身の GitHub リポジトリ (フォーマット: owner/repo、Push先に使用)
-GITHUB_FORK_REPO: ""
+# ユーザー登録に必須の招待コード。起動時にDBに投入されます（既存のものは重複投入されません）。
+# 管理者が自由に追加・削除できます。各コードは1回限り使用可能です。
+INVITE_CODES:
+  - "yuuka-seminar-2026-alpha"
+  - "yuuka-seminar-2026-beta"
 
 # ==============================================================================
-# 自己開発サンドボックス設定 (Self-Development Sandbox Settings)
+# Google OAuth2 システム共通設定 (System-wide Google OAuth)
 # ==============================================================================
-# 自己開発（自己強化）機能がファイルを操作・検証する対象ディレクトリのパス。
-# 空（または未指定）の場合は従来通りボット自身のカレントディレクトリが対象になります。
-# 別のリポジトリやプロジェクトを自己開発させたい場合は、その絶対パスを指定してください。
-SANDBOX_PATH: ""
+# カレンダーやドライブの同期に使用する、システム共通のデフォルト Google OAuth2 設定です。
+# Google Cloud Console (https://console.cloud.google.com/) でOAuth クライアントIDを作成し、設定してください。
+# ※ ユーザー自身が管理画面の個別設定で独自のクライアント情報（Client ID/Secret）を設定した場合は、そちらが最優先されます。
+GOOGLE_CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID"
+GOOGLE_CLIENT_SECRET: "YOUR_GOOGLE_CLIENT_SECRET"
 
+# ==============================================================================
+# 外部公開ベースURL設定 (External Public Base URL)
+# ==============================================================================
+# Google OAuth 認証時のリダイレクト先となる、外部公開用のHTTPSベースURLです。
+# Cloudflare Tunnels などのリバースプロキシで公開するドメインを指定します。
+# 例: BASE_URL: "https://yuuka.yourdomain.com"
+BASE_URL: ""

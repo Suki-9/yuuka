@@ -42,11 +42,13 @@ function requireSetting(key: string): string {
   return value;
 }
 
+/**
+ * システム全体の設定（全ユーザー共有）
+ * ユーザー別設定はDBから取得する（userRepo.ts参照）
+ */
 export const config = {
+  /** Discord Botトークン（全ユーザー共有） */
   discordToken: requireSetting("DISCORD_TOKEN"),
-  geminiApiKey: requireSetting("GEMINI_API_KEY"),
-  geminiModel: getSetting("GEMINI_MODEL", "gemini-3.1-flash-lite"),
-  allowedUserId: getSetting("ALLOWED_USER_ID"),
 
   /** データベースファイルのパス */
   dbPath: getSetting("DB_PATH", "./data/yuuka.db"),
@@ -57,97 +59,21 @@ export const config = {
   /** リマインダーチェック間隔 (cron式) */
   reminderCron: getSetting("REMINDER_CRON", "* * * * *"),
 
-  /** Googleカレンダー設定 */
-  googleCalendarId: getSetting("GOOGLE_CALENDAR_ID"),
-  googleCalendars: getSettingArray("GOOGLE_CALENDARS"),
-
-  // A: サービスアカウント用
-  googleServiceAccountEmail: getSetting("GOOGLE_SERVICE_ACCOUNT_EMAIL"),
-  googlePrivateKey: getSetting("GOOGLE_PRIVATE_KEY") ? getSetting("GOOGLE_PRIVATE_KEY").replace(/\\n/g, "\n") : "",
-
-  // B: OAuth2用
-  googleClientId: getSetting("GOOGLE_CLIENT_ID"),
-  googleClientSecret: getSetting("GOOGLE_CLIENT_SECRET"),
-  googleRefreshToken: getSetting("GOOGLE_REFRESH_TOKEN"),
-
-  // ==========================================
-  // 管理画面設定 (Dashboard Settings)
-  // ==========================================
-  /** 管理用画面のログインパスコード */
-  adminToken: getSetting("ADMIN_TOKEN", "yuuka-seminar-2026"),
-
-  /** 管理画面 of port number */
+  /** 管理画面サーバーのポート */
   port: parseInt(getSetting("PORT", "3000"), 10),
 
   /** 管理画面のバインドホスト (セキュリティのためデフォルトはローカルホスト) */
   host: getSetting("HOST", "127.0.0.1"),
 
-  // ==========================================
-  // GitHub 連携設定 (GitHub Integration Settings)
-  // ==========================================
-  /** GitHub Personal Access Token */
-  githubToken: getSetting("GITHUB_TOKEN"),
+  /** 招待コード一覧（起動時にDBに投入される） */
+  inviteCodes: getSettingArray("INVITE_CODES"),
 
-  /** 上流（本家）のリポジトリ名 (owner/repo) */
-  githubRepo: getSetting("GITHUB_REPO", "suki/yuuka"),
+  /** Google OAuth Client ID (システムデフォルト) */
+  googleClientId: getSetting("GOOGLE_CLIENT_ID", ""),
 
-  /** フォークした自身のリポジトリ名 (owner/repo) */
-  githubForkRepo: getSetting("GITHUB_FORK_REPO"),
+  /** Google OAuth Client Secret (システムデフォルト) */
+  googleClientSecret: getSetting("GOOGLE_CLIENT_SECRET", ""),
 
-  /** 自己開発（自己強化）サンドボックス対象パス */
-  sandboxPath: getSetting("SANDBOX_PATH"),
+  /** 外部公開用ベースURL */
+  baseUrl: getSetting("BASE_URL", ""),
 } as const;
-
-export function updateGoogleCalendarsInYaml(newCalendars: string[]): void {
-  // YAMLインジェクション防止：カレンダーIDのサニタイズ
-  const safeCalendars = newCalendars.map(cal => cal.replace(/["'\\\n\r\t]/g, ""));
-
-  const content = fs.readFileSync(CONFIG_PATH, "utf-8");
-  const lines = content.split(/\r?\n/);
-  const newLines: string[] = [];
-  let i = 0;
-  let replaced = false;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith("GOOGLE_CALENDARS:")) {
-      replaced = true;
-      newLines.push("GOOGLE_CALENDARS:");
-      for (const cal of safeCalendars) {
-        newLines.push(`  - "${cal}"`);
-      }
-      i++;
-
-      // Skip old calendar items
-      while (i < lines.length) {
-        const nextLine = lines[i];
-        const nextTrimmed = nextLine.trim();
-        if (nextTrimmed.startsWith("-") || !nextTrimmed) {
-          i++;
-        } else {
-          break;
-        }
-      }
-    } else {
-      newLines.push(line);
-      i++;
-    }
-  }
-
-  if (!replaced) {
-    newLines.push("");
-    newLines.push("GOOGLE_CALENDARS:");
-    for (const cal of safeCalendars) {
-      newLines.push(`  - "${cal}"`);
-    }
-  }
-
-  fs.writeFileSync(CONFIG_PATH, newLines.join("\n"), "utf-8");
-
-  // Reload memory parsedConfig
-  try {
-    parsedConfig = parseYaml(newLines.join("\n"));
-  } catch(e) {}
-}

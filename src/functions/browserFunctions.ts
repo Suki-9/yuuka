@@ -68,7 +68,7 @@ export async function browserInteractiveOpen(
   args: { url: string }
 ): Promise<string> {
   try {
-    const res = await browserService.browserInteractiveOpen(args.url);
+    const res = await browserService.browserInteractiveOpen(userId, args.url);
     return JSON.stringify(res);
   } catch (err: any) {
     return JSON.stringify({ success: false, message: err.message });
@@ -83,7 +83,7 @@ export async function browserInteractiveClick(
   args: { selector: string }
 ): Promise<string> {
   try {
-    const res = await browserService.browserInteractiveClick(args.selector);
+    const res = await browserService.browserInteractiveClick(userId, args.selector);
     return JSON.stringify(res);
   } catch (err: any) {
     return JSON.stringify({ success: false, message: err.message });
@@ -98,7 +98,7 @@ export async function browserInteractiveType(
   args: { selector: string; text: string }
 ): Promise<string> {
   try {
-    const res = await browserService.browserInteractiveType(args.selector, args.text);
+    const res = await browserService.browserInteractiveType(userId, args.selector, args.text);
     return JSON.stringify(res);
   } catch (err: any) {
     return JSON.stringify({ success: false, message: err.message });
@@ -113,7 +113,7 @@ export async function browserInteractiveWait(
   args: { selector?: string; timeoutMs?: number }
 ): Promise<string> {
   try {
-    const res = await browserService.browserInteractiveWait(args.selector, args.timeoutMs);
+    const res = await browserService.browserInteractiveWait(userId, args.selector, args.timeoutMs);
     return JSON.stringify(res);
   } catch (err: any) {
     return JSON.stringify({ success: false, message: err.message });
@@ -125,7 +125,7 @@ export async function browserInteractiveWait(
  */
 export async function browserInteractiveStatus(userId: string): Promise<string> {
   try {
-    const res = await browserService.browserInteractiveStatus();
+    const res = await browserService.browserInteractiveStatus(userId);
     return JSON.stringify(res);
   } catch (err: any) {
     return JSON.stringify({ success: false, message: err.message });
@@ -137,7 +137,7 @@ export async function browserInteractiveStatus(userId: string): Promise<string> 
  */
 export async function browserInteractiveClose(userId: string): Promise<string> {
   try {
-    const res = await browserService.browserInteractiveClose();
+    const res = await browserService.browserInteractiveClose(userId);
     return JSON.stringify(res);
   } catch (err: any) {
     return JSON.stringify({ success: false, message: err.message });

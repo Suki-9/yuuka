@@ -1,15 +1,9 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import { config } from "../config.js";
 import * as taskFn from "./taskFunctions.js";
 import * as scheduleFn from "./scheduleFunctions.js";
 import * as expenseFn from "./expenseFunctions.js";
-import * as fileFn from "./fileFunctions.js";
-import * as commandFn from "./commandFunctions.js";
 import * as browserFn from "./browserFunctions.js";
-import * as gitFn from "./gitFunctions.js";
 import * as credentialFn from "./credentialFunctions.js";
 import * as playbookFn from "./playbookFunctions.js";
 
@@ -186,112 +180,8 @@ export const functionDeclarations: FunctionDeclaration[] = [
       },
     },
   },
-  {
-    name: "readCodeFile",
-    description: "サンドボックス内のコードファイルの内容を読み込む。パスはプロジェクトルートからの相対パスで指定します。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        filePath: { type: SchemaType.STRING, description: "読み込むファイルのパス (例: src/bot.ts)" },
-      },
-      required: ["filePath"],
-    },
-  },
-  {
-    name: "writeCodeFile",
-    description: "サンドボックス内のコードファイルに新しい内容を書き込み、保存する。ディレクトリがない場合は自動作成されます。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        filePath: { type: SchemaType.STRING, description: "保存するファイルのパス (例: src/utils/mathHelper.ts)" },
-        content: { type: SchemaType.STRING, description: "書き込む完全なソースコードまたはテキスト内容" },
-      },
-      required: ["filePath", "content"],
-    },
-  },
-  {
-    name: "listCodeFiles",
-    description: "サンドボックス内のファイルを再帰的に一覧取得する。特定のサブディレクトリのみ指定することも可能です。node_modules等は自動的に除外されます。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        dirPath: { type: SchemaType.STRING, description: "探索する基準のディレクトリパス (省略時はプロジェクトルート)" },
-      },
-    },
-  },
-  {
-    name: "searchCodeFiles",
-    description: "サンドボックス内の全ファイルからキーワード（テキスト）を検索する（簡易grep検索）。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        query: { type: SchemaType.STRING, description: "検索したい文字列・キーワード" },
-        dirPath: { type: SchemaType.STRING, description: "検索対象の基準ディレクトリパス (省略時はプロジェクトルート)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "verifyCodeChanges",
-    description: "ホワイトリストに登録された安全なシェルコマンドを実行して、コードのビルドやテスト検証を行う。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        command: {
-          type: SchemaType.STRING,
-          description: "実行するコマンド (許可: 'npm run build', 'npx tsc', 'npm test', 'git status', 'git diff', 'git diff --cached', 'git log -n 5', および安全な 'curl' コマンド。シェル制御記号を含むものは不可)",
-        },
-      },
-      required: ["command"],
-    },
-  },
 
-  // ── Git連携（自己拡張用） ──
-  {
-    name: "checkoutBranch",
-    description: "Gitの新規開発用ブランチを作成、または既存ブランチへ切り替える。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        branchName: { type: SchemaType.STRING, description: "作成または切り替えるブランチ名 (例: feature/add-new-command)" },
-      },
-      required: ["branchName"],
-    },
-  },
-  {
-    name: "commitLocalChanges",
-    description: "現在のすべてのコード変更（差分）をGitステージに追加し、ローカルにコミットする。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        commitMessage: { type: SchemaType.STRING, description: "コミットメッセージ (例: feat: 新しいサービスを追加)" },
-      },
-      required: ["commitMessage"],
-    },
-  },
-  {
-    name: "mergeBranch",
-    description: "指定されたブランチを指定したターゲットブランチ（通常は 'main'）にローカルでマージする。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        branchName: { type: SchemaType.STRING, description: "マージするブランチ名 (例: feature/add-new-command)" },
-        targetBranch: { type: SchemaType.STRING, description: "マージ先となるターゲットブランチ名 (デフォルト: main)" },
-      },
-      required: ["branchName"],
-    },
-  },
-  {
-    name: "pushChanges",
-    description: "ローカルブランチの変更をリモートリポジトリ (origin) にプッシュ（保存）する（ローカルのSSH/認証情報を使用します）。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        branchName: { type: SchemaType.STRING, description: "プッシュするブランチ名 (例: feature/add-new-command)" },
-      },
-      required: ["branchName"],
-    },
-  },
+  // ── ヘッドレスブラウザ操作 ──
   {
     name: "fetchDynamicPage",
     description: "JavaScriptで動的に生成されるSPAなどのウェブページを開き、不要なタグ（スクリプト、スタイル、ナビゲーション、フッター、画像、メタデータ等）を完全に除去して超軽量化したHTMLを取得します（ヘッドレスブラウザを使用）。これにより、トークン消費を最小限に抑えつつ構造化データを正確に把握できます。",
@@ -409,14 +299,6 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
-    name: "reloadDynamicFunctions",
-    description: "サンドボックス内でビルドされた動的プラグイン関数を再読み込み（ホットリロード）します。新しい関数を実装して 'npm run build' または 'npx tsc' でビルドした後にこの関数を呼び出すことで、即座に新しいツールが利用可能になります。",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {},
-    },
-  },
-  {
     name: "savePlaybook",
     description: "AIが行った一連の操作手順（Playbook）に名前やキーワードを付与してMarkdownファイルとして永続的に保存（記憶）します。ユーザーから「今の操作手順を覚えておいて」「『〜〜』という名前で保存して」と指示された際に呼び出します。",
     parameters: {
@@ -472,26 +354,6 @@ export async function dispatchFunction(
   args: FunctionArgs,
   userId: string
 ): Promise<string> {
-  // 自己拡張関連ツールのガード（サンドボックスが無効な場合は呼び出しエラーを返す）
-  const sandboxTools = [
-    "readCodeFile",
-    "writeCodeFile",
-    "listCodeFiles",
-    "searchCodeFiles",
-    "verifyCodeChanges",
-    "checkoutBranch",
-    "commitLocalChanges",
-    "mergeBranch",
-    "pushChanges",
-    "reloadDynamicFunctions"
-  ];
-  if (sandboxTools.includes(functionName) && !isSandboxEnabled()) {
-    return JSON.stringify({
-      success: false,
-      message: "エラー: 自己拡張機能（サンドボックス）は現在無効化されています。必要な設定を行ってください。"
-    });
-  }
-
   switch (functionName) {
     // タスク
     case "addTask":
@@ -533,28 +395,6 @@ export async function dispatchFunction(
         args as Parameters<typeof expenseFn.listRecentExpenses>[1]
       );
 
-    // 自己開発・ファイル操作
-    case "readCodeFile":
-      return fileFn.readCodeFile(userId, args as Parameters<typeof fileFn.readCodeFile>[1]);
-    case "writeCodeFile":
-      return fileFn.writeCodeFile(userId, args as Parameters<typeof fileFn.writeCodeFile>[1]);
-    case "listCodeFiles":
-      return fileFn.listCodeFiles(userId, args as Parameters<typeof fileFn.listCodeFiles>[1]);
-    case "searchCodeFiles":
-      return fileFn.searchCodeFiles(userId, args as Parameters<typeof fileFn.searchCodeFiles>[1]);
-    case "verifyCodeChanges":
-      return commandFn.verifyCodeChanges(userId, args as Parameters<typeof commandFn.verifyCodeChanges>[1]);
-
-    // Git連携
-    case "checkoutBranch":
-      return gitFn.checkoutBranch(userId, args as Parameters<typeof gitFn.checkoutBranch>[1]);
-    case "commitLocalChanges":
-      return gitFn.commitLocalChanges(userId, args as Parameters<typeof gitFn.commitLocalChanges>[1]);
-    case "mergeBranch":
-      return gitFn.mergeBranch(userId, args as Parameters<typeof gitFn.mergeBranch>[1]);
-    case "pushChanges":
-      return gitFn.pushChanges(userId, args as Parameters<typeof gitFn.pushChanges>[1]);
-    
     // ヘッドレスブラウザ操作
     case "fetchDynamicPage":
       return await browserFn.fetchDynamicPage(userId, args as Parameters<typeof browserFn.fetchDynamicPage>[1]);
@@ -589,144 +429,14 @@ export async function dispatchFunction(
     case "findPlaybooks":
       return await playbookFn.findPlaybooks(userId, args as Parameters<typeof playbookFn.findPlaybooks>[1]);
 
-    // 動的プラグインのリロード
-    case "reloadDynamicFunctions":
-      try {
-        await initializeDynamicFunctions(true);
-        return JSON.stringify({
-          success: true,
-          message: "動的関数を正常にリロードしました。新しく追加された関数が利用可能です。",
-          loadedFunctions: dynamicFunctionDeclarations.map(d => d.name)
-        });
-      } catch (err: any) {
-        return JSON.stringify({ success: false, message: `リロード失敗: ${err.message}` });
-      }
-
     default:
-      // 動的ロードされた関数マップに存在すれば実行する
-      if (dynamicDispatchMap.has(functionName)) {
-        const fn = dynamicDispatchMap.get(functionName)!;
-        return await fn(userId, args);
-      }
       return JSON.stringify({ success: false, message: `不明な関数: ${functionName}` });
   }
 }
 
-// ─── 動的プラグインロード機構 ───────────────────────────────────────────
-
-export const dynamicFunctionDeclarations: FunctionDeclaration[] = [];
-const dynamicDispatchMap = new Map<string, (userId: string, args: any) => Promise<string> | string>();
-
 /**
- * 自己拡張機能（サンドボックス）が有効に設定されているかどうかを判定する
- */
-export function isSandboxEnabled(): boolean {
-  if (!config.sandboxPath) return false;
-  try {
-    return fs.existsSync(config.sandboxPath) && fs.statSync(config.sandboxPath).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 全ての関数定義（静的＋動的ロードされたもの）を返す
+ * 全ての関数定義を返す
  */
 export function getAllFunctionDeclarations(): FunctionDeclaration[] {
-  const allStatic = functionDeclarations;
-  
-  if (!isSandboxEnabled()) {
-    // 自己拡張機能が無効な場合、自己拡張関連ツールを除外して返す
-    const sandboxTools = [
-      "readCodeFile",
-      "writeCodeFile",
-      "listCodeFiles",
-      "searchCodeFiles",
-      "verifyCodeChanges",
-      "checkoutBranch",
-      "commitLocalChanges",
-      "mergeBranch",
-      "pushChanges",
-      "reloadDynamicFunctions"
-    ];
-    return allStatic.filter(decl => !sandboxTools.includes(decl.name));
-  }
-
-  return [...allStatic, ...dynamicFunctionDeclarations];
-}
-
-/**
- * サンドボックス内に動的追加された関数定義・ロジックをスキャンしてロードする
- */
-export async function initializeDynamicFunctions(clearCache = false): Promise<void> {
-  if (!isSandboxEnabled()) {
-    console.log("[Dynamic Function] サンドボックスが無効または未設定のため、動的関数のロードをスキップします。");
-    return;
-  }
-
-  const sandboxAbs = path.resolve(config.sandboxPath);
-  const selfAbs = path.resolve(process.cwd());
-  
-  // 自分自身のリポジトリの場合は重複読み込み防止のためスキップ
-  if (sandboxAbs === selfAbs) return;
-
-  const distFunctionsDir = path.join(sandboxAbs, "dist", "functions");
-  if (!fs.existsSync(distFunctionsDir)) {
-    console.log(`[Dynamic Function] ${distFunctionsDir} が存在しないため、動的関数のロードをスキップします。`);
-    return;
-  }
-
-  try {
-    const files = fs.readdirSync(distFunctionsDir);
-    const ignoreFiles = [
-      "index.js",
-      "taskFunctions.js",
-      "scheduleFunctions.js",
-      "expenseFunctions.js",
-      "fileFunctions.js",
-      "commandFunctions.js",
-      "browserFunctions.js",
-      "gitFunctions.js"
-    ];
-
-    if (clearCache) {
-      dynamicFunctionDeclarations.length = 0;
-      dynamicDispatchMap.clear();
-    }
-
-    for (const file of files) {
-      if (file.endsWith(".js") && !ignoreFiles.includes(file)) {
-        const fullPath = path.join(distFunctionsDir, file);
-        const fileUrl = clearCache ? `file://${fullPath}?t=${Date.now()}` : `file://${fullPath}`;
-        
-        try {
-          const module = await import(fileUrl);
-          
-          // 1. 宣言の登録 (規約: module.functionDeclarations 配列から取得)
-          if (module.functionDeclarations && Array.isArray(module.functionDeclarations)) {
-            for (const decl of module.functionDeclarations) {
-              // 重複登録の防止
-              if (dynamicFunctionDeclarations.some(d => d.name === decl.name)) {
-                continue;
-              }
-              dynamicFunctionDeclarations.push(decl);
-              
-              // 2. 実行関数の登録
-              const fnName = decl.name;
-              if (typeof module[fnName] === "function") {
-                dynamicDispatchMap.set(fnName, module[fnName]);
-                console.log(`[Dynamic Function] Loaded function: ${fnName} from ${file} (clearCache=${clearCache})`);
-              } else {
-                console.warn(`[Dynamic Function] Function "${fnName}" is declared in ${file} but its execution function is not exported.`);
-              }
-            }
-          }
-        } catch (importErr) {
-          console.error(`[Dynamic Function] Failed to import ${file}:`, importErr);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("[Dynamic Function] Failed to load dynamic functions:", err);
-  }
+  return functionDeclarations;
 }

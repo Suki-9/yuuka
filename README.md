@@ -68,12 +68,16 @@ cp example.yaml config.yaml
 `config.yaml` を開き、以下の必要な認証情報・トークンを設定してください。
 
 #### 主な設定項目:
-*   **`DISCORD_TOKEN`**: [Discord Developer Portal](https://discord.com/developers/applications) で取得したBotトークン。
-*   **`GEMINI_API_KEY`**: [Google AI Studio](https://aistudio.google.com/apikey) で発行したAPIキー。
-*   **`ALLOWED_USER_ID`**: 応答を許可する特定のDiscordユーザーID（空白の場合はすべてのユーザーに応答。自身のIDを指定することで完全なプライベート化が可能）。
-*   **`GOOGLE_CALENDARS`**: 同期させたいGoogleカレンダーIDの配列（管理画面からも動的に追加・削除可能です）。
-*   **`GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY`**: Google Cloud Console で作成したサービスアカウントのメールアドレスと秘密鍵（Googleカレンダー連携に必要）。
-*   **`ADMIN_TOKEN`**: 管理画面ダッシュボードにログインするための任意のセキュアなパスコード。
+*   **`DISCORD_TOKEN`**: [Discord Developer Portal](https://discord.com/developers/applications) で取得したBotトークン（必須）。
+*   **`DB_PATH`**: SQLite データベースファイルの保存パス（デフォルト: `./data/yuuka.db`）。
+*   **`REDIS_URL`**: インメモリデータキャッシュ用の Redis 接続 URL。
+*   **`REMINDER_CRON`**: リマインダーをチェックする間隔（cron形式、デフォルトは毎分 `* * * * *`）。
+*   **`PORT` / `HOST`**: 管理画面サーバーがリスンするポートとホスト名設定。
+*   **`INVITE_CODES`**: 新規ユーザー登録時に必要となる招待コードのリスト。
+*   **`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`**: システム全体で共有するデフォルトの Google OAuth2 認証情報。
+*   **`BASE_URL`**: Google OAuth 認証などのリダイレクト先となる、外部からアクセス可能な HTTPS ベース URL。
+
+※ ユーザー個別の Gemini API キーや Google OAuth 設定、連携カレンダー ID 等は、システム起動後に管理画面ダッシュボードから安全に設定・管理できます。
 
 ---
 

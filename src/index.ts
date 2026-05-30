@@ -3,16 +3,20 @@ import { startBot, stopBot } from "./bot.js";
 import { closeDb } from "./db/database.js";
 import { startWebServer, stopWebServer } from "./server.js";
 import { initRedis, closeRedis } from "./db/redis.js";
-import { initializeDynamicFunctions } from "./functions/index.js";
+import { config } from "./config.js";
+import { seedInitialCodes } from "./db/inviteRepo.js";
 
 async function main() {
   console.log("🚀 Yuuka 起動中...");
 
-  // 動的関数の初期化とロード
-  await initializeDynamicFunctions();
-
   // データベース初期化
   runMigrations();
+
+  // 招待コードの初期投入（config.yamlから）
+  if (config.inviteCodes.length > 0) {
+    seedInitialCodes(config.inviteCodes);
+    console.log(`🎫 招待コード ${config.inviteCodes.length} 件をDBに投入しました`);
+  }
 
   // Redis の初期化と接続
   await initRedis();

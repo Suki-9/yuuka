@@ -4,14 +4,54 @@ import {
   type Part,
   type FunctionCall,
 } from "@google/generative-ai";
-import { config } from "./config.js";
 import { getAllFunctionDeclarations, dispatchFunction } from "./functions/index.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import { addChatMessage, getRecentChatHistory } from "./db/chatHistoryRepo.js";
+import { getUserGeminiConfig, getUserGoogleConfig } from "./db/userRepo.js";
+import { decryptText } from "./utils/crypto.js";
 
-const genAI = new GoogleGenerativeAI(config.geminiApiKey);
+// ユーザー別AIインスタンスキャッシュ
+const userAICache = new Map<string, { genAI: GoogleGenerativeAI; apiKey: string }>();
 
-async function buildSystemInstruction(): Promise<string> {
+/**
+ * ユーザー別のGemini APIキーを復号して取得する
+ */
+function getDecryptedApiKey(userId: string): { apiKey: string; model: string } | null {
+  const geminiConfig = getUserGeminiConfig(userId);
+  if (!geminiConfig || !geminiConfig.apiKeyEncrypted || !geminiConfig.apiKeyIv || !geminiConfig.apiKeyTag) {
+    return null;
+  }
+
+  try {
+    const apiKey = decryptText(geminiConfig.apiKeyEncrypted, geminiConfig.apiKeyIv, geminiConfig.apiKeyTag);
+    return { apiKey, model: geminiConfig.model || "gemini-3.1-flash-lite" };
+  } catch (err) {
+    console.error(`ユーザー ${userId} のGemini API Keyの復号に失敗しました:`, err);
+    return null;
+  }
+}
+
+/**
+ * ユーザー別のGoogleGenerativeAIインスタンスを取得する（キャッシュ付き）
+ */
+function getGenAIForUser(userId: string): { genAI: GoogleGenerativeAI; model: string } {
+  const keyInfo = getDecryptedApiKey(userId);
+  if (!keyInfo) {
+    throw new Error("Gemini API Keyが設定されていません。管理画面から設定してください。");
+  }
+
+  const cached = userAICache.get(userId);
+  if (cached && cached.apiKey === keyInfo.apiKey) {
+    return { genAI: cached.genAI, model: keyInfo.model };
+  }
+
+  // キャッシュミスまたはAPIキー変更 → 新規インスタンス生成
+  const genAI = new GoogleGenerativeAI(keyInfo.apiKey);
+  userAICache.set(userId, { genAI, apiKey: keyInfo.apiKey });
+  return { genAI, model: keyInfo.model };
+}
+
+async function buildSystemInstruction(userId: string): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -23,15 +63,17 @@ async function buildSystemInstruction(): Promise<string> {
   const dateTimeStr = `${year}年${month}月${date}日 (${dayOfWeek}) ${hours}時${minutes}分${seconds}秒`;
 
   let calendarInfo = "";
-  if (isCalendarEnabled()) {
+  if (isCalendarEnabled(userId)) {
     try {
-      const calendars = await getCachedCalendars();
+      const calendars = await getCachedCalendars(userId);
+      const googleConfig = getUserGoogleConfig(userId);
+      const defaultCalendarId = googleConfig?.calendarId || "";
       if (calendars.length > 0) {
         calendarInfo = `\n# 連携中のGoogleカレンダー一覧\n現在、予定を登録可能なカレンダーは以下の通りです。ユーザーからの予定追加指示の際、その内容や目的に最も適したカレンダーの「ID」を選択し、addSchedule関数の calendar_id 引数に指定して登録してください。\n`;
         for (const cal of calendars) {
           calendarInfo += `- カレンダー名: "${cal.summary}" (ID: "${cal.id}")\n`;
         }
-        calendarInfo += `※もし内容や目的に合うカレンダーがない場合は、デフォルトのカレンダーIDである "${config.googleCalendarId}" を使用してください。\n`;
+        calendarInfo += `※もし内容や目的に合うカレンダーがない場合は、デフォルトのカレンダーIDである "${defaultCalendarId}" を使用してください。\n`;
       }
     } catch (err) {
       console.error("システムプロンプト用のカレンダー一覧取得に失敗しました:", err);
@@ -178,16 +220,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * リトライ付きでGemini APIを呼び出す
+ * リトライ付きでGemini APIを呼び出す（ユーザー別API Key / Model）
  */
 async function generateWithRetry(
+  userId: string,
   contents: Content[],
   maxRetries: number = 3
 ): Promise<import("@google/generative-ai").GenerateContentResult> {
+  const { genAI, model: modelName } = getGenAIForUser(userId);
+
   // 毎回最新の日時でsystem instructionを更新
   const model = genAI.getGenerativeModel({
-    model: config.geminiModel,
-    systemInstruction: await buildSystemInstruction(),
+    model: modelName,
+    systemInstruction: await buildSystemInstruction(userId),
     tools: [{ functionDeclarations: getAllFunctionDeclarations() }],
   });
 
@@ -293,7 +338,7 @@ export async function processMessage(
 
   try {
     onStatusChange?.("thinking");
-    let result = await generateWithRetry(contents);
+    let result = await generateWithRetry(userId, contents);
     let response = result.response;
 
     // Function Calling ループ（最大10回まで）
@@ -358,7 +403,7 @@ export async function processMessage(
       // 最後のテキスト生成の直前で書き込み中ステータスに変更
       onStatusChange?.("writing");
 
-      result = await generateWithRetry(contents);
+      result = await generateWithRetry(userId, contents);
       response = result.response;
       iterations++;
     }
@@ -393,6 +438,9 @@ export async function processMessage(
       return "処理が完了しました。";
     }
   } catch (error) {
+    if (error instanceof Error && error.message.includes("API Key")) {
+      return `⚠️ ${error.message}`;
+    }
     if (isRateLimitError(error)) {
       console.error("Gemini API レート制限:", error);
       return "⚠️ 現在APIの利用制限（トークン枯渇など）に達しています。しばらく待ってからもう一度お試しください。";

@@ -262,10 +262,14 @@ button, input, select, textarea {
   letter-spacing: 0.05em;
 }
 
-.form-group input,
-.form-group select,
-.form-group textarea {
-  width: 100%;
+/* Base input, select, textarea styling */
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+select,
+textarea {
   padding: 10px 14px;
   background-color: var(--bg-primary);
   border: 1px solid var(--border-matte);
@@ -276,11 +280,22 @@ button, input, select, textarea {
   transition: var(--transition-smooth);
 }
 
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="datetime-local"]:focus,
+select:focus,
+textarea:focus {
   border-color: var(--border-focus);
 }
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+}
+
 
 .form-row {
   display: grid;
@@ -1659,4 +1674,80 @@ button, input, select, textarea {
   border-color: var(--color-red);
   color: var(--color-red);
 }
+
+/* ==============================================================================
+   NEW MULTI-USER TABBED LOGIN & PROFILE CONTROLS
+   ============================================================================== */
+.login-tabs {
+  display: flex;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-matte);
+}
+
+.login-tab-btn {
+  flex: 1;
+  padding: 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  border-bottom: 2px solid transparent;
+}
+
+.login-tab-btn:hover {
+  color: var(--color-white);
+}
+
+.login-tab-btn.active {
+  color: var(--color-white);
+  border-bottom-color: var(--color-white);
+}
+
+.login-tab-pane {
+  display: none;
+}
+
+.login-tab-pane.active {
+  display: block;
+}
+
+.user-profile-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--card-matte);
+  border: 1px solid var(--border-matte);
+  padding: 8px 16px;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-white);
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 16px 0;
+  color: var(--color-zinc-muted);
+  font-size: 0.75rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--border-matte);
+}
+
+.login-divider:not(:empty)::before {
+  margin-right: .5em;
+}
+
+.login-divider:not(:empty)::after {
+  margin-left: .5em;
+}
+
 

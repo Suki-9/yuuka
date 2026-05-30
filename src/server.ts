@@ -2,7 +2,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { config, updateGoogleCalendarsInYaml } from "./config.js";
+import { google } from "googleapis";
+import { config } from "./config.js";
 import { getCachedCalendars } from "./services/googleCalendarService.js";
 import { getDb } from "./db/database.js";
 import {
@@ -24,10 +25,27 @@ import {
 } from "./db/expenseRepo.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import * as secretService from "./services/secretService.js";
+import {
+  createUser,
+  getUserByDiscordId,
+  updateUsername,
+  updateGeminiSettings,
+  updateGoogleSettings,
+  updateBackupSettings,
+  getUserGeminiConfig,
+  getUserGoogleConfig,
+  verifyPassword,
+} from "./db/userRepo.js";
+import { isValidCode, validateAndConsumeCode } from "./db/inviteRepo.js";
+import { encryptText } from "./utils/crypto.js";
 
-// セッション管理（有効期限付き）
+// セッション管理
+interface SessionData {
+  userId: string;
+  createdAt: number;
+}
 const SESSION_TTL = 24 * 60 * 60 * 1000; // 24時間
-const activeSessions = new Map<string, number>(); // token -> 作成時刻(ms)
+const activeSessions = new Map<string, SessionData>(); // token -> session
 
 // ログイン試行レート制限
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -93,19 +111,21 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 }
 
 /**
- * クッキーのパースからセッションの妥当性をチェックする
+ * クッキーのパースからセッションの妥当性をチェックし、ユーザーIDを返す
  */
-function isAuthenticated(req: http.IncomingMessage): boolean {
+function getSessionUser(req: http.IncomingMessage): string | null {
   const cookies = parseCookies(req.headers.cookie);
   const sessionToken = cookies["__Host-yuuka-session"];
-  if (!sessionToken || !activeSessions.has(sessionToken)) return false;
+  if (!sessionToken) return null;
 
-  const createdAt = activeSessions.get(sessionToken)!;
-  if (Date.now() - createdAt > SESSION_TTL) {
+  const session = activeSessions.get(sessionToken);
+  if (!session) return null;
+
+  if (Date.now() - session.createdAt > SESSION_TTL) {
     activeSessions.delete(sessionToken);
-    return false;
+    return null;
   }
-  return true;
+  return session.userId;
 }
 
 /**
@@ -132,7 +152,7 @@ function sendError(res: http.ServerResponse, status: number, message: string) {
  * セキュリティヘッダーを設定した静的ファイル配信
  */
 function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
-  const urlPath = req.url === "/" || !req.url ? "/index.html" : req.url;
+  const urlPath = req.url === "/" || !req.url || req.url.startsWith("/?") ? "/index.html" : req.url.split("?")[0];
   
   // セキュリティ対策：パス・トラバーサルの防御
   const resolvedPath = path.normalize(path.join(PUBLIC_DIR, urlPath));
@@ -174,20 +194,125 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   const pathname = parsedUrl.pathname;
 
   // 1. CORS対応 (ローカル接続に限定)
-  res.setHeader("Access-Control-Allow-Origin", "null"); // 厳格化
+  res.setHeader("Access-Control-Allow-Origin", "null");
 
-  // 2. 静的ファイルのハンドリング (APIでなければすべて静的ファイルとして処理)
+  // 2. Google OAuth コールバック (GET /api/settings/google/oauth/callback)
+  if (pathname === "/api/settings/google/oauth/callback" && method === "GET") {
+    const code = parsedUrl.searchParams.get("code");
+    
+    // コールバック時点でのセッション確認
+    const userId = getSessionUser(req);
+    if (!userId) {
+      res.writeHead(302, { Location: "/index.html?oauth=error&msg=unauthorized" });
+      res.end();
+      return;
+    }
+
+    const userConfig = getUserGoogleConfig(userId);
+    const clientId = userConfig?.clientId || config.googleClientId;
+    const clientSecret = userConfig?.clientSecret || config.googleClientSecret;
+
+    if (!clientId || !clientSecret) {
+      res.writeHead(302, { Location: "/index.html?oauth=error&msg=missing_config" });
+      res.end();
+      return;
+    }
+
+    try {
+      const redirectUri = config.baseUrl
+        ? `${config.baseUrl.replace(/\/$/, "")}/api/settings/google/oauth/callback`
+        : `${(req.headers["x-forwarded-proto"] as string) || "http"}://${req.headers.host}/api/settings/google/oauth/callback`;
+      const oauth2Client = new google.auth.OAuth2(
+        clientId,
+        clientSecret,
+        redirectUri
+      );
+
+      const { tokens } = await oauth2Client.getToken(code!);
+      oauth2Client.setCredentials(tokens);
+
+      let googleEmail: string | null = null;
+      try {
+        const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+        const userInfo = await oauth2.userinfo.get();
+        googleEmail = userInfo.data.email || null;
+      } catch (e) {
+        console.warn("Failed to fetch user email during settings link:", e);
+      }
+
+      const refreshTokenToSave = tokens.refresh_token || userConfig?.refreshToken;
+      const calendarIdToSave = userConfig?.calendarId || googleEmail || null;
+
+      if (refreshTokenToSave) {
+        updateGoogleSettings(
+          userId,
+          userConfig?.clientId || null,
+          userConfig?.clientSecret || null,
+          refreshTokenToSave,
+          calendarIdToSave,
+          userConfig?.calendars || []
+        );
+        const note = tokens.refresh_token ? "" : "&note=existing_token_used";
+        res.writeHead(302, { Location: `/index.html?oauth=success${note}` });
+        res.end();
+      } else {
+        res.writeHead(302, { Location: "/index.html?oauth=error&msg=no_refresh_token" });
+        res.end();
+      }
+    } catch (err: any) {
+      console.error("Google OAuth Callback Error:", err);
+      res.writeHead(302, { Location: `/index.html?oauth=error&msg=${encodeURIComponent(err.message)}` });
+      res.end();
+    }
+    return;
+  }
+
+  // 3. 静的ファイルのハンドリング (APIでなければすべて静的ファイルとして処理)
   if (!pathname.startsWith("/api/")) {
-    // ログインページへの自動リダイレクト (認証がない場合はログイン用HTMLを表示するなどの処理はフロント側で行う)
     serveStaticFile(req, res);
     return;
   }
 
-  // 3. APIルート
+  // ──────────────────────────────────────────
+  // A. パブリックAPI (新規登録 / ログイン)
+  // ──────────────────────────────────────────
+  
+  // 新規登録
+  if (pathname === "/api/register" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { discordId, username, password, inviteCode } = JSON.parse(body);
 
-  // ──────────────────────────────────────────
-  // A. パブリックAPI (ログイン)
-  // ──────────────────────────────────────────
+      if (!discordId || !username || !password || !inviteCode) {
+        return sendError(res, 400, "すべてのフィールド（Discord ID、ユーザーネーム、パスワード、招待コード）を入力してください。");
+      }
+
+      const cleanDiscordId = discordId.trim();
+      const cleanUsername = username.trim();
+
+      if (getUserByDiscordId(cleanDiscordId)) {
+        return sendError(res, 400, "このDiscord IDは既に登録されています。");
+      }
+
+      if (!isValidCode(inviteCode.trim())) {
+        return sendError(res, 400, "無効な、または使用済みの招待コードです。");
+      }
+
+      // ユーザー作成
+      createUser(cleanDiscordId, cleanUsername, password);
+
+      // 招待コード消費
+      validateAndConsumeCode(inviteCode.trim(), cleanDiscordId);
+
+      sendJson(res, 200, { success: true, message: "登録が完了しました！ログインしてください。" });
+    } catch (err: any) {
+      console.error("ユーザー登録エラー:", err);
+      sendError(res, 500, "ユーザー登録に失敗しました。");
+    }
+    return;
+  }
+
+  // ログイン
   if (pathname === "/api/login" && method === "POST") {
     const clientIp = req.socket.remoteAddress || "unknown";
 
@@ -201,17 +326,24 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
     try {
       const body = await getRequestBody(req);
-      const { passcode } = JSON.parse(body);
+      const { discordId, password } = JSON.parse(body);
 
-      if (passcode === config.adminToken) {
+      if (!discordId || !password) {
+        return sendError(res, 400, "Discord ID とパスワードを入力してください。");
+      }
+
+      const cleanDiscordId = discordId.trim();
+      const user = getUserByDiscordId(cleanDiscordId);
+
+      if (user && verifyPassword(password, user.password_hash)) {
         // ログイン成功：試行カウントをリセット
         loginAttempts.delete(clientIp);
 
-        // 安全なランダムセッショントークンの生成
+        // セッショントークン生成
         const sessionToken = crypto.randomBytes(32).toString("hex");
-        activeSessions.set(sessionToken, Date.now());
+        activeSessions.set(sessionToken, { userId: cleanDiscordId, createdAt: Date.now() });
 
-        // 安全な __Host- クッキーの設定 (HttpOnly, Secure, SameSite=Lax, Path=/)
+        // セキュアクッキー
         res.setHeader(
           "Set-Cookie",
           `__Host-yuuka-session=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax`
@@ -219,13 +351,13 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
         sendJson(res, 200, { success: true, message: "ログインに成功しました！" });
       } else {
-        // ログイン失敗：試行カウントを記録
+        // ログイン失敗
         const current = loginAttempts.get(clientIp) || { count: 0, resetAt: 0 };
         current.count += 1;
         current.resetAt = Date.now() + LOGIN_LOCKOUT_MS;
         loginAttempts.set(clientIp, current);
 
-        sendError(res, 401, "パスコードが正しくありません。");
+        sendError(res, 401, "Discord ID またはパスワードが正しくありません。");
       }
     } catch (err: any) {
       sendError(res, 400, "リクエストフォーマットが不正です。");
@@ -236,7 +368,8 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   // ──────────────────────────────────────────
   // B. プライベートAPI用認証ガード
   // ──────────────────────────────────────────
-  if (!isAuthenticated(req)) {
+  const userId = getSessionUser(req);
+  if (!userId) {
     sendError(res, 401, "認証されていません。ログインし直してください。");
     return;
   }
@@ -260,11 +393,26 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // システムステータス
+  // 自分自身の情報取得
+  if (pathname === "/api/me" && method === "GET") {
+    const user = getUserByDiscordId(userId);
+    if (!user) {
+      return sendError(res, 404, "ユーザーが見つかりません。");
+    }
+    sendJson(res, 200, {
+      success: true,
+      user: {
+        discordId: user.discord_id,
+        username: user.username,
+      }
+    });
+    return;
+  }
+
+  // システムステータス（ユーザー個別）
   if (pathname === "/api/status" && method === "GET") {
     try {
       const db = getDb();
-      const userId = parsedUrl.searchParams.get("userId") || "sensei_default";
       
       const taskCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE user_id = ?").get(userId) as { count: number };
       const pendingTaskCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE user_id = ? AND status = 'pending'").get(userId) as { count: number };
@@ -308,11 +456,17 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         expenseTrend.push(sumRow && sumRow.total ? sumRow.total : 0);
       }
 
-      // 利用可能なカレンダー一覧をフェッチ (キャッシュ付き)
-      const calendars = await getCachedCalendars();
+      const googleConfig = getUserGoogleConfig(userId);
+      const geminiConfig = getUserGeminiConfig(userId);
+      const user = getUserByDiscordId(userId);
+
+      // 利用可能なカレンダー一覧をフェッチ (OAuth設定済みの場合のみ)
+      const calendars = googleConfig?.clientId && googleConfig?.clientSecret && googleConfig?.refreshToken
+        ? await getCachedCalendars(userId)
+        : [];
 
       // クレデンシャルの安全なマスキング
-      const mask = (str: string) => {
+      const mask = (str: string | null) => {
         if (!str) return "未設定";
         if (str.length <= 8) return "****";
         return str.substring(0, 4) + "..." + str.substring(str.length - 4);
@@ -320,6 +474,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
       sendJson(res, 200, {
         success: true,
+        user: {
+          discordId: userId,
+          username: user?.username || userId,
+        },
         stats: {
           tasks: taskCount.count,
           pendingTasks: pendingTaskCount.count,
@@ -332,10 +490,13 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         config: {
           dbPath: config.dbPath,
           reminderCron: config.reminderCron,
-          googleCalendarId: config.googleCalendarId,
-          googleServiceAccountEmail: mask(config.googleServiceAccountEmail),
-          googleClientId: mask(config.googleClientId),
+          googleCalendarId: googleConfig?.calendarId || "未設定",
           googleCalendars: calendars,
+          geminiModel: geminiConfig?.model || "gemini-3.1-flash-lite",
+          geminiApiKey: mask(geminiConfig?.apiKeyEncrypted ? "configured" : null),
+          backupEnabled: user?.google_drive_backup_enabled === 1,
+          backupFolderId: mask(user?.google_drive_backup_folder_id ?? null),
+          backupCron: user?.backup_cron || "0 3 * * *",
         }
       });
     } catch (err: any) {
@@ -345,82 +506,182 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // カレンダー追加API
-  if (pathname === "/api/config/calendars/add" && method === "POST") {
+  // ── ユーザー個別設定 API ──
+
+  // プロフィール更新
+  if (pathname === "/api/settings/profile" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { calendarId } = JSON.parse(body);
-      if (!calendarId || typeof calendarId !== "string" || !calendarId.trim()) {
-        return sendError(res, 400, "有効なカレンダーIDを指定してください。");
+      const { username } = JSON.parse(body);
+      if (!username || !username.trim()) {
+        return sendError(res, 400, "有効なユーザーネームを指定してください。");
       }
-      const cleanId = calendarId.trim();
-
-      const current = [...(config.googleCalendars || [])];
-      if (current.includes(cleanId)) {
-        return sendJson(res, 200, { success: true, message: "このカレンダーIDは既に登録されています。" });
+      
+      const success = updateUsername(userId, username.trim());
+      if (success) {
+        sendJson(res, 200, { success: true, message: "プロファイルを更新しました。" });
+      } else {
+        sendError(res, 400, "プロファイルの更新に失敗しました。同じ名前が既に使われている可能性があります。");
       }
-
-      current.push(cleanId);
-      updateGoogleCalendarsInYaml(current);
-
-      sendJson(res, 200, { success: true, message: "カレンダーIDを追加しました。" });
     } catch (err: any) {
-      console.error("カレンダー追加エラー:", err);
-      sendError(res, 500, "カレンダーの追加に失敗しました。");
+      sendError(res, 500, "プロフィール更新処理に失敗しました。");
     }
     return;
   }
 
-  // カレンダー削除API
-  if (pathname === "/api/config/calendars/delete" && method === "POST") {
+  // Gemini 設定更新
+  if (pathname === "/api/settings/gemini" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { calendarId } = JSON.parse(body);
-      if (!calendarId || typeof calendarId !== "string" || !calendarId.trim()) {
-        return sendError(res, 400, "有効なカレンダーIDを指定してください。");
+      const { apiKey, model } = JSON.parse(body);
+      if (!model) return sendError(res, 400, "モデル名は必須項目です。");
+
+      const current = getUserGeminiConfig(userId);
+      let encrypted: string | null = null;
+      let iv: string | null = null;
+      let tag: string | null = null;
+
+      if (apiKey && !apiKey.startsWith("****")) {
+        const enc = encryptText(apiKey.trim());
+        encrypted = enc.encrypted;
+        iv = enc.iv;
+        tag = enc.authTag;
+      } else {
+        encrypted = current?.apiKeyEncrypted ?? null;
+        iv = current?.apiKeyIv ?? null;
+        tag = current?.apiKeyTag ?? null;
       }
-      const cleanId = calendarId.trim();
 
-      const current = (config.googleCalendars || []).filter((id: string) => id !== cleanId);
-      updateGoogleCalendarsInYaml(current);
-
-      sendJson(res, 200, { success: true, message: "カレンダーIDを削除しました。" });
+      updateGeminiSettings(userId, encrypted, iv, tag, model.trim());
+      sendJson(res, 200, { success: true, message: "Gemini 設定を更新しました。" });
     } catch (err: any) {
-      console.error("カレンダー削除エラー:", err);
-      sendError(res, 500, "カレンダーの削除に失敗しました。");
+      console.error("Gemini 設定更新エラー:", err);
+      sendError(res, 500, "Gemini 設定の更新に失敗しました。");
     }
     return;
   }
 
-  // ユニークユーザーリスト (プロファイル切り替え用)
+
+
+  // Google OAuth URL 生成
+  if (pathname === "/api/settings/google/oauth/url" && method === "GET") {
+    const userConfig = getUserGoogleConfig(userId);
+    const clientId = userConfig?.clientId || config.googleClientId;
+    const clientSecret = userConfig?.clientSecret || config.googleClientSecret;
+
+    if (!clientId || !clientSecret) {
+      return sendError(res, 400, "システムに Google OAuth2 設定が登録されていません。システム管理者に問い合わせてください。");
+    }
+
+    try {
+      const redirectUri = config.baseUrl
+        ? `${config.baseUrl.replace(/\/$/, "")}/api/settings/google/oauth/callback`
+        : `${(req.headers["x-forwarded-proto"] as string) || "http"}://${req.headers.host}/api/settings/google/oauth/callback`;
+      const oauth2Client = new google.auth.OAuth2(
+        clientId,
+        clientSecret,
+        redirectUri
+      );
+
+      const scopes = [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/drive.file",
+      ];
+
+      const url = oauth2Client.generateAuthUrl({
+        access_type: "offline",
+        scope: scopes,
+        prompt: "consent",
+      });
+
+      sendJson(res, 200, { success: true, url });
+    } catch (err: any) {
+      console.error("OAuth URL 生成エラー:", err);
+      sendError(res, 500, "OAuth 認証URLの生成に失敗しました。");
+    }
+    return;
+  }
+
+  // 利用カレンダーリスト更新
+  if (pathname === "/api/settings/calendars" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { calendars } = JSON.parse(body);
+      if (!Array.isArray(calendars)) {
+        return sendError(res, 400, "カレンダーリストは配列形式で指定してください。");
+      }
+
+      const current = getUserGoogleConfig(userId);
+      updateGoogleSettings(
+        userId,
+        current?.clientId || null,
+        current?.clientSecret || null,
+        current?.refreshToken || null,
+        current?.calendarId || null,
+        calendars
+      );
+
+      sendJson(res, 200, { success: true, message: "同期対象カレンダーを更新しました。" });
+    } catch (err: any) {
+      console.error("カレンダー設定保存エラー:", err);
+      sendError(res, 500, "カレンダー同期設定の保存に失敗しました。");
+    }
+    return;
+  }
+
+  // バックアップ設定更新
+  if (pathname === "/api/settings/backup" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { enabled, folderId, cron } = JSON.parse(body);
+
+      updateBackupSettings(userId, enabled, folderId || null, cron || "0 3 * * *");
+
+      const { initUserBackupSchedule } = await import("./services/backupService.js");
+      initUserBackupSchedule(userId);
+
+      sendJson(res, 200, { success: true, message: "バックアップ設定を保存しました。" });
+    } catch (err: any) {
+      console.error("バックアップ設定保存エラー:", err);
+      sendError(res, 500, "バックアップ設定の保存に失敗しました。");
+    }
+    return;
+  }
+
+  // 手動バックアップトリガー
+  if (pathname === "/api/settings/backup/trigger" && method === "POST") {
+    try {
+      const user = getUserByDiscordId(userId);
+      if (!user || !user.google_drive_backup_enabled) {
+        return sendError(res, 400, "バックアップ設定が無効になっています。");
+      }
+
+      const { runBackup } = await import("./services/backupService.js");
+      const url = await runBackup(userId);
+
+      sendJson(res, 200, { success: true, url, message: "手動バックアップが完了しました。" });
+    } catch (err: any) {
+      console.error("手動バックアップ実行エラー:", err);
+      sendError(res, 500, `手動バックアップに失敗しました: ${err.message}`);
+    }
+    return;
+  }
+
+  // ── ユニークユーザーリスト (マルチユーザー化に伴い、互換性のために自身の情報のみを返す) ──
   if (pathname === "/api/users" && method === "GET") {
-    try {
-      const db = getDb();
-      const usersRows = db.prepare(`
-        SELECT DISTINCT user_id FROM tasks 
-        UNION 
-        SELECT DISTINCT user_id FROM schedules 
-        UNION 
-        SELECT DISTINCT user_id FROM expenses
-      `).all() as { user_id: string }[];
-      
-      const userIds = usersRows.map(r => r.user_id).filter(id => id && id.trim() !== "");
-      // 初期データが無い場合のデフォルト追加
-      if (userIds.length === 0) {
-        userIds.push("sensei_default");
-      }
-      
-      sendJson(res, 200, { success: true, users: userIds });
-    } catch (err: any) {
-      sendError(res, 500, "ユーザー一覧の取得に失敗しました。");
-    }
+    const user = getUserByDiscordId(userId);
+    const users = user ? [user.username] : ["sensei_default"];
+    sendJson(res, 200, { success: true, users });
     return;
   }
 
   // ── 資格情報API ──
   if (pathname === "/api/credentials" && method === "GET") {
     try {
-      const list = secretService.listCredentials();
+      const list = secretService.listCredentials(userId);
       sendJson(res, 200, { success: true, credentials: list });
     } catch (err: any) {
       sendError(res, 500, "資格情報一覧の取得に失敗しました。");
@@ -437,7 +698,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         return sendError(res, 400, "サービス名、ユーザー名、およびパスワードは必須です。");
       }
 
-      secretService.registerCredential(serviceName, username, password);
+      secretService.registerCredential(userId, serviceName, username, password);
       sendJson(res, 200, { success: true, message: "資格情報を正常に登録しました。" });
     } catch (err: any) {
       sendError(res, 500, "資格情報の登録に失敗しました。");
@@ -454,7 +715,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         return sendError(res, 400, "サービス名は必須です。");
       }
 
-      const success = secretService.deleteCredential(serviceName);
+      const success = secretService.deleteCredential(userId, serviceName);
       sendJson(res, 200, { success });
     } catch (err: any) {
       sendError(res, 500, "資格情報の削除に失敗しました。");
@@ -464,8 +725,6 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
   // ── タスクAPI ──
   if (pathname === "/api/tasks") {
-    const userId = parsedUrl.searchParams.get("userId") || "sensei_default";
-
     if (method === "GET") {
       try {
         const status = parsedUrl.searchParams.get("status") || "all";
@@ -481,10 +740,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/tasks/add" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { userId, title, description, dueDate, priority } = JSON.parse(body);
+      const { title, description, dueDate, priority } = JSON.parse(body);
       if (!title) return sendError(res, 400, "タイトルは必須です。");
 
-      const task = addTask(userId || "sensei_default", title, description, dueDate, priority);
+      const task = addTask(userId, title, description, dueDate, priority);
       sendJson(res, 200, { success: true, task });
     } catch (err: any) {
       sendError(res, 500, "タスクの追加に失敗しました。");
@@ -495,8 +754,8 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/tasks/complete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { id, userId } = JSON.parse(body);
-      if (!id || !userId) return sendError(res, 400, "IDとユーザーIDが必要です。");
+      const { id } = JSON.parse(body);
+      if (!id) return sendError(res, 400, "IDが必要です。");
 
       const task = completeTask(id, userId);
       sendJson(res, 200, { success: true, task });
@@ -509,8 +768,8 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/tasks/delete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { id, userId } = JSON.parse(body);
-      if (!id || !userId) return sendError(res, 400, "IDとユーザーIDが必要です。");
+      const { id } = JSON.parse(body);
+      if (!id) return sendError(res, 400, "IDが必要です。");
 
       const ok = deleteTask(id, userId);
       sendJson(res, 200, { success: ok });
@@ -522,8 +781,6 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
   // ── スケジュールAPI ──
   if (pathname === "/api/schedules") {
-    const userId = parsedUrl.searchParams.get("userId") || "sensei_default";
-
     if (method === "GET") {
       try {
         const days = parseInt(parsedUrl.searchParams.get("days") || "7", 10);
@@ -539,11 +796,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/schedules/add" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { userId, title, startAt, endAt, remindBeforeMinutes, description } = JSON.parse(body);
+      const { title, startAt, endAt, remindBeforeMinutes, description } = JSON.parse(body);
       if (!title || !startAt) return sendError(res, 400, "タイトルと開始日時は必須です。");
 
       const schedule = addSchedule(
-        userId || "sensei_default",
+        userId,
         title,
         startAt,
         endAt,
@@ -560,8 +817,8 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/schedules/delete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { id, userId } = JSON.parse(body);
-      if (!id || !userId) return sendError(res, 400, "IDとユーザーIDが必要です。");
+      const { id } = JSON.parse(body);
+      if (!id) return sendError(res, 400, "IDが必要です。");
 
       const ok = deleteSchedule(id, userId);
       sendJson(res, 200, { success: ok });
@@ -573,8 +830,6 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
   // ── 家計簿API ──
   if (pathname === "/api/expenses") {
-    const userId = parsedUrl.searchParams.get("userId") || "sensei_default";
-
     if (method === "GET") {
       try {
         const now = new Date();
@@ -601,11 +856,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/expenses/add" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { userId, amount, category, description, date } = JSON.parse(body);
+      const { amount, category, description, date } = JSON.parse(body);
       if (!amount || !category) return sendError(res, 400, "金額とカテゴリは必須です。");
 
       const expense = addExpense(
-        userId || "sensei_default",
+        userId,
         amount,
         category,
         description,
@@ -619,17 +874,17 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // レシート解析の呼び出しAPI
+  // レシート解析 API
   if (pathname === "/api/expenses/upload-receipt" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { userId, imageBase64, mimeType, additionalText } = JSON.parse(body);
+      const { imageBase64, mimeType, additionalText } = JSON.parse(body);
       if (!imageBase64 || !mimeType) {
         return sendError(res, 400, "画像データ(base64)とMIMEタイプが必要です。");
       }
 
-      console.log(`📸 WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
-      const response = await parseReceipt(userId || "sensei_default", imageBase64, mimeType, additionalText);
+      console.log(`📸 [User: ${userId}] WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
+      const response = await parseReceipt(userId, imageBase64, mimeType, additionalText);
       sendJson(res, 200, { success: true, response });
     } catch (err: any) {
       console.error("WEBレシート解析エラー:", err);
@@ -653,6 +908,17 @@ export function startWebServer(): Promise<void> {
     
     server.listen(config.port, config.host, () => {
       console.log(`🌐 Yuuka 管理画面サーバー起動完了: http://${config.host}:${config.port}`);
+      
+      // バックアップスケジュールの初期化
+      import("./services/backupService.js").then((mod) => {
+        import("./db/userRepo.js").then((userMod) => {
+          const userIds = userMod.listAllUserIds();
+          mod.initAllBackupSchedules(userIds);
+        });
+      }).catch(err => {
+        console.error("バックアップスケジュールの初期化に失敗しました:", err);
+      });
+
       resolve();
     });
   });

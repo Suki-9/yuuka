@@ -26,13 +26,51 @@
         <h1>SEMINAR ACCOUNTING</h1>
         <p>ミレニアムサイエンススクール 生徒会セミナー会計室</p>
       </div>
-      <form id="login-form">
-        <div class="form-group">
-          <label for="passcode">先生、アクセスパスコードを入力してください：</label>
-          <input type="password" id="passcode" required placeholder="••••••••••••" autocomplete="current-password">
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">アクセスを承認する</button>
-      </form>
+      
+      <div class="login-tabs">
+        <button class="login-tab-btn active" id="btn-tab-login" type="button">ログイン</button>
+        <button class="login-tab-btn" id="btn-tab-register" type="button">アカウント作成</button>
+      </div>
+
+      <!-- ログイン用フォーム -->
+      <div id="login-tab-content" class="login-tab-pane active">
+        <form id="login-form">
+          <div class="form-group">
+            <label for="login-discord-id">Discord ユーザーID *</label>
+            <input type="text" id="login-discord-id" required placeholder="例: 123456789012345678">
+          </div>
+          <div class="form-group">
+            <label for="login-password">パスワード *</label>
+            <input type="password" id="login-password" required placeholder="••••••••••••" autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">アクセスを承認する</button>
+        </form>
+      </div>
+
+      <!-- アカウント作成用フォーム -->
+      <div id="register-tab-content" class="login-tab-pane">
+        <form id="register-form">
+          <div class="form-group">
+            <label for="reg-discord-id">Discord ユーザーID *</label>
+            <input type="text" id="reg-discord-id" required placeholder="例: 123456789012345678">
+            <span class="field-sub">※Discord上で右クリックしてコピーしたID</span>
+          </div>
+          <div class="form-group">
+            <label for="reg-username">ユーザーネーム（表示名） *</label>
+            <input type="text" id="reg-username" required placeholder="例: シャーレの先生">
+          </div>
+          <div class="form-group">
+            <label for="reg-password">パスワード *</label>
+            <input type="password" id="reg-password" required placeholder="••••••••••••" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="reg-invite-code">招待コード *</label>
+            <input type="text" id="reg-invite-code" required placeholder="管理者から配布されたコード">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">登録してログインする</button>
+        </form>
+      </div>
+
       <div id="login-error" class="error-msg"></div>
     </div>
   </div>
@@ -80,14 +118,9 @@
         
         <!-- Interactive Controls (Switch Profiles & Logout) -->
         <div class="header-controls">
-          <div class="profile-switch">
-            <label for="user-select">先生のID:</label>
-            <select id="user-select" class="user-select-dropdown">
-              <!-- Populated dynamically -->
-            </select>
-            <button id="btn-add-profile" class="btn-icon" title="新規ユーザープロファイル追加">
-              <span class="material-symbols-outlined icon-small">person_add</span>
-            </button>
+          <div class="user-profile-badge">
+            <span class="material-symbols-outlined icon-small">person</span>
+            <span id="current-user-display">ロード中...</span>
           </div>
           <button id="btn-logout" class="btn btn-secondary btn-sm" title="ログアウト">
             <span class="material-symbols-outlined icon-button-left">logout</span> ログアウト
@@ -438,7 +471,58 @@
              5. CONFIG VIEW
              ========================================== -->
         <section id="tab-config" class="tab-view">
+          <!-- Profile Settings -->
           <div class="config-card card">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">person</span>プロフィール設定</h3>
+            </div>
+            <p class="description-text">先生ご自身の表示名を設定できます。</p>
+            <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
+              <input type="text" id="config-profile-username" required placeholder="表示名 (例: シャーレの先生)" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+            </form>
+          </div>
+
+          <!-- Gemini Settings -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">psychology</span>Gemini AI 個別設定</h3>
+            </div>
+            <p class="description-text">先生ご自身の Gemini API Key と使用するモデルを設定してください。</p>
+            <form id="gemini-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="gemini-api-key">Gemini API Key</label>
+                <input type="password" id="gemini-api-key" placeholder="APIキーを変更する場合は入力してください (マスク表示中)">
+              </div>
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="gemini-model-select">Gemini モデル</label>
+                <select id="gemini-model-select" required>
+                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (推奨・最速)</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (高度な推論)</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">Gemini 設定を保存</button>
+            </form>
+          </div>
+
+          <!-- Google OAuth settings -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">google</span>Google アカウント連携 (OAuth2)</h3>
+            </div>
+            <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google アカウントとの連携を行います。</p>
+            
+            <div style="margin-top: 18px; display: flex; justify-content: center;">
+              <button type="button" id="btn-google-auth" class="btn btn-primary" style="width: 100%; max-width: 320px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px;">
+                <span class="material-symbols-outlined">link</span> Google 連携認証を開始する
+              </button>
+            </div>
+          </div>
+
+          <div class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
               <h3>システム構成ステータス (`config.yaml`)</h3>
             </div>
@@ -449,6 +533,33 @@
             </div>
           </div>
 
+          <!-- Google Drive Backup Settings Card -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">cloud_sync</span>Google Drive バックアップ</h3>
+              <span class="badge badge-accent">Beta</span>
+            </div>
+            <p class="description-text">データベースや設定ファイル、プレイブックのデータをGoogle Driveへ安全にバックアップします。</p>
+            
+            <form id="backup-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="backup-enable" style="width: 20px; height: 20px;">
+                <label for="backup-enable" style="margin: 0;">自動バックアップを有効にする</label>
+              </div>
+              <div class="form-group">
+                <label for="backup-folder-id">バックアップ先フォルダID (空の場合はマイドライブ直下に保存)</label>
+                <input type="text" id="backup-folder-id" placeholder="DriveのフォルダID">
+              </div>
+              <div class="form-group">
+                <label for="backup-cron">実行スケジュール (Cron式)</label>
+                <input type="text" id="backup-cron" placeholder="0 3 * * *">
+              </div>
+              <div style="display: flex; gap: 10px; margin-top: 8px;">
+                <button type="submit" class="btn btn-primary" style="flex: 1;">設定を保存</button>
+                <button type="button" id="btn-trigger-backup" class="btn btn-secondary" style="flex: 1;">今すぐバックアップ実行</button>
+              </div>
+            </form>
+          </div>
           <!-- Google Calendars Management Card (Matte Flat Style) -->
           <div class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
@@ -516,26 +627,6 @@
   <!-- ==========================================
        MODALS DIALOGS
        ========================================== -->
-  
-  <!-- Add Profile Modal -->
-  <div id="modal-profile" class="modal">
-    <div class="modal-content card">
-      <div class="modal-header">
-        <h3>新規プロファイルの追加</h3>
-        <button class="btn-close">
-          <span class="material-symbols-outlined">close</span>
-        </button>
-      </div>
-      <form id="profile-form">
-        <div class="form-group">
-          <label for="profile-user-id">Discord ユーザーID：</label>
-          <input type="text" id="profile-user-id" required placeholder="例: 123456789012345678">
-          <span class="field-sub">※Discord上でユーザーを右クリックし、「IDをコピー」で取得できます。</span>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">追加</button>
-      </form>
-    </div>
-  </div>
 
   <!-- Add Credential Modal -->
   <div id="modal-credential" class="modal">

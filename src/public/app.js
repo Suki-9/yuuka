@@ -8,20 +8,23 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // State management
   let activeTab = "dashboard";
-  let activeUserId = "sensei_default";
-  let userProfiles = ["sensei_default"];
+  let activeUserId = "";
   let pendingTasksCount = 0;
   let totalExpensesVal = 0;
 
   // Cache DOM Elements
   const loginOverlay = document.getElementById("login-overlay");
   const loginForm = document.getElementById("login-form");
-  const passcodeField = document.getElementById("passcode");
   const loginError = document.getElementById("login-error");
   const appContainer = document.getElementById("app-container");
   
-  const userSelect = document.getElementById("user-select");
-  const btnAddProfile = document.getElementById("btn-add-profile");
+  // Login / Register Tabs
+  const btnTabLogin = document.getElementById("btn-tab-login");
+  const btnTabRegister = document.getElementById("btn-tab-register");
+  const loginTabContent = document.getElementById("login-tab-content");
+  const registerTabContent = document.getElementById("register-tab-content");
+  const registerForm = document.getElementById("register-form");
+
   const btnLogout = document.getElementById("btn-logout");
   
   const currentTabTitle = document.getElementById("current-tab-title");
@@ -41,12 +44,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const schedulesList = document.getElementById("schedules-list");
 
   // Modal DOM
-  const modalProfile = document.getElementById("modal-profile");
   const modalTask = document.getElementById("modal-task");
   const modalSchedule = document.getElementById("modal-schedule");
   const modalReceiptResult = document.getElementById("modal-receipt-result");
   const modalCredential = document.getElementById("modal-credential");
-  const profileForm = document.getElementById("profile-form");
   const taskForm = document.getElementById("task-form");
   const credentialForm = document.getElementById("credential-form");
   const scheduleForm = document.getElementById("schedule-form");
@@ -69,6 +70,25 @@ document.addEventListener("DOMContentLoaded", () => {
   if (expDateInput) {
     expDateInput.value = new Date().toISOString().slice(0, 10);
   }
+
+  // Handle Google OAuth callback notifications
+  const urlParams = new URLSearchParams(window.location.search);
+  const oauthStatus = urlParams.get("oauth");
+  if (oauthStatus === "success") {
+    const note = urlParams.get("note");
+    if (note === "existing_token_used") {
+      alert("🎉 Googleアカウント連携が完了しました！（既存の接続を使用します）");
+    } else {
+      alert("🎉 Googleアカウントとの認証連携に成功しました！");
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  } else if (oauthStatus === "error") {
+    const errorMsg = urlParams.get("msg") || "未知のエラー";
+    alert(`❌ Google連携認証に失敗しました:\n${errorMsg}`);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
+
 
   // ==========================================
   // VIEW ROUTER (Tab Switching Logic)
@@ -117,41 +137,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ==========================================
-  // PROFILE SWITCHING (User Management)
-  // ==========================================
-  async function loadUserProfiles() {
-    try {
-      const res = await fetch("/api/users");
-      const data = await res.json();
-      if (data.success) {
-        userProfiles = data.users;
-        renderProfileDropdown();
-      }
-    } catch (err) {
-      console.error("ユーザー情報の読み込みに失敗:", err);
-    }
-  }
-
-  function renderProfileDropdown() {
-    userSelect.replaceChildren();
-    userProfiles.forEach(uid => {
-      const option = document.createElement("option");
-      option.value = uid;
-      // UI上見やすくするために短く表示
-      option.textContent = uid.length > 15 ? `${uid.substring(0, 8)}...` : uid;
-      if (uid === activeUserId) {
-        option.selected = true;
-      }
-      userSelect.appendChild(option);
-    });
-  }
-
-  userSelect.addEventListener("change", (e) => {
-    activeUserId = e.target.value;
-    loadDataForActiveTab();
-  });
-
-  // ==========================================
   // MODALS CONTROL
   // ==========================================
   function openModal(modal) {
@@ -164,7 +149,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll(".btn-close, .btn-close-modal").forEach(btn => {
     btn.addEventListener("click", () => {
-      closeModal(modalProfile);
       closeModal(modalTask);
       closeModal(modalSchedule);
       closeModal(modalReceiptResult);
@@ -173,7 +157,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Open triggers
-  btnAddProfile.addEventListener("click", () => openModal(modalProfile));
   document.getElementById("btn-new-task").addEventListener("click", () => openModal(modalTask));
   document.getElementById("btn-new-schedule").addEventListener("click", () => openModal(modalSchedule));
   document.getElementById("btn-new-credential").addEventListener("click", () => openModal(modalCredential));
@@ -197,30 +180,94 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Tab switching inside login Overlay
+  if (btnTabLogin && btnTabRegister) {
+    btnTabLogin.addEventListener("click", () => {
+      btnTabLogin.classList.add("active");
+      btnTabRegister.classList.remove("active");
+      loginTabContent.classList.add("active");
+      registerTabContent.classList.remove("active");
+      loginError.textContent = "";
+    });
+
+    btnTabRegister.addEventListener("click", () => {
+      btnTabLogin.classList.remove("active");
+      btnTabRegister.classList.add("active");
+      loginTabContent.classList.remove("active");
+      registerTabContent.classList.add("active");
+      loginError.textContent = "";
+    });
+  }
+
+  // App Session Initialization
+  async function initAppSession() {
+    try {
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      if (data.success) {
+        activeUserId = data.user.discordId;
+        document.getElementById("current-user-display").textContent = `${data.user.username} (${activeUserId})`;
+        
+        loginOverlay.classList.remove("active");
+        appContainer.classList.remove("hidden");
+        
+        switchTab("dashboard");
+      } else {
+        appContainer.classList.add("hidden");
+        loginOverlay.classList.add("active");
+      }
+    } catch (err) {
+      appContainer.classList.add("hidden");
+      loginOverlay.classList.add("active");
+    }
+  }
+
   // A. AUTHENTICATION & LOGIN FLOW
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     loginError.textContent = "";
-    const passcode = passcodeField.value.trim();
+    const discordId = document.getElementById("login-discord-id").value.trim();
+    const password = document.getElementById("login-password").value;
 
     try {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode })
+        body: JSON.stringify({ discordId, password })
       });
       const data = await res.json();
       
       if (data.success) {
-        loginOverlay.classList.remove("active");
-        appContainer.classList.remove("hidden");
-        
-        // Initial setup calls
-        await loadUserProfiles();
-        if (userProfiles.length > 0) {
-          activeUserId = userProfiles[0];
-        }
-        switchTab("dashboard");
+        await initAppSession();
+      } else {
+        loginError.textContent = data.message;
+      }
+    } catch (err) {
+      loginError.textContent = "サーバー接続に失敗しました。";
+    }
+  });
+
+  // ACCOUNT REGISTRATION FLOW
+  registerForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    loginError.textContent = "";
+    const discordId = document.getElementById("reg-discord-id").value.trim();
+    const username = document.getElementById("reg-username").value.trim();
+    const password = document.getElementById("reg-password").value;
+    const inviteCode = document.getElementById("reg-invite-code").value.trim();
+
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discordId, username, password, inviteCode })
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        alert("アカウントが作成されました！ログインを行ってください。");
+        btnTabLogin.click();
+        document.getElementById("login-discord-id").value = discordId;
       } else {
         loginError.textContent = data.message;
       }
@@ -235,38 +282,18 @@ document.addEventListener("DOMContentLoaded", () => {
       await fetch("/api/logout", { method: "POST" });
     } catch(e) {}
     
-    // Clear and reload state
     appContainer.classList.add("hidden");
     loginOverlay.classList.add("active");
-    passcodeField.value = "";
     loginError.textContent = "ログアウトしました。";
-  });
-
-  // C. PROFILE ADDING
-  profileForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const newUid = document.getElementById("profile-user-id").value.trim();
-    if (newUid) {
-      if (!userProfiles.includes(newUid)) {
-        userProfiles.push(newUid);
-      }
-      activeUserId = newUid;
-      renderProfileDropdown();
-      closeModal(modalProfile);
-      document.getElementById("profile-user-id").value = "";
-      loadDataForActiveTab();
-    }
   });
 
   // D. DASHBOARD STATS POLL
   async function fetchDashboardStats() {
     try {
-      // 1. Fetch DB Status and Config information for the active user
-      const statusRes = await fetch(`/api/status?userId=${activeUserId}`);
+      const statusRes = await fetch("/api/status");
       const statusData = await statusRes.json();
 
-      // 2. Fetch active user's expenses summary
-      const expenseRes = await fetch(`/api/expenses?userId=${activeUserId}`);
+      const expenseRes = await fetch("/api/expenses");
       const expenseData = await expenseRes.json();
 
       if (statusData.success && expenseData.success) {
@@ -278,7 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statUpcomingSchedules.textContent = statusData.stats.schedules;
         statExpensesTotal.textContent = `¥${totalExpensesVal.toLocaleString()}`;
 
-        // Render speech bubble dialog based on current database metrics
+        // Speech bubble update
         updateYuukaSpeechBubble();
 
         // Render Priority Mini Bar Chart inside Card 1 (Tasks)
@@ -303,7 +330,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const bar = document.createElement("div");
             const pct = (priorities[p] / maxPrioCount) * 100;
-            // Scale bar height, minimum 10% for layout visibility
             bar.style.height = `${Math.max(pct, 10)}%`;
             bar.style.width = "100%";
             bar.style.backgroundColor = colors[p];
@@ -327,7 +353,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const schedulesPath = document.getElementById("schedules-sparkline-path");
         if (schedulesPath) {
           const trend = statusData.stats.scheduleTrend || [0, 0, 0, 0, 0];
-          const maxVal = Math.max(...trend, 2); // Avoid divide-by-zero, min scale 2
+          const maxVal = Math.max(...trend, 2);
           
           const points = trend.map((val, idx) => {
             const x = idx * 25;
@@ -342,7 +368,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const expensesPath = document.getElementById("expenses-sparkline-path");
         if (expensesPath) {
           const trend = statusData.stats.expenseTrend || [0, 0, 0, 0, 0];
-          const maxVal = Math.max(...trend, 5000); // Avoid divide-by-zero, min scale 5000 yen
+          const maxVal = Math.max(...trend, 5000);
           
           const points = trend.map((val, idx) => {
             const x = idx * 25;
@@ -380,7 +406,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (err) {
       console.error("ダッシュボード情報の更新エラー:", err);
-      yuukaBubbleText.textContent = "先生、ダッシュボード情報の取得中にエラーが発生しました。データベース接続を確認してください！";
+      yuukaBubbleText.textContent = "先生、ダッシュボード情報の取得中にエラーが発生しました。サーバーの接続状況を確認してください！";
     }
   }
 
@@ -410,22 +436,19 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Sort categories, grab "娯楽" (Entertainment) or largest category
     const entertainment = breakdown.find(c => c.category === "娯楽");
     const entPct = entertainment ? Math.round((entertainment.total / total) * 100) : 0;
     
-    // Animate donut segment using pure-CSS stroke dash arrays (radius=40 -> perimeter=251.2)
     const strokeDash = (entPct * 251.2) / 100;
     donutSegment.setAttribute("stroke-dasharray", `${strokeDash} 251.2`);
     chartCenterPercentage.textContent = `${entPct}%`;
 
-    // Colors mapping for legend dots
     const colors = {
-      食費: "#00e676", // neon-green
-      日用品: "#3b82f6", // blue
-      交通費: "#ef4444", // red
-      娯楽: "#ff5376", // pink
-      その他: "#8e87ad" // gray
+      食費: "#00e676",
+      日用品: "#3b82f6",
+      交通費: "#ef4444",
+      娯楽: "#ff5376",
+      その他: "#8e87ad"
     };
 
     breakdown.slice(0, 4).forEach(cat => {
@@ -448,19 +471,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  /**
-   * Cryptocurrency price chart style SVG trend renderer
-   */
   function renderPriceTrendChart(expenses) {
     const trendLinePath = document.getElementById("trend-line-path");
     const trendAreaPath = document.getElementById("trend-area-path");
     const trendChartSvg = document.getElementById("dashboard-trend-chart");
 
-    // Remove existing interactive vertex circles
     const circles = trendChartSvg.querySelectorAll("circle");
     circles.forEach(c => c.remove());
 
-    // Generate dates for the last 6 days (from 5 days ago until today)
     const dateLabels = [];
     const dateStrings = [];
     
@@ -468,11 +486,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       dateStrings.push(d.toISOString().slice(0, 10));
-      // Label like 05/28
       dateLabels.push(`${d.getMonth() + 1}/${d.getDate()}`);
     }
 
-    // Map X coordinate labels
     const xAxisContainer = trendChartSvg.nextElementSibling;
     xAxisContainer.replaceChildren();
     dateLabels.forEach((label, idx) => {
@@ -481,7 +497,6 @@ document.addEventListener("DOMContentLoaded", () => {
       xAxisContainer.appendChild(span);
     });
 
-    // Sum daily expenses for these dates
     const dailyTotals = dateStrings.map(date => {
       if (!expenses) return 0;
       return expenses
@@ -489,26 +504,20 @@ document.addEventListener("DOMContentLoaded", () => {
         .reduce((sum, e) => sum + e.amount, 0);
     });
 
-    // Normalize height calculations
-    const maxVal = Math.max(...dailyTotals, 10000); // minimum scale is 10k
+    const maxVal = Math.max(...dailyTotals, 10000);
     
-    // Coordinates mapping
-    // SVG viewbox is 400x150. We want Y coordinate between 20 (max) and 130 (min).
     const points = dailyTotals.map((val, idx) => {
-      const x = idx * 80; // 0, 80, 160, 240, 320, 400
+      const x = idx * 80;
       const y = 130 - (val / maxVal) * 100;
       return { x, y, amount: val };
     });
 
-    // 1. Generate line coordinates: "M x0,y0 L x1,y1..."
     const linePathStr = points.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x},${p.y}`).join(" ");
     trendLinePath.setAttribute("d", linePathStr);
 
-    // 2. Generate matching gradient area path
     const areaPathStr = `M 0,130 ${points.map(p => `L ${p.x},${p.y}`).join(" ")} L 400,130 Z`;
     trendAreaPath.setAttribute("d", areaPathStr);
 
-    // 3. Render circular vertices and add dynamic tooltips on hover
     points.forEach(p => {
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("cx", p.x);
@@ -520,11 +529,9 @@ document.addEventListener("DOMContentLoaded", () => {
       circle.style.cursor = "pointer";
       circle.style.transition = "r 0.15s ease, fill 0.15s ease";
 
-      // Interactive Hover effects
       circle.addEventListener("mouseenter", () => {
         circle.setAttribute("r", "7.5");
         circle.setAttribute("fill", "var(--color-zinc-muted)");
-        // Update assistant text with specific sum
         yuukaBubbleText.textContent = `${p.x === 400 ? "今日" : p.x === 320 ? "昨日" : "この日"}の出費額は ¥${p.amount.toLocaleString()} ですよ、先生！`;
       });
 
@@ -542,10 +549,10 @@ document.addEventListener("DOMContentLoaded", () => {
     dashboardUrgentList.replaceChildren();
     
     try {
-      const resSched = await fetch(`/api/schedules?userId=${activeUserId}&days=1`);
+      const resSched = await fetch("/api/schedules?days=1");
       const dataSched = await resSched.json();
       
-      const resTasks = await fetch(`/api/tasks?userId=${activeUserId}&status=pending`);
+      const resTasks = await fetch("/api/tasks?status=pending");
       const dataTasks = await resTasks.json();
 
       let count = 0;
@@ -617,7 +624,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tasksList.replaceChildren();
     
     try {
-      const res = await fetch(`/api/tasks?userId=${activeUserId}&status=${filter}`);
+      const res = await fetch(`/api/tasks?status=${filter}`);
       const data = await res.json();
 
       if (data.success && data.tasks.length > 0) {
@@ -735,7 +742,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/tasks/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: activeUserId, title, description, dueDate, priority })
+        body: JSON.stringify({ title, description, dueDate, priority })
       });
       const data = await res.json();
       if (data.success) {
@@ -753,9 +760,8 @@ document.addEventListener("DOMContentLoaded", () => {
       await fetch("/api/tasks/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, userId: activeUserId })
+        body: JSON.stringify({ id })
       });
-      // reload
       const activeFilter = document.querySelector("[data-filter].active").getAttribute("data-filter");
       fetchTasksList(activeFilter);
     } catch(e) {
@@ -769,7 +775,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await fetch("/api/tasks/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, userId: activeUserId })
+        body: JSON.stringify({ id })
       });
       const activeFilter = document.querySelector("[data-filter].active").getAttribute("data-filter");
       fetchTasksList(activeFilter);
@@ -783,7 +789,7 @@ document.addEventListener("DOMContentLoaded", () => {
     schedulesList.replaceChildren();
 
     try {
-      const res = await fetch(`/api/schedules?userId=${activeUserId}&days=${days}`);
+      const res = await fetch(`/api/schedules?days=${days}`);
       const data = await res.json();
 
       if (data.success && data.schedules.length > 0) {
@@ -815,23 +821,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const time = document.createElement("span");
           time.className = "meta-item";
-
+          
           const timeIcon = document.createElement("span");
           timeIcon.className = "material-symbols-outlined meta-icon";
           timeIcon.textContent = "schedule";
-
-          const formattedTime = sched.start_at.replace("T", " ");
-          const timeText = document.createTextNode(` 開始: ${formattedTime}`);
-
+          
+          const startClean = sched.start_at.slice(0, 16);
+          const endClean = sched.end_at ? ` 〜 ${sched.end_at.slice(11, 16)}` : "";
+          const timeText = document.createTextNode(` ${startClean}${endClean}`);
+          
           time.appendChild(timeIcon);
           time.appendChild(timeText);
           meta.appendChild(time);
 
-          if (sched.google_event_id) {
-            const syncBadge = document.createElement("span");
-            syncBadge.className = "badge badge-accent";
-            syncBadge.textContent = "Google同期済み";
-            meta.appendChild(syncBadge);
+          if (sched.google_calendar_id) {
+            const cal = document.createElement("span");
+            cal.className = "meta-item";
+            
+            const calIcon = document.createElement("span");
+            calIcon.className = "material-symbols-outlined meta-icon";
+            calIcon.textContent = "sync";
+            
+            const calText = document.createTextNode(" Google同期済み");
+            
+            cal.appendChild(calIcon);
+            cal.appendChild(calText);
+            meta.appendChild(cal);
           }
 
           text.appendChild(title);
@@ -855,15 +870,15 @@ document.addEventListener("DOMContentLoaded", () => {
           btnTrash.addEventListener("click", () => handleDeleteSchedule(sched.id));
 
           right.appendChild(btnTrash);
+
           card.appendChild(left);
           card.appendChild(right);
-
           schedulesList.appendChild(card);
         });
       } else {
         const empty = document.createElement("div");
         empty.className = "glass";
-        empty.textContent = "期間内の登録予定がありません。";
+        empty.textContent = "予定が登録されていません。";
         schedulesList.appendChild(empty);
       }
     } catch(e) {
@@ -871,9 +886,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Filter Days
+  // Filter Schedules by Period
   document.querySelectorAll("[data-days]").forEach(btn => {
-    btn.addEventListener("click", (e) => {
+    btn.addEventListener("click", () => {
       document.querySelectorAll("[data-days]").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       const d = parseInt(btn.getAttribute("data-days"), 10);
@@ -885,29 +900,22 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const title = document.getElementById("sched-title").value.trim();
     const description = document.getElementById("sched-description").value.trim();
-    const startAt = document.getElementById("sched-start").value;
-    const endAt = document.getElementById("sched-end").value;
+    const startAt = document.getElementById("sched-start").value.replace("T", " ") + ":00";
+    const endInput = document.getElementById("sched-end").value;
+    const endAt = endInput ? endInput.replace("T", " ") + ":00" : undefined;
     const remindBeforeMinutes = parseInt(document.getElementById("sched-remind").value, 10);
 
     try {
       const res = await fetch("/api/schedules/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: activeUserId,
-          title,
-          description,
-          startAt,
-          endAt: endAt || undefined,
-          remindBeforeMinutes
-        })
+        body: JSON.stringify({ title, description, startAt, endAt, remindBeforeMinutes })
       });
       const data = await res.json();
       if (data.success) {
         closeModal(modalSchedule);
         scheduleForm.reset();
-        const activeDays = parseInt(document.querySelector("[data-days].active").getAttribute("data-days"), 10);
-        fetchSchedulesList(activeDays);
+        fetchSchedulesList();
       }
     } catch(e) {
       console.error(e);
@@ -915,12 +923,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   async function handleDeleteSchedule(id) {
-    if (!confirm("本当にこの予定を削除しますか？\n(Googleカレンダーと連携している場合、自動でカレンダーからも削除されます)")) return;
+    if (!confirm("本当にこの予定を削除しますか？ Googleカレンダー側からも削除されます。")) return;
     try {
       await fetch("/api/schedules/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, userId: activeUserId })
+        body: JSON.stringify({ id })
       });
       const activeDays = parseInt(document.querySelector("[data-days].active").getAttribute("data-days"), 10);
       fetchSchedulesList(activeDays);
@@ -929,51 +937,35 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // G. EXPENSES VIEW LOGIC (Fetch, manual post, drag & drop)
+  // G. EXPENSES VIEW LOGIC (Fetch & Receipt AI Scanning & Manual Add)
   async function fetchExpensesList() {
     expensesTableBody.replaceChildren();
 
     try {
-      const res = await fetch(`/api/expenses?userId=${activeUserId}`);
+      const res = await fetch("/api/expenses");
       const data = await res.json();
 
       if (data.success) {
-        // Render HUD totals
+        // Month stats
         expenseMonthTotal.textContent = `¥${data.total.toLocaleString()}`;
+        
+        // Progress bar calculation
+        const percent = Math.min((data.total / 50000) * 100, 100);
+        expenseBudgetBar.style.width = `${percent}%`;
+        expenseBudgetPercent.textContent = `${Math.round(percent)}%`;
 
-        // Render target progress bar (let's assume target = 50,000 yen)
-        const targetBudget = 50000;
-        const progressPct = Math.min((data.total / targetBudget) * 100, 100);
-        expenseBudgetBar.style.width = `${progressPct}%`;
-        expenseBudgetPercent.textContent = `${Math.round(progressPct)}%`;
-
-        expenseBudgetStatus.replaceChildren();
-
-        const statusIcon = document.createElement("span");
-        statusIcon.className = "material-symbols-outlined icon-small";
-        statusIcon.style.verticalAlign = "middle";
-        statusIcon.style.marginRight = "6px";
-
-        const statusText = document.createElement("span");
-
-        if (progressPct >= 100) {
-          statusIcon.textContent = "warning";
-          statusText.textContent = " 先生！完全に予算上限を突破しています！";
-          expenseBudgetStatus.style.color = "var(--text-error)";
-        } else if (progressPct > 70) {
-          statusIcon.textContent = "lightbulb";
-          statusText.textContent = " ちょっと今月は出費のペースが早い気がします。";
-          expenseBudgetStatus.style.color = "#f59e0b";
+        if (percent > 90) {
+          expenseBudgetBar.style.backgroundColor = "var(--color-red)";
+          expenseBudgetStatus.textContent = "警告：予算上限に近づいています！無駄遣いをやめましょう。";
+        } else if (percent > 60) {
+          expenseBudgetBar.style.backgroundColor = "#fbbf24"; // warning orange
+          expenseBudgetStatus.textContent = "注意：中程度の支出状況です。計画的な利用を。";
         } else {
-          statusIcon.textContent = "check_circle";
-          statusText.textContent = " 健全な支出状況をキープしています！素晴らしい！";
-          expenseBudgetStatus.style.color = "var(--text-success)";
+          expenseBudgetBar.style.backgroundColor = "var(--color-white)";
+          expenseBudgetStatus.textContent = "健全：非常に計画的な支出コントロールです！";
         }
 
-        expenseBudgetStatus.appendChild(statusIcon);
-        expenseBudgetStatus.appendChild(statusText);
-
-        // Render Ledger table rows safely
+        // Render Ledger table
         if (data.expenses && data.expenses.length > 0) {
           data.expenses.forEach(exp => {
             const tr = document.createElement("tr");
@@ -981,52 +973,40 @@ document.addEventListener("DOMContentLoaded", () => {
             const tdDate = document.createElement("td");
             tdDate.textContent = exp.date;
 
-            const tdCategory = document.createElement("td");
-            tdCategory.textContent = exp.category;
+            const tdCat = document.createElement("td");
+            tdCat.textContent = exp.category;
 
             const tdDesc = document.createElement("td");
-            tdDesc.textContent = exp.description || "なし";
+            tdDesc.textContent = exp.description || "説明なし";
 
             const tdSource = document.createElement("td");
-            const badge = document.createElement("span");
-            badge.className = `expense-source-badge source-${exp.source}`;
-
-            const badgeIcon = document.createElement("span");
-            badgeIcon.className = "material-symbols-outlined source-icon";
-
-            let sourceText = "";
-            if (exp.source === "web") {
-              badgeIcon.textContent = "language";
-              sourceText = " Web";
-            } else if (exp.source === "manual") {
-              badgeIcon.textContent = "edit";
-              sourceText = " 手動";
-            } else {
-              badgeIcon.textContent = "chat";
-              sourceText = " Discord";
-            }
-
-            badge.appendChild(badgeIcon);
-            badge.appendChild(document.createTextNode(sourceText));
-            tdSource.appendChild(badge);
+            tdSource.style.fontSize = "0.75rem";
+            tdSource.style.fontFamily = "var(--font-family-mono)";
+            
+            const sourceIcon = document.createElement("span");
+            sourceIcon.className = "material-symbols-outlined source-icon";
+            sourceIcon.textContent = exp.source === "receipt" ? "photo_camera" : "web";
+            
+            tdSource.appendChild(sourceIcon);
+            tdSource.appendChild(document.createTextNode(exp.source === "receipt" ? "レシートAI" : "手動"));
 
             const tdAmount = document.createElement("td");
-            tdAmount.className = "expense-amount-val";
+            tdAmount.className = "amount-cell";
             tdAmount.textContent = `¥${exp.amount.toLocaleString()}`;
 
             tr.appendChild(tdDate);
-            tr.appendChild(tdCategory);
+            tr.appendChild(tdCat);
             tr.appendChild(tdDesc);
             tr.appendChild(tdSource);
             tr.appendChild(tdAmount);
-            
             expensesTableBody.appendChild(tr);
           });
         } else {
           const tr = document.createElement("tr");
           const td = document.createElement("td");
           td.colSpan = 5;
-          td.textContent = "まだ支出記録がありません。上のスキャナーか手動登録をご利用ください。";
+          td.style.textAlign = "center";
+          td.textContent = "家計簿データが空です。";
           tr.appendChild(td);
           expensesTableBody.appendChild(tr);
         }
@@ -1036,7 +1016,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Manual expense submission
   expenseForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const amount = parseInt(document.getElementById("exp-amount").value, 10);
@@ -1048,13 +1027,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/expenses/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: activeUserId, amount, category, description, date })
+        body: JSON.stringify({ amount, category, description, date })
       });
       const data = await res.json();
       if (data.success) {
         expenseForm.reset();
-        // Reset Date default
-        document.getElementById("exp-date").value = new Date().toISOString().slice(0, 10);
+        expDateInput.value = new Date().toISOString().slice(0, 10);
         fetchExpensesList();
       }
     } catch(e) {
@@ -1062,73 +1040,64 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Drag and Drop & Receipt parsing
-  receiptDropzone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    receiptDropzone.classList.add("dragover");
-  });
+  // AI Receipt Dropzone drag-drop
+  if (receiptDropzone) {
+    receiptDropzone.addEventListener("click", () => receiptFileInput.click());
+    
+    receiptDropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      receiptDropzone.classList.add("dragover");
+    });
 
-  receiptDropzone.addEventListener("dragleave", () => {
-    receiptDropzone.classList.remove("dragover");
-  });
+    receiptDropzone.addEventListener("dragleave", () => {
+      receiptDropzone.classList.remove("dragover");
+    });
 
-  receiptDropzone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    receiptDropzone.classList.remove("dragover");
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      processReceiptFile(files[0]);
-    }
-  });
+    receiptDropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      receiptDropzone.classList.remove("dragover");
+      if (e.dataTransfer.files.length > 0) {
+        handleReceiptScan(e.dataTransfer.files[0]);
+      }
+    });
 
-  receiptDropzone.addEventListener("click", () => {
-    receiptFileInput.click();
-  });
+    receiptFileInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        handleReceiptScan(e.target.files[0]);
+      }
+    });
+  }
 
-  receiptFileInput.addEventListener("change", (e) => {
-    const files = e.target.files;
-    if (files.length > 0) {
-      processReceiptFile(files[0]);
-    }
-  });
-
-  function processReceiptFile(file) {
+  async function handleReceiptScan(file) {
     if (!file.type.startsWith("image/")) {
-      alert("エラー: 画像ファイル(PNG, JPEG等)のみ対応しています。");
+      alert("レシート解析は画像ファイル（PNG/JPEG）のみ対応しています。");
       return;
     }
 
+    scanStatus.classList.remove("hidden");
+    scanStatusText.textContent = "レシート画像をアップロードしてユウカに渡しています...";
+
     const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64Data = e.target.result.split(",")[1];
+    reader.onload = async () => {
+      const base64Str = reader.result.split(",")[1];
       const mimeType = file.type;
-      
-      // Show spinner
-      scanStatus.classList.remove("hidden");
-      scanStatusText.textContent = "レシート画像をユウカが確認中... (Gemini API解析を起動しています)";
 
       try {
         const res = await fetch("/api/expenses/upload-receipt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userId: activeUserId,
-            imageBase64: base64Data,
-            mimeType,
-            additionalText: "WEB管理画面からアップロードされたレシートの解析結果です。"
+            imageBase64: base64Str,
+            mimeType: mimeType,
+            additionalText: "WEB管理画面からアップロードされた画像レシート"
           })
         });
         const data = await res.json();
 
         if (data.success) {
-          // Hide spinner
           scanStatus.classList.add("hidden");
-          
-          // Pop up response modal
           receiptAiResponse.textContent = data.response;
           openModal(modalReceiptResult);
-          
-          // Refresh expense views
           fetchExpensesList();
         } else {
           throw new Error(data.message);
@@ -1151,12 +1120,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
 
       if (data.success) {
+        // Render system values to mask grid
         const entries = [
           { label: "データベースファイルのパス (DB Path)", value: data.config.dbPath },
           { label: "リマインダーチェック実行Cron (Reminder Cron)", value: data.config.reminderCron },
-          { label: "GoogleカレンダーID (Google Calendar ID)", value: data.config.googleCalendarId || "未設定 (カレンダー同期なし)" },
-          { label: "サービスアカウントEmail", value: data.config.googleServiceAccountEmail },
-          { label: "OAuth2 クライアントID", value: data.config.googleClientId }
+          { label: "Googleカレンダー連携状態", value: data.config.googleCalendarId || "未連携" },
+          { label: "Gemini モデル設定", value: data.config.geminiModel },
+          { label: "Gemini API Key 状態", value: data.config.geminiApiKey }
         ];
 
         entries.forEach(entry => {
@@ -1176,6 +1146,14 @@ document.addEventListener("DOMContentLoaded", () => {
           configSettingsGrid.appendChild(box);
         });
 
+        // Fill individual config form values
+        document.getElementById("config-profile-username").value = data.user.username;
+        document.getElementById("gemini-model-select").value = data.config.geminiModel;
+        
+        document.getElementById("backup-enable").checked = data.config.backupEnabled;
+        document.getElementById("backup-folder-id").value = data.config.backupFolderId === "未設定" ? "" : data.config.backupFolderId;
+        document.getElementById("backup-cron").value = data.config.backupCron;
+
         // Render Calendars List (Matte Flat Style)
         const configCalendarsList = document.getElementById("config-calendars-list");
         if (configCalendarsList) {
@@ -1183,7 +1161,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const calendars = data.config.googleCalendars || [];
           if (calendars.length === 0) {
             const empty = document.createElement("div");
-            empty.textContent = "登録されている外部連携カレンダーはありません。";
+            empty.textContent = "登録されている同期カレンダーはありません。Google連携認証を完了させてください。";
             empty.style.fontSize = "0.8rem";
             empty.style.color = "var(--color-zinc-muted)";
             configCalendarsList.appendChild(empty);
@@ -1247,20 +1225,161 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Handle calendar ID deletion from YAML
+  // Handle Profile settings update
+  const profileConfigForm = document.getElementById("profile-config-form");
+  if (profileConfigForm) {
+    profileConfigForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("config-profile-username").value.trim();
+      try {
+        const res = await fetch("/api/settings/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("プロフィールを更新しました。");
+          initAppSession();
+        } else {
+          alert(data.message);
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Handle Gemini settings update
+  const geminiConfigForm = document.getElementById("gemini-config-form");
+  if (geminiConfigForm) {
+    geminiConfigForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const apiKey = document.getElementById("gemini-api-key").value.trim();
+      const model = document.getElementById("gemini-model-select").value;
+      try {
+        const res = await fetch("/api/settings/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey, model })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("Gemini 設定を更新しました。");
+          document.getElementById("gemini-api-key").value = "";
+          fetchConfigSettings();
+        } else {
+          alert(data.message);
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+
+
+  // Handle Google OAuth trigger
+  const btnGoogleAuth = document.getElementById("btn-google-auth");
+  if (btnGoogleAuth) {
+    btnGoogleAuth.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/settings/google/oauth/url");
+        const data = await res.json();
+        if (data.success) {
+          window.location.href = data.url;
+        } else {
+          alert(data.message);
+        }
+      } catch (err) {
+        alert("認証URLの取得に失敗しました。システム共通の Google OAuth 設定が登録されていることを確認してください。");
+      }
+    });
+  }
+
+  // Handle Backup config update
+  const backupConfigForm = document.getElementById("backup-config-form");
+  if (backupConfigForm) {
+    backupConfigForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const enabled = document.getElementById("backup-enable").checked;
+      const folderId = document.getElementById("backup-folder-id").value.trim();
+      const cron = document.getElementById("backup-cron").value.trim();
+
+      try {
+        const res = await fetch("/api/settings/backup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled, folderId, cron })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("バックアップ設定を保存しました。");
+          fetchConfigSettings();
+        } else {
+          alert(`設定の保存に失敗しました: ${data.message}`);
+        }
+      } catch (e) {
+        console.error(e);
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Handle Manual Backup Trigger
+  const btnTriggerBackup = document.getElementById("btn-trigger-backup");
+  if (btnTriggerBackup) {
+    btnTriggerBackup.addEventListener("click", async () => {
+      if (!document.getElementById("backup-enable").checked) {
+        alert("手動バックアップを実行するには、先にバックアップを有効にして設定を保存してください。");
+        return;
+      }
+      
+      const originalText = btnTriggerBackup.textContent;
+      btnTriggerBackup.textContent = "バックアップ実行中...";
+      btnTriggerBackup.disabled = true;
+
+      try {
+        const res = await fetch("/api/settings/backup/trigger", {
+          method: "POST"
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`バックアップが完了しました！\nURL: ${data.url}`);
+        } else {
+          alert(`バックアップ失敗: ${data.message}`);
+        }
+      } catch (e) {
+        console.error(e);
+        alert("バックアップ処理中にエラーが発生しました。");
+      } finally {
+        btnTriggerBackup.textContent = originalText;
+        btnTriggerBackup.disabled = false;
+      }
+    });
+  }
+
+  // Handle calendar ID deletion
   async function handleDeleteCalendarId(calendarId) {
     if (!confirm(`本当にカレンダーID "${calendarId}" を同期一覧から削除しますか？`)) return;
     try {
-      const res = await fetch("/api/config/calendars/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ calendarId })
-      });
+      const res = await fetch("/api/status");
       const data = await res.json();
       if (data.success) {
-        fetchConfigSettings();
-      } else {
-        alert(`削除に失敗しました: ${data.message}`);
+        const currentList = (data.config.googleCalendars || []).map(c => c.id);
+        const newList = currentList.filter(id => id !== calendarId);
+        
+        const saveRes = await fetch("/api/settings/calendars", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ calendars: newList })
+        });
+        const saveVal = await saveRes.json();
+        if (saveVal.success) {
+          fetchConfigSettings();
+        } else {
+          alert(saveVal.message);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -1278,17 +1397,28 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!calendarId) return;
 
       try {
-        const res = await fetch("/api/config/calendars/add", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ calendarId })
-        });
+        const res = await fetch("/api/status");
         const data = await res.json();
         if (data.success) {
-          input.value = "";
-          fetchConfigSettings();
-        } else {
-          alert(`追加に失敗しました: ${data.message}`);
+          const currentList = (data.config.googleCalendars || []).map(c => c.id);
+          if (currentList.includes(calendarId)) {
+            alert("このカレンダーIDは既に追加されています。");
+            return;
+          }
+          currentList.push(calendarId);
+          
+          const saveRes = await fetch("/api/settings/calendars", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ calendars: currentList })
+          });
+          const saveVal = await saveRes.json();
+          if (saveVal.success) {
+            input.value = "";
+            fetchConfigSettings();
+          } else {
+            alert(saveVal.message);
+          }
         }
       } catch (e) {
         console.error(e);
@@ -1333,51 +1463,87 @@ document.addEventListener("DOMContentLoaded", () => {
           tdPass.style.fontSize = "0.85rem";
           tdPass.style.color = "var(--color-zinc-muted)";
           tdPass.style.fontFamily = "var(--font-family-mono)";
-          tdPass.textContent = "•••••••••••• (暗号化)";
+          tdPass.textContent = "••••••••••••";
 
-          const tdUpdated = document.createElement("td");
-          tdUpdated.style.padding = "12px 10px";
-          tdUpdated.style.fontSize = "0.75rem";
-          tdUpdated.style.color = "var(--color-zinc-muted)";
-          tdUpdated.textContent = cred.updatedAt;
+          const tdDate = document.createElement("td");
+          tdDate.style.padding = "12px 10px";
+          tdDate.style.fontSize = "0.75rem";
+          tdDate.style.color = "var(--color-zinc-muted)";
+          tdDate.textContent = cred.updatedAt;
 
-          const tdAction = document.createElement("td");
-          tdAction.style.padding = "12px 10px";
-          tdAction.style.textAlign = "right";
+          const tdActions = document.createElement("td");
+          tdActions.style.padding = "12px 10px";
+          tdActions.style.textAlign = "right";
 
-          const btnDelete = document.createElement("button");
-          btnDelete.className = "btn-credential-delete";
-          btnDelete.type = "button";
-          btnDelete.innerHTML = `<span class="material-symbols-outlined" style="font-size: 0.95rem;">delete</span> 削除`;
-          btnDelete.addEventListener("click", () => handleDeleteCredential(cred.serviceName));
+          const btnDel = document.createElement("button");
+          btnDel.className = "btn-credential-delete";
+          btnDel.type = "button";
+          
+          const delIcon = document.createElement("span");
+          delIcon.className = "material-symbols-outlined";
+          delIcon.style.fontSize = "0.9rem";
+          delIcon.textContent = "delete";
 
-          tdAction.appendChild(btnDelete);
+          btnDel.appendChild(delIcon);
+          btnDel.appendChild(document.createTextNode(" 削除"));
+          
+          btnDel.addEventListener("click", () => handleDeleteCredential(cred.serviceName));
+
+          tdActions.appendChild(btnDel);
 
           tr.appendChild(tdService);
           tr.appendChild(tdUser);
           tr.appendChild(tdPass);
-          tr.appendChild(tdUpdated);
-          tr.appendChild(tdAction);
+          tr.appendChild(tdDate);
+          tr.appendChild(tdActions);
+
           configCredentialsList.appendChild(tr);
         });
       } else {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
         td.colSpan = 5;
-        td.style.padding = "16px 10px";
-        td.style.fontSize = "0.8rem";
+        td.style.textAlign = "center";
+        td.style.padding = "20px";
         td.style.color = "var(--color-zinc-muted)";
-        td.textContent = "登録されている認証情報はありません。";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "登録されているAI用認証情報はありません。";
         tr.appendChild(td);
         configCredentialsList.appendChild(tr);
       }
     } catch (err) {
-      console.error("認証情報の取得に失敗:", err);
+      console.error("認証情報取得失敗:", err);
     }
   }
 
+  credentialForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const serviceName = document.getElementById("cred-service-name").value.trim().toLowerCase();
+    const username = document.getElementById("cred-username").value.trim();
+    const password = document.getElementById("cred-password").value;
+
+    try {
+      const res = await fetch("/api/credentials/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceName, username, password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        closeModal(modalCredential);
+        credentialForm.reset();
+        fetchCredentialsSettings();
+      } else {
+        alert(`登録失敗: ${data.message}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("通信エラーが発生しました。");
+    }
+  });
+
   async function handleDeleteCredential(serviceName) {
-    if (!confirm(`本当にサービス "${serviceName}" の認証情報を削除しますか？`)) return;
+    if (!confirm(`本当にサービス [${serviceName}] のログイン資格情報を完全に削除しますか？`)) return;
     try {
       const res = await fetch("/api/credentials/delete", {
         method: "POST",
@@ -1396,57 +1562,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  if (credentialForm) {
-    credentialForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const serviceName = document.getElementById("cred-service-name").value.trim().toLowerCase();
-      const username = document.getElementById("cred-username").value.trim();
-      const password = document.getElementById("cred-password").value;
-
-      try {
-        const res = await fetch("/api/credentials/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ serviceName, username, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-          closeModal(modalCredential);
-          credentialForm.reset();
-          fetchCredentialsSettings();
-        } else {
-          alert(`登録に失敗しました: ${data.message}`);
-        }
-      } catch (err) {
-        console.error(err);
-        alert("通信エラーが発生しました。");
-      }
-    });
-  }
-
-  // ==========================================
-  // INITIAL HANDSHAKE
-  // ==========================================
-  async function checkSessionHandshake() {
-    try {
-      const res = await fetch("/api/status");
-      const data = await res.json();
-      if (data.success) {
-        loginOverlay.classList.remove("active");
-        appContainer.classList.remove("hidden");
-        
-        await loadUserProfiles();
-        if (userProfiles.length > 0) {
-          activeUserId = userProfiles[0];
-        }
-        switchTab("dashboard");
-      }
-    } catch (e) {
-      // Prompt for login
-    }
-  }
-
-  // Start initialization
-  checkSessionHandshake();
+  // On page load, try auto-login
+  initAppSession();
 
 });

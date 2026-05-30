@@ -14,7 +14,8 @@ export async function savePlaybook(
   }
 ): Promise<string> {
   try {
-    const res = await playbookService.savePlaybook(
+    const res = playbookService.savePlaybook(
+      userId,
       args.name,
       args.title,
       args.keywords,
@@ -38,7 +39,7 @@ export async function findPlaybooks(
   args: { query?: string }
 ): Promise<string> {
   try {
-    const playbooks = await playbookService.findPlaybooks(args.query);
+    const playbooks = playbookService.findPlaybooks(userId, args.query);
     return JSON.stringify({
       success: true,
       query: args.query || null,

@@ -1,38 +1,34 @@
 import { google } from "googleapis";
-import { config } from "../config.js";
 import * as scheduleRepo from "../db/scheduleRepo.js";
+import { getUserGoogleConfig } from "../db/userRepo.js";
+import { config } from "../config.js";
 
 /**
- * Google Calendar API クライアントを取得
+ * ユーザー別の Google Calendar API クライアントを取得
  */
-function getCalendarClient() {
-  if (!config.googleCalendarId) {
+function getCalendarClient(userId: string) {
+  const googleConfig = getUserGoogleConfig(userId);
+  if (!googleConfig) {
+    return null;
+  }
+
+  const clientId = googleConfig.clientId || config.googleClientId;
+  const clientSecret = googleConfig.clientSecret || config.googleClientSecret;
+
+  if (!clientId || !clientSecret || !googleConfig.refreshToken) {
     return null;
   }
 
   try {
-    // 方式 A: サービスアカウント
-    if (config.googleServiceAccountEmail && config.googlePrivateKey) {
-      const auth = new google.auth.JWT(
-        config.googleServiceAccountEmail,
-        undefined,
-        config.googlePrivateKey,
-        ["https://www.googleapis.com/auth/calendar"]
-      );
-      return google.calendar({ version: "v3", auth });
-    }
-
-    // 方式 B: OAuth2
-    if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
-      const auth = new google.auth.OAuth2(
-        config.googleClientId,
-        config.googleClientSecret
-      );
-      auth.setCredentials({
-        refresh_token: config.googleRefreshToken,
-      });
-      return google.calendar({ version: "v3", auth });
-    }
+    // OAuth2 方式で認証クライアントを初期化
+    const auth = new google.auth.OAuth2(
+      clientId,
+      clientSecret
+    );
+    auth.setCredentials({
+      refresh_token: googleConfig.refreshToken,
+    });
+    return google.calendar({ version: "v3", auth });
   } catch (error) {
     console.error("Google Calendar 認証クライアントの初期化に失敗しました:", error);
   }
@@ -41,21 +37,24 @@ function getCalendarClient() {
 }
 
 /**
- * Googleカレンダー連携が有効かどうかを判定
+ * ユーザーのGoogleカレンダー連携が有効かどうかを判定
  */
-export function isCalendarEnabled(): boolean {
-  return !!config.googleCalendarId && getCalendarClient() !== null;
+export function isCalendarEnabled(userId: string): boolean {
+  return getCalendarClient(userId) !== null;
 }
 
 /**
- * 利用可能なカレンダーの一覧をGoogle APIから取得する
+ * ユーザーの利用可能なカレンダーの一覧をGoogle APIから取得する
  */
-export async function fetchAvailableCalendars(): Promise<{ id: string; summary: string }[]> {
-  const calendar = getCalendarClient();
+export async function fetchAvailableCalendars(userId: string): Promise<{ id: string; summary: string }[]> {
+  const calendar = getCalendarClient(userId);
   if (!calendar) return [];
 
-  // 1. config.yaml に GOOGLE_CALENDARS が指定されている場合はそちらを最優先
-  const envCalendarIds = config.googleCalendars || [];
+  const googleConfig = getUserGoogleConfig(userId);
+  if (!googleConfig) return [];
+
+  // 1. ユーザー設定に GOOGLE_CALENDARS が指定されている場合はそちらを最優先
+  const envCalendarIds = googleConfig.calendars || [];
 
   if (envCalendarIds.length > 0) {
     const list: { id: string; summary: string }[] = [];
@@ -68,7 +67,7 @@ export async function fetchAvailableCalendars(): Promise<{ id: string; summary: 
       } catch (err) {
         console.error(`カレンダー情報取得失敗 (${id}):`, err);
         // 取得に失敗してもIDと最低限の仮名を設定しておく
-        list.push({ id, summary: id === config.googleCalendarId ? "メインカレンダー" : `カレンダー (${id})` });
+        list.push({ id, summary: id === googleConfig.calendarId ? "メインカレンダー" : `カレンダー (${id})` });
       }
     }
     return list;
@@ -88,39 +87,41 @@ export async function fetchAvailableCalendars(): Promise<{ id: string; summary: 
       }));
 
     // デフォルトカレンダーが入っていなければ追加
-    if (config.googleCalendarId && !list.some(item => item.id === config.googleCalendarId)) {
+    if (googleConfig.calendarId && !list.some(item => item.id === googleConfig.calendarId)) {
       try {
-        const primaryRes = await calendar.calendars.get({ calendarId: config.googleCalendarId });
-        list.unshift({ id: config.googleCalendarId, summary: primaryRes.data.summary || "デフォルトカレンダー" });
+        const primaryRes = await calendar.calendars.get({ calendarId: googleConfig.calendarId });
+        list.unshift({ id: googleConfig.calendarId, summary: primaryRes.data.summary || "デフォルトカレンダー" });
       } catch {
-        list.unshift({ id: config.googleCalendarId, summary: "デフォルトカレンダー" });
+        list.unshift({ id: googleConfig.calendarId, summary: "デフォルトカレンダー" });
       }
     }
     return list;
   } catch (error) {
     console.error("カレンダー一覧の取得に失敗しました:", error);
     // 失敗した場合は最低限、デフォルトのカレンダー情報を返す
-    if (config.googleCalendarId) {
-      return [{ id: config.googleCalendarId, summary: "デフォルトカレンダー" }];
+    if (googleConfig.calendarId) {
+      return [{ id: googleConfig.calendarId, summary: "デフォルトカレンダー" }];
     }
     return [];
   }
 }
 
-let cachedCalendars: { id: string; summary: string }[] = [];
-let lastFetchedTime = 0;
+// ユーザー別キャッシュ
+const cachedCalendarsMap = new Map<string, { calendars: { id: string; summary: string }[]; lastFetched: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5分キャッシュ
 
 /**
- * キャッシュ付きで利用可能なカレンダーの一覧を返す
+ * ユーザー別のキャッシュ付きで利用可能なカレンダーの一覧を返す
  */
-export async function getCachedCalendars(): Promise<{ id: string; summary: string }[]> {
+export async function getCachedCalendars(userId: string): Promise<{ id: string; summary: string }[]> {
   const now = Date.now();
-  if (cachedCalendars.length === 0 || now - lastFetchedTime > CACHE_TTL) {
-    cachedCalendars = await fetchAvailableCalendars();
-    lastFetchedTime = now;
+  const cached = cachedCalendarsMap.get(userId);
+  if (cached && cached.calendars.length > 0 && now - cached.lastFetched < CACHE_TTL) {
+    return cached.calendars;
   }
-  return cachedCalendars;
+  const calendars = await fetchAvailableCalendars(userId);
+  cachedCalendarsMap.set(userId, { calendars, lastFetched: now });
+  return calendars;
 }
 
 /**
@@ -153,14 +154,18 @@ function formatToISOString(localStr: string): string {
  * Googleカレンダーにイベントを作成
  */
 export async function createCalendarEvent(
+  userId: string,
   title: string,
   startAt: string,
   endAt?: string,
   description?: string,
   calendarId?: string
 ): Promise<{ eventId: string; calendarId: string } | null> {
-  const calendar = getCalendarClient();
+  const calendar = getCalendarClient(userId);
   if (!calendar) return null;
+
+  const googleConfig = getUserGoogleConfig(userId);
+  if (!googleConfig) return null;
 
   try {
     const isoStart = formatToISOString(startAt);
@@ -169,7 +174,7 @@ export async function createCalendarEvent(
       ? formatToISOString(endAt) 
       : new Date(new Date(isoStart).getTime() + 60 * 60 * 1000).toISOString();
 
-    const targetCalendarId = calendarId || config.googleCalendarId;
+    const targetCalendarId = calendarId || googleConfig.calendarId || "";
 
     const response = await calendar.events.insert({
       calendarId: targetCalendarId,
@@ -201,12 +206,14 @@ export async function createCalendarEvent(
 /**
  * Googleカレンダーのイベントを削除
  */
-export async function deleteCalendarEvent(eventId: string, calendarId?: string): Promise<boolean> {
-  const calendar = getCalendarClient();
+export async function deleteCalendarEvent(userId: string, eventId: string, calendarId?: string): Promise<boolean> {
+  const calendar = getCalendarClient(userId);
   if (!calendar) return false;
 
+  const googleConfig = getUserGoogleConfig(userId);
+
   try {
-    const targetCalendarId = calendarId || config.googleCalendarId;
+    const targetCalendarId = calendarId || googleConfig?.calendarId || "";
     await calendar.events.delete({
       calendarId: targetCalendarId,
       eventId: eventId,
@@ -228,11 +235,11 @@ export async function syncGoogleCalendarToLocal(
   userId: string,
   daysWindow: number = 30
 ): Promise<void> {
-  const calendar = getCalendarClient();
+  const calendar = getCalendarClient(userId);
   if (!calendar) return;
 
   try {
-    const calendars = await getCachedCalendars();
+    const calendars = await getCachedCalendars(userId);
     console.log(`🔄 Googleカレンダー同期中... (対象ユーザー: ${userId}, カレンダー数: ${calendars.length})`);
 
     const now = new Date();

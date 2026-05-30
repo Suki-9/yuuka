@@ -70,71 +70,87 @@ async function runRustCrawler(command: "fetch" | "search", target: string): Prom
   return stdout;
 }
 
-// ─── 永続インタラクティブブラウザ状態 ───────────────────────────────────
-let activeBrowser: Browser | null = null;
-let activePage: Page | null = null;
-let lastInteractionTime = 0;
+// ─── 永続インタラクティブブラウザ状態（ユーザー別分離） ───────────────────────────────────
+interface BrowserSession {
+  browser: Browser;
+  page: Page;
+  lastInteractionTime: number;
+  autoCloseTimer: NodeJS.Timeout | null;
+}
+const userSessions = new Map<string, BrowserSession>();
 const AUTO_CLOSE_TIMEOUT_MS = 5 * 60 * 1000; // 5分間無操作で自動クローズ
-let autoCloseTimer: NodeJS.Timeout | null = null;
 
-function scheduleAutoClose() {
-  if (autoCloseTimer) {
-    clearTimeout(autoCloseTimer);
+function scheduleAutoClose(userId: string) {
+  const session = userSessions.get(userId);
+  if (!session) return;
+  if (session.autoCloseTimer) {
+    clearTimeout(session.autoCloseTimer);
   }
-  autoCloseTimer = setTimeout(async () => {
-    if (Date.now() - lastInteractionTime >= AUTO_CLOSE_TIMEOUT_MS) {
-      console.log("[Interactive Browser] 自動クローズタイマー作動 (5分間無操作)");
-      await closeInteractiveBrowser().catch(() => {});
+  session.autoCloseTimer = setTimeout(async () => {
+    const s = userSessions.get(userId);
+    if (s && Date.now() - s.lastInteractionTime >= AUTO_CLOSE_TIMEOUT_MS) {
+      console.log(`[Interactive Browser] [User: ${userId}] 自動クローズタイマー作動 (5分間無操作)`);
+      await closeInteractiveBrowser(userId).catch(() => {});
     }
   }, AUTO_CLOSE_TIMEOUT_MS);
 }
 
-async function getInteractiveBrowser(): Promise<{ browser: Browser; page: Page }> {
-  lastInteractionTime = Date.now();
-  scheduleAutoClose();
+async function getInteractiveBrowser(userId: string): Promise<{ browser: Browser; page: Page }> {
+  const existing = userSessions.get(userId);
 
-  if (activeBrowser && activePage) {
+  if (existing) {
+    existing.lastInteractionTime = Date.now();
+    scheduleAutoClose(userId);
     try {
       // 接続確認のためのダミー実行
-      await activePage.evaluate(() => 1);
-      return { browser: activeBrowser, page: activePage };
+      await existing.page.evaluate(() => 1);
+      return { browser: existing.browser, page: existing.page };
     } catch {
-      await closeInteractiveBrowser().catch(() => {});
+      await closeInteractiveBrowser(userId).catch(() => {});
     }
   }
 
-  const USER_DATA_DIR = path.resolve(process.cwd(), "data/browser_interactive_profile");
+  const USER_DATA_DIR = path.resolve(process.cwd(), `data/browser_profiles/${userId}`);
 
-  console.log("[Interactive Browser] 新しいブラウザセッションを起動します...");
-  activeBrowser = await puppeteer.launch({
+  console.log(`[Interactive Browser] [User: ${userId}] 新しいブラウザセッションを起動します...`);
+  const browser = await puppeteer.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     userDataDir: USER_DATA_DIR,
   });
 
-  activePage = await activeBrowser.newPage();
-  await activePage.setViewport({ width: 1280, height: 800 });
-  await activePage.setUserAgent(
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
+  await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   );
-  await activePage.setExtraHTTPHeaders({
+  await page.setExtraHTTPHeaders({
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
   });
 
-  return { browser: activeBrowser, page: activePage };
+  const session: BrowserSession = {
+    browser,
+    page,
+    lastInteractionTime: Date.now(),
+    autoCloseTimer: null,
+  };
+  userSessions.set(userId, session);
+  scheduleAutoClose(userId);
+
+  return { browser, page };
 }
 
-export async function closeInteractiveBrowser(): Promise<void> {
-  if (autoCloseTimer) {
-    clearTimeout(autoCloseTimer);
-    autoCloseTimer = null;
+export async function closeInteractiveBrowser(userId: string): Promise<void> {
+  const session = userSessions.get(userId);
+  if (!session) return;
+  if (session.autoCloseTimer) {
+    clearTimeout(session.autoCloseTimer);
   }
-  if (activeBrowser) {
-    await activeBrowser.close();
-    activeBrowser = null;
-    activePage = null;
-    console.log("[Interactive Browser] ブラウザセッションをクローズしました。");
-  }
+  try {
+    await session.browser.close();
+  } catch {}
+  userSessions.delete(userId);
+  console.log(`[Interactive Browser] [User: ${userId}] ブラウザセッションをクローズしました。`);
 }
 
 /**
@@ -593,8 +609,8 @@ export async function annotateInteractiveElements(page: Page): Promise<void> {
 /**
  * 永続ブラウザで指定URLを開く
  */
-export async function browserInteractiveOpen(url: string): Promise<{ success: boolean; title: string; url: string; message: string }> {
-  const { page } = await getInteractiveBrowser();
+export async function browserInteractiveOpen(userId: string, url: string): Promise<{ success: boolean; title: string; url: string; message: string }> {
+  const { page } = await getInteractiveBrowser(userId);
   try {
     console.log(`[Interactive Browser] Navigating to: ${url}`);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 20000 });
@@ -614,10 +630,8 @@ export async function browserInteractiveOpen(url: string): Promise<{ success: bo
 /**
  * 指定されたCSSセレクタまたはテキストに合致する要素をクリックする
  */
-export async function browserInteractiveClick(selector: string): Promise<{ success: boolean; message: string }> {
-  const { page } = await getInteractiveBrowser();
-  lastInteractionTime = Date.now();
-  scheduleAutoClose();
+export async function browserInteractiveClick(userId: string, selector: string): Promise<{ success: boolean; message: string }> {
+  const { page } = await getInteractiveBrowser(userId);
 
   // 数値IDまたは "id:数字" 形式のセレクタを [data-yuuka-id="数値"] に変換
   let actualSelector = selector;
@@ -710,10 +724,8 @@ export async function browserInteractiveClick(selector: string): Promise<{ succe
 /**
  * 指定されたCSSセレクタまたは属性部分一致の入力フィールドにテキストを入力する
  */
-export async function browserInteractiveType(selector: string, text: string): Promise<{ success: boolean; message: string }> {
-  const { page } = await getInteractiveBrowser();
-  lastInteractionTime = Date.now();
-  scheduleAutoClose();
+export async function browserInteractiveType(userId: string, selector: string, text: string): Promise<{ success: boolean; message: string }> {
+  const { page } = await getInteractiveBrowser(userId);
 
   // 数値IDまたは "id:数字" 形式のセレクタを [data-yuuka-id="数値"] に変換
   let actualSelector = selector;
@@ -779,10 +791,8 @@ export async function browserInteractiveType(selector: string, text: string): Pr
 /**
  * 指定時間、または特定要素が表示されるまで待機する
  */
-export async function browserInteractiveWait(selector?: string, timeoutMs: number = 5000): Promise<{ success: boolean; message: string }> {
-  const { page } = await getInteractiveBrowser();
-  lastInteractionTime = Date.now();
-  scheduleAutoClose();
+export async function browserInteractiveWait(userId: string, selector?: string, timeoutMs: number = 5000): Promise<{ success: boolean; message: string }> {
+  const { page } = await getInteractiveBrowser(userId);
 
   if (selector) {
     // 数値IDまたは "id:数字" 形式のセレクタを [data-yuuka-id="数値"] に変換
@@ -811,16 +821,14 @@ export async function browserInteractiveWait(selector?: string, timeoutMs: numbe
 /**
  * 現在のブラウザセッションのアクティブなページ状態（URL、タイトル、スクリーンショット、マークダウン）を取得する
  */
-export async function browserInteractiveStatus(): Promise<{
+export async function browserInteractiveStatus(userId: string): Promise<{
   success: boolean;
   url: string;
   title: string;
   imagePath: string;
   markdownContent: string;
 }> {
-  const { page } = await getInteractiveBrowser();
-  lastInteractionTime = Date.now();
-  scheduleAutoClose();
+  const { page } = await getInteractiveBrowser(userId);
 
   // DOMアノテーションを実行し、一時的な ID を付与する
   await annotateInteractiveElements(page);
@@ -849,8 +857,8 @@ export async function browserInteractiveStatus(): Promise<{
 /**
  * インタラクティブブラウザセッションを明示的に終了する
  */
-export async function browserInteractiveClose(): Promise<{ success: boolean; message: string }> {
-  await closeInteractiveBrowser();
+export async function browserInteractiveClose(userId: string): Promise<{ success: boolean; message: string }> {
+  await closeInteractiveBrowser(userId);
   return {
     success: true,
     message: "ブラウザセッションを正常に終了しました。",

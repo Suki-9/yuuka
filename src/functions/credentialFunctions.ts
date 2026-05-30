@@ -16,8 +16,8 @@ export async function getCredential(
       });
     }
 
-    console.log(`🔒 AIエージェントが資格情報のロードを要求: ${serviceName}`);
-    const credential = secretService.getDecryptedCredential(serviceName);
+    console.log(`🔒 AIエージェントが資格情報のロードを要求: ${serviceName} (User: ${userId})`);
+    const credential = secretService.getDecryptedCredential(userId, serviceName);
 
     if (!credential) {
       return JSON.stringify({
@@ -49,8 +49,8 @@ export async function listCredentials(
   args: {}
 ): Promise<string> {
   try {
-    console.log(`🔒 AIエージェントが資格情報インデックス一覧の取得を要求`);
-    const list = secretService.listCredentials();
+    console.log(`🔒 AIエージェントが資格情報インデックス一覧の取得を要求 (User: ${userId})`);
+    const list = secretService.listCredentials(userId);
     return JSON.stringify({
       success: true,
       credentials: list,
@@ -63,4 +63,3 @@ export async function listCredentials(
     });
   }
 }
-

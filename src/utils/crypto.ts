@@ -1,20 +1,30 @@
 import crypto from "node:crypto";
-import { config } from "../config.js";
 
 // 暗号鍵を導出するための固定ソルト
 const SALT = "yuuka-seminar-accounting-salt";
-let derivedKey: Buffer | null = null;
+
+// システムレベルの暗号鍵（起動時に生成、またはファイルから読み込み）
+let systemKey: Buffer | null = null;
 
 /**
- * adminToken から AES-256 用の 32 バイト暗号鍵を決定論的に導出する
+ * システム全体で使用する AES-256 暗号鍵を取得する
+ * マルチユーザー化に伴い、個別のadminTokenではなくシステムレベルの鍵を使用する
  */
 function getEncryptionKey(): Buffer {
-  if (!derivedKey) {
-    const masterKey = config.adminToken || "yuuka-seminar-2026";
-    // scrypt を使用して安全に32バイト（256ビット）の鍵を導出
-    derivedKey = crypto.scryptSync(masterKey, SALT, 32);
+  if (!systemKey) {
+    // システムレベルの秘密鍵をファイルまたは環境変数から取得
+    const masterSecret = process.env.YUUKA_ENCRYPTION_SECRET;
+    if (masterSecret) {
+      systemKey = crypto.scryptSync(masterSecret, SALT, 32);
+    } else {
+      // フォールバック：固定値から導出（後方互換性維持）
+      // TODO(security): 本番環境では YUUKA_ENCRYPTION_SECRET 環境変数を設定すること
+      const fallbackKey = "yuuka-seminar-2026-system-key";
+      console.warn("⚠️ YUUKA_ENCRYPTION_SECRET が未設定です。フォールバック鍵を使用しています。");
+      systemKey = crypto.scryptSync(fallbackKey, SALT, 32);
+    }
   }
-  return derivedKey;
+  return systemKey;
 }
 
 /**

@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import { processMessage, type ChatMessage } from "./gemini.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import { startReminderService, stopReminderService } from "./services/reminderService.js";
+import { isRegisteredUser } from "./db/userRepo.js";
 
 export const client = new Client({
   intents: [
@@ -66,8 +67,8 @@ client.on("messageCreate", async (message: Message) => {
   // Bot自身のメッセージは無視
   if (message.author.bot) return;
 
-  // 許可されたユーザー以外からのメッセージは完全に無視する (ユーザーIDロック仕様)
-  if (config.allowedUserId && message.author.id !== config.allowedUserId) return;
+  // 許可されたユーザー以外からのメッセージは完全に無視する（登録ユーザーのみ応答）
+  if (!isRegisteredUser(message.author.id)) return;
 
   let isReplyToBot = false;
   let referencedMsg: Message | null = null;
