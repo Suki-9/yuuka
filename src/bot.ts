@@ -328,7 +328,8 @@ export async function restartDefaultBot(token: string): Promise<boolean> {
   } catch {}
 
   try {
-    // 新しいトークンでログイン
+    // 既存のリスナーを除去してから再登録（二重登録防止）
+    client.removeAllListeners("messageCreate");
     setupMessageListener(client);
     await client.login(token);
     console.log("✅ デフォルトBotが新しいトークンでログイン成功しました。");

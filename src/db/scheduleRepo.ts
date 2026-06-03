@@ -105,10 +105,10 @@ export function getUnremindedSchedules(): Schedule[] {
   const db = getDb();
   return db
     .prepare(
-      `SELECT * FROM schedules 
-       WHERE reminded = 0 
+      `SELECT * FROM schedules
+       WHERE reminded = 0
        AND datetime(start_at, '-' || remind_before_minutes || ' minutes') <= datetime('now', 'localtime')
-       AND start_at >= datetime('now', 'localtime')`
+       AND start_at >= datetime('now', 'localtime', '-2 minutes')`
     )
     .all() as Schedule[];
 }
