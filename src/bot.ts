@@ -190,12 +190,12 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         const imageBase64 = imageBuffer.toString("base64");
         const mimeType = imageAttachment.contentType || "image/jpeg";
 
-        const result = await parseReceipt(resolvedBotId, imageBase64, mimeType, text || undefined, statusCallback);
+        const result = await parseReceipt(resolvedBotId, imageBase64, mimeType, text || undefined, statusCallback, message.author.id);
         responseText = result.text;
         responseEmbeds = result.embeds;
       } else if (fullText.trim()) {
         const chatMessage: ChatMessage = { text: fullText };
-        const result = await processMessage(resolvedBotId, chatMessage, statusCallback);
+        const result = await processMessage(resolvedBotId, chatMessage, statusCallback, message.author.id);
         responseText = result.text;
         responseEmbeds = result.embeds;
       } else {

@@ -285,5 +285,42 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_playbook_runs_bot ON playbook_runs(bot_id);
   `);
 
+  // bot_memories テーブル作成（記憶・メモ）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_memories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bot_memories_bot ON bot_memories(bot_id);
+  `);
+
+  // 旧記憶データの移行（存在する場合）
+  try {
+    const columnsInfo = db.pragma("table_info(bots)") as { name: string }[];
+    const hasMemoriesColumn = columnsInfo.some(c => c.name === "memories");
+    if (hasMemoriesColumn) {
+      const botsWithMemories = db.prepare("SELECT id, memories FROM bots WHERE memories IS NOT NULL AND memories != ''").all() as { id: string, memories: string }[];
+      for (const bot of botsWithMemories) {
+        const lines = bot.memories
+          .split(/\r?\n/)
+          .map(line => line.replace(/^-\s*/, "").trim())
+          .filter(line => line.length > 0);
+        
+        const insertStmt = db.prepare("INSERT INTO bot_memories (bot_id, content) VALUES (?, ?)");
+        for (const line of lines) {
+          insertStmt.run(bot.id, line);
+        }
+        // 移行が終わったらNULLクリアする
+        db.prepare("UPDATE bots SET memories = NULL WHERE id = ?").run(bot.id);
+      }
+    }
+  } catch (err) {
+    console.error("旧記憶データの移行中にエラーが発生しました:", err);
+  }
+
   console.log("✅ データベースマイグレーション完了");
 }

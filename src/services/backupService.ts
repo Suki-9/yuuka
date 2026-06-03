@@ -50,7 +50,7 @@ function exportSingleBotDb(botId: string, tempDbPath: string): void {
       }
 
       // bot_id による完全分離テーブル
-      const botSpecificTables = ["tasks", "schedules", "expenses", "chat_history", "credentials", "playbooks"];
+      const botSpecificTables = ["tasks", "schedules", "expenses", "chat_history", "credentials", "playbooks", "bot_memories"];
       for (const table of botSpecificTables) {
         const rows = srcDb.prepare(`SELECT * FROM ${table} WHERE bot_id = ?`).all(botId);
         if (rows.length > 0) {

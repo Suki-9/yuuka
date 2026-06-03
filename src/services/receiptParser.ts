@@ -16,7 +16,8 @@ export async function parseReceipt(
   imageBase64: string,
   mimeType: string,
   additionalText?: string,
-  onStatusChange?: (status: "thinking" | "writing" | "idle") => void
+  onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+  userId?: string
 ): Promise<ProcessResult> {
   const message: ChatMessage = {
     text:
@@ -28,5 +29,5 @@ export async function parseReceipt(
     },
   };
 
-  return processMessage(botId, message, onStatusChange);
+  return processMessage(botId, message, onStatusChange, userId);
 }

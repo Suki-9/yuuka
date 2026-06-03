@@ -8,7 +8,9 @@ import type { EmbedBuilder } from "discord.js";
 import { getAllFunctionDeclarations, dispatchFunction } from "./functions/index.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import { addChatMessage, getRecentChatHistory } from "./db/chatHistoryRepo.js";
-import { getBotGeminiConfig, getBotGoogleConfig, getBotDiscordConfig } from "./db/botRepo.js";
+import { getBotGeminiConfig, getBotGoogleConfig, getBotDiscordConfig, getBotById } from "./db/botRepo.js";
+import { listMemories } from "./db/memoryRepo.js";
+import { getUserGeminiConfig } from "./db/userRepo.js";
 import { decryptText } from "./utils/crypto.js";
 
 // Bot別AIインスタンスキャッシュ
@@ -17,38 +19,60 @@ const botAICache = new Map<string, { genAI: GoogleGenerativeAI; apiKey: string }
 /**
  * Bot別のGemini APIキーを復号して取得する
  */
-function getDecryptedApiKey(botId: string): { apiKey: string; model: string } | null {
+function getDecryptedApiKey(botId: string, userId?: string): { apiKey: string; model: string } | null {
+  // 1. Try to get API key from the Bot config
   const geminiConfig = getBotGeminiConfig(botId);
-  if (!geminiConfig || !geminiConfig.apiKeyEncrypted || !geminiConfig.apiKeyIv || !geminiConfig.apiKeyTag) {
-    return null;
+  if (geminiConfig && geminiConfig.apiKeyEncrypted && geminiConfig.apiKeyIv && geminiConfig.apiKeyTag) {
+    try {
+      const apiKey = decryptText(geminiConfig.apiKeyEncrypted, geminiConfig.apiKeyIv, geminiConfig.apiKeyTag);
+      return { apiKey, model: geminiConfig.model || "gemini-3.1-flash-lite" };
+    } catch (err) {
+      console.error(`Bot ${botId} のGemini API Keyの復号に失敗しました:`, err);
+    }
   }
 
-  try {
-    const apiKey = decryptText(geminiConfig.apiKeyEncrypted, geminiConfig.apiKeyIv, geminiConfig.apiKeyTag);
-    return { apiKey, model: geminiConfig.model || "gemini-3.1-flash-lite" };
-  } catch (err) {
-    console.error(`Bot ${botId} のGemini API Keyの復号に失敗しました:`, err);
-    return null;
+  // 2. If no bot key is set, fallback to user's key
+  let resolvedUserId = userId;
+  if (!resolvedUserId && botId !== "system_default") {
+    const botRecord = getBotById(botId);
+    if (botRecord) {
+      resolvedUserId = botRecord.user_id;
+    }
   }
+
+  if (resolvedUserId) {
+    const userGeminiConfig = getUserGeminiConfig(resolvedUserId);
+    if (userGeminiConfig && userGeminiConfig.apiKeyEncrypted && userGeminiConfig.apiKeyIv && userGeminiConfig.apiKeyTag) {
+      try {
+        const apiKey = decryptText(userGeminiConfig.apiKeyEncrypted, userGeminiConfig.apiKeyIv, userGeminiConfig.apiKeyTag);
+        return { apiKey, model: userGeminiConfig.model || "gemini-3.1-flash-lite" };
+      } catch (err) {
+        console.error(`ユーザー ${resolvedUserId} のGemini API Keyの復号に失敗しました:`, err);
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
  * Bot別のGoogleGenerativeAIインスタンスを取得する（キャッシュ付き）
  */
-function getGenAIForBot(botId: string): { genAI: GoogleGenerativeAI; model: string } {
-  const keyInfo = getDecryptedApiKey(botId);
+function getGenAIForBot(botId: string, userId?: string): { genAI: GoogleGenerativeAI; model: string } {
+  const keyInfo = getDecryptedApiKey(botId, userId);
   if (!keyInfo) {
     throw new Error("Gemini API Keyが設定されていません。管理画面から設定してください。");
   }
 
-  const cached = botAICache.get(botId);
+  const cacheKey = `${botId}::${userId || ""}`;
+  const cached = botAICache.get(cacheKey);
   if (cached && cached.apiKey === keyInfo.apiKey) {
     return { genAI: cached.genAI, model: keyInfo.model };
   }
 
   // キャッシュミスまたはAPIキー変更 → 新規インスタンス生成
   const genAI = new GoogleGenerativeAI(keyInfo.apiKey);
-  botAICache.set(botId, { genAI, apiKey: keyInfo.apiKey });
+  botAICache.set(cacheKey, { genAI, apiKey: keyInfo.apiKey });
   return { genAI, model: keyInfo.model };
 }
 
@@ -83,7 +107,22 @@ async function buildSystemInstruction(botId: string): Promise<string> {
 
   const discordBotConfig = getBotDiscordConfig(botId);
   const customPersona = discordBotConfig?.persona?.trim();
-  const customMemories = discordBotConfig?.memories?.trim();
+
+  const memoriesList = listMemories(botId);
+  const memoriesSection = memoriesList.length > 0
+    ? `\n# 覚えておくこと（ユーザーから登録された記憶・メモ）\n以下は、ユーザーが「覚えておいてほしい」として登録した情報です。会話の中で適切に活用してください。\n` + memoriesList.map(m => `- ${m.content}`).join("\n")
+    : "";
+
+  const memoryPlaybookRuleSection = `
+# 「覚えておくこと（記憶・メモ）」と「手順書（Playbook）」の使い分けルール（極めて重要）
+あなたが情報を保存する際は、対象情報の性質に応じて「覚えておくこと（記憶・メモ）」と「手順書（Playbook）」を明確に使い分けてください。
+1. **覚えておくこと（記憶・メモ）**:
+   - 対象: ユーザーの好み、習慣、個人的な事実、静的な情報（例：「名前は○○」「○○アレルギーがある」「コーヒーはブラックが好き」「毎週木曜日はゴミ出し」など）。
+   - アクション: ユーザーから「〜〜を覚えておいて」と指示されたり、会話のコンテキストで重要だと判断した場合は、\`addMemory\` ツールを使用して短い文章として保存してください。
+2. **手順書（Playbook）**:
+   - 対象: Webページのログイン手順、特定のサイトからのデータ取得手順、ファイルのダウンロードや転送手順など、複数ステップからなる具体的な「操作・自動化の手順」（ワークフロー）。
+   - アクション: 操作手順を保存・更新するよう指示された場合は、\`savePlaybook\` ツールを使用してください。
+※重要: 単なるユーザーの好みや事実などの静的な情報を手順書（Playbook）として保存してはいけません。また、動的な操作手順を \`addMemory\` に保存してもいけません。`;
 
   let roleAndPersona = "";
   let syncRule = "";
@@ -96,24 +135,21 @@ async function buildSystemInstruction(botId: string): Promise<string> {
     freeChatRule = "- 機能に関係ない雑談にも設定されたキャラクター（ペルソナ）として応じてください。キャラクターの設定をベースに、一貫したロールプレイを維持してください。";
   } else {
     roleAndPersona = `# あなたの役割
-あなたは、タスク管理・スケジュール管理・家計管理を支援する汎用AIアシスタントです。ユーザーの日常的な生産性向上と生活管理を、的確かつ効率的にサポートしてください。
-
-# アシスタントプロファイル
-- **スタイル:** 丁寧・論理的・実務的。過度なキャラクター演技はせず、フレンドリーかつプロフェッショナルに対応します。
-- **応答方針:** ユーザーの意図を正確に把握し、必要な情報を整理して簡潔に伝えます。
-- **優先事項:** 正確性・効率性・一貫性。`;
-
+    あなたは、タスク管理・スケジュール管理・家計管理を支援する汎用AIアシスタントです。ユーザーの日常的な生産性向上と生活管理を、的確かつ効率的にサポートしてください。
+    
+    # アシスタントプロファイル
+    - **スタイル:** 丁寧・論理的・実務的。過度なキャラクター演技はせず、フレンドリーかつプロフェッショナルに対応します。
+    - **応答方針:** ユーザーの意図を正確に把握し、必要な情報を整理して簡潔に伝えます。
+    - **優先事項:** 正確性・効率性・一貫性。`;
+    
     syncRule = "- カレンダーに登録されるような通常の予定を追加または削除した際は、「Googleカレンダーにも同期（削除）しました」と簡潔に伝えてください。簡易タイマーやリマインダーで 'local_only' にした場合は、「リマインダーをセットしました」と伝えてください。";
     freeChatRule = "- 機能に関係ない雑談や質問にも、フレンドリーかつ丁寧に応じてください。";
   }
 
-  const memoriesSection = customMemories
-    ? `\n# 覚えておくこと（ユーザーから登録された記憶・メモ）\n以下は、ユーザーが「覚えておいてほしい」として登録した情報です。会話の中で適切に活用してください。\n${customMemories}`
-    : "";
-
   const parts = [
     roleAndPersona,
     memoriesSection,
+    memoryPlaybookRuleSection,
     "",
     `# リアルタイム情報の正確性とファクトチェック（極めて重要）
 - 先生から天気予報、電車の運行情報、ニュース、最新技術トレンド、または事実確認を求められた場合、セミナーの有能な会計（ミレニアムの計算機）としてのプライドにかけて、不正確な推測や無根拠なデータを伝えてはいけません。
@@ -214,9 +250,10 @@ function sleep(ms: number): Promise<void> {
 async function generateWithRetry(
   botId: string,
   contents: Content[],
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  userId?: string
 ): Promise<import("@google/generative-ai").GenerateContentResult> {
-  const { genAI, model: modelName } = getGenAIForBot(botId);
+  const { genAI, model: modelName } = getGenAIForBot(botId, userId);
 
   // 毎回最新の日時でsystem instructionを更新
   const model = genAI.getGenerativeModel({
@@ -269,7 +306,8 @@ export interface ProcessResult {
 export async function processMessage(
   botId: string,
   message: ChatMessage,
-  onStatusChange?: (status: "thinking" | "writing" | "idle") => void
+  onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+  userId?: string
 ): Promise<ProcessResult> {
   // このリクエストで生成された表示用Embedを収集する（Function Callから push される）
   const pendingEmbeds: EmbedBuilder[] = [];
@@ -335,7 +373,7 @@ export async function processMessage(
 
   try {
     onStatusChange?.("thinking");
-    let result = await generateWithRetry(botId, contents);
+    let result = await generateWithRetry(botId, contents, 3, userId);
     let response = result.response;
 
     // Function Calling ループ（最大10回まで）
@@ -400,7 +438,7 @@ export async function processMessage(
       // 最後のテキスト生成の直前で書き込み中ステータスに変更
       onStatusChange?.("writing");
 
-      result = await generateWithRetry(botId, contents);
+      result = await generateWithRetry(botId, contents, 3, userId);
       response = result.response;
       iterations++;
     }

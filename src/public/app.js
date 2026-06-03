@@ -790,12 +790,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const discordId = document.getElementById("setup-discord-id").value.trim();
       const username = document.getElementById("setup-username").value.trim();
       const password = document.getElementById("setup-password").value;
+      const geminiApiKey = document.getElementById("setup-gemini-key").value.trim();
 
       try {
         const res = await originalFetch("/api/setup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ discordId, username, password })
+          body: JSON.stringify({ discordId, username, password, geminiApiKey })
         });
         const data = await res.json();
 
@@ -854,12 +855,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const username = document.getElementById("reg-username").value.trim();
     const password = document.getElementById("reg-password").value;
     const inviteCode = document.getElementById("reg-invite-code").value.trim();
+    const geminiApiKey = document.getElementById("reg-gemini-key").value.trim();
 
     try {
       const res = await originalFetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ discordId, username, password, inviteCode })
+        body: JSON.stringify({ discordId, username, password, inviteCode, geminiApiKey })
       });
       const data = await res.json();
 
@@ -1842,19 +1844,21 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       list.innerHTML = "";
       if (!data.success || data.limits.length === 0) {
-        list.innerHTML = `<p style="font-size:0.8rem;color:var(--text-secondary);">設定済みの上限はありません。</p>`;
+        list.innerHTML = `<p style="font-size:0.8rem;color:var(--text-secondary);padding: 8px 0;">設定済みの上限はありません。</p>`;
         return;
       }
       data.limits.forEach(lim => {
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-divider);";
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-divider);";
         row.innerHTML = `
-          <span style="font-size:0.88rem;">${lim.category}</span>
-          <span style="font-size:0.88rem;color:var(--text-secondary);">¥${lim.limit_amount.toLocaleString()}</span>
+          <span style="font-size:0.9rem;font-weight:500;color:var(--text-primary);">${lim.category}</span>
+          <div class="limit-right-content" style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:0.9rem;font-weight:700;color:var(--text-primary);">¥${lim.limit_amount.toLocaleString()}</span>
+          </div>
         `;
         const delBtn = document.createElement("button");
         delBtn.className = "btn btn-secondary btn-sm";
-        delBtn.style.cssText = "font-size:0.72rem;padding:2px 8px;margin-left:10px;";
+        delBtn.style.cssText = "font-size:0.72rem;padding:4px 10px;text-transform:none;letter-spacing:normal;font-weight:normal;height:auto;";
         delBtn.textContent = "削除";
         delBtn.addEventListener("click", async () => {
           try {
@@ -1867,7 +1871,7 @@ document.addEventListener("DOMContentLoaded", () => {
             fetchExpensesList();
           } catch (e) { console.error(e); }
         });
-        row.appendChild(delBtn);
+        row.querySelector(".limit-right-content").appendChild(delBtn);
         list.appendChild(row);
       });
     } catch (e) { console.error(e); }
@@ -1998,12 +2002,31 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        // system_default を非管理者が見ている場合、Google連携・バックアップ・カレンダーを隠す
+        // system_default を非管理者が見ている場合、Google連携・バックアップを隠す
         const restrictedForNonAdmin = isSystemDefault && !isAdmin;
-        ["config-google-section", "config-backup-section", "config-calendars-section"].forEach(id => {
+        ["config-google-section", "config-backup-section"].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.classList.toggle("hidden", restrictedForNonAdmin);
         });
+
+        // Update Google OAuth linked status UI
+        const googleLinkedStatus = document.getElementById("google-linked-status");
+        const btnGoogleAuth = document.getElementById("btn-google-auth");
+        if (googleLinkedStatus && btnGoogleAuth) {
+          if (data.config.googleLinked) {
+            googleLinkedStatus.style.display = "flex";
+            btnGoogleAuth.innerHTML = `<span class="material-symbols-outlined">sync</span> 連携アカウントを更新する`;
+            btnGoogleAuth.className = "btn btn-secondary";
+            btnGoogleAuth.style.width = "100%";
+            btnGoogleAuth.style.maxWidth = "320px";
+          } else {
+            googleLinkedStatus.style.display = "none";
+            btnGoogleAuth.innerHTML = `<span class="material-symbols-outlined">link</span> Google 連携認証を開始する`;
+            btnGoogleAuth.className = "btn btn-primary";
+            btnGoogleAuth.style.width = "100%";
+            btnGoogleAuth.style.maxWidth = "320px";
+          }
+        }
 
         // Fetch and fill Discord / Persona config values
         if (!isSystemDefault || isAdmin) {
@@ -2014,75 +2037,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (discordData.success) {
                   document.getElementById("discord-token").value = discordData.tokenMasked;
                   document.getElementById("discord-persona").value = discordData.persona;
-                  document.getElementById("discord-memories").value = discordData.memories;
+                  fetchMemories();
                 }
               })
               .catch(err => console.error("Failed to load Discord settings:", err));
           } catch (err) {
             console.error("Failed to load Discord settings:", err);
-          }
-        }
-
-        // Render Calendars List (Matte Flat Style)
-        const configCalendarsList = document.getElementById("config-calendars-list");
-        if (configCalendarsList) {
-          configCalendarsList.replaceChildren();
-          const calendars = data.config.googleCalendars || [];
-          if (calendars.length === 0) {
-            const empty = document.createElement("div");
-            empty.textContent = "登録されている同期カレンダーはありません。Google連携認証を完了させてください。";
-            empty.style.fontSize = "0.8rem";
-            empty.style.color = "var(--color-zinc-muted)";
-            configCalendarsList.appendChild(empty);
-          } else {
-            calendars.forEach(cal => {
-              const row = document.createElement("div");
-              row.style.display = "flex";
-              row.style.justifyContent = "space-between";
-              row.style.alignItems = "center";
-              row.style.padding = "12px 0";
-              row.style.border = "none";
-              row.style.borderBottom = "1px solid var(--border-divider)";
-              row.style.backgroundColor = "transparent";
-
-              const leftInfo = document.createElement("div");
-              leftInfo.style.display = "flex";
-              leftInfo.style.flexDirection = "column";
-              leftInfo.style.gap = "2px";
-
-              const calSummary = document.createElement("span");
-              calSummary.textContent = cal.summary || "外部連携カレンダー";
-              calSummary.style.fontSize = "0.85rem";
-              calSummary.style.fontWeight = "700";
-              calSummary.style.color = "var(--color-white)";
-
-              const calId = document.createElement("span");
-              calId.textContent = cal.id;
-              calId.style.fontSize = "0.7rem";
-              calId.style.color = "var(--color-zinc-muted)";
-              calId.style.fontFamily = "var(--font-family-mono)";
-
-              leftInfo.appendChild(calSummary);
-              leftInfo.appendChild(calId);
-
-              const btnDelete = document.createElement("button");
-              btnDelete.className = "btn-trash";
-              btnDelete.style.width = "28px";
-              btnDelete.style.height = "28px";
-              btnDelete.type = "button";
-
-              const trashIcon = document.createElement("span");
-              trashIcon.className = "material-symbols-outlined";
-              trashIcon.textContent = "delete";
-              trashIcon.style.fontSize = "1.0rem";
-
-              btnDelete.appendChild(trashIcon);
-              btnDelete.addEventListener("click", () => handleDeleteCalendarId(cal.id));
-
-              row.appendChild(leftInfo);
-              row.appendChild(btnDelete);
-              configCalendarsList.appendChild(row);
-            });
           }
         }
       }
@@ -2091,6 +2051,56 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchCredentialsSettings();
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async function fetchMemories() {
+    const container = document.getElementById("memories-container");
+    if (!container) return;
+    try {
+      const res = await fetch(`/api/memories?botId=${window.currentBotId}`);
+      const data = await res.json();
+      container.innerHTML = "";
+      if (data.success && data.memories && data.memories.length > 0) {
+        data.memories.forEach(mem => {
+          const item = document.createElement("div");
+          item.style.cssText = "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid var(--border-matte || #27272a);";
+          
+          const contentSpan = document.createElement("span");
+          contentSpan.style.cssText = "font-size: 0.85rem; color: var(--text-primary); word-break: break-all; flex-grow: 1; margin-right: 8px;";
+          contentSpan.textContent = mem.content;
+          
+          const deleteBtn = document.createElement("button");
+          deleteBtn.type = "button";
+          deleteBtn.className = "btn btn-secondary btn-sm";
+          deleteBtn.style.cssText = "padding: 2px 6px; font-size: 0.7rem; display: flex; align-items: center; background: transparent; border: none; color: var(--color-red || #cf6679); cursor: pointer;";
+          deleteBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 16px;">delete</span>`;
+          deleteBtn.addEventListener("click", async () => {
+            if (!confirm(`この記憶「${mem.content}」を削除しますか？`)) return;
+            try {
+              const delRes = await fetch("/api/memories/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ botId: window.currentBotId, id: mem.id })
+              });
+              const delData = await delRes.json();
+              if (delData.success) {
+                fetchMemories();
+              }
+            } catch (err) {
+              console.error("Failed to delete memory:", err);
+            }
+          });
+          
+          item.appendChild(contentSpan);
+          item.appendChild(deleteBtn);
+          container.appendChild(item);
+        });
+      } else {
+        container.innerHTML = `<p style="font-size:0.8rem;color:var(--text-secondary);margin:0;padding: 4px 0;">登録されている記憶はありません。</p>`;
+      }
+    } catch (err) {
+      console.error("Failed to fetch memories:", err);
     }
   }
 
@@ -2153,13 +2163,12 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       const token = document.getElementById("discord-token").value.trim();
       const persona = document.getElementById("discord-persona").value.trim();
-      const memories = document.getElementById("discord-memories").value.trim();
 
       try {
         const res = await fetch("/api/settings/discord", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, persona, memories })
+          body: JSON.stringify({ token, persona })
         });
         const data = await res.json();
         if (data.success) {
@@ -2170,6 +2179,76 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } catch (err) {
         alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Handle Edit Persona Modal triggers
+  const modalPersona = document.getElementById("modal-persona");
+  const btnOpenPersonaModal = document.getElementById("btn-open-persona-modal");
+  const btnClosePersonaModal = document.getElementById("btn-close-persona-modal");
+  const btnCancelPersona = document.getElementById("btn-cancel-persona");
+  const personaModalForm = document.getElementById("persona-modal-form");
+  const personaModalTextarea = document.getElementById("persona-modal-textarea");
+  const discordPersonaInput = document.getElementById("discord-persona");
+
+  if (btnOpenPersonaModal && modalPersona && personaModalTextarea && discordPersonaInput) {
+    btnOpenPersonaModal.addEventListener("click", () => {
+      personaModalTextarea.value = discordPersonaInput.value;
+      modalPersona.classList.add("active");
+    });
+  }
+
+  function closePersonaModal() {
+    if (modalPersona) {
+      modalPersona.classList.remove("active");
+    }
+  }
+
+  if (btnClosePersonaModal) {
+    btnClosePersonaModal.addEventListener("click", closePersonaModal);
+  }
+  if (btnCancelPersona) {
+    btnCancelPersona.addEventListener("click", closePersonaModal);
+  }
+
+  if (personaModalForm && discordPersonaInput) {
+    personaModalForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      discordPersonaInput.value = personaModalTextarea.value;
+      closePersonaModal();
+    });
+  }
+
+  // Handle add memory chunk
+  const btnAddMemory = document.getElementById("btn-add-memory");
+  const newMemoryInput = document.getElementById("new-memory-input");
+  if (btnAddMemory && newMemoryInput) {
+    btnAddMemory.addEventListener("click", async () => {
+      const content = newMemoryInput.value.trim();
+      if (!content) return;
+      try {
+        const res = await fetch("/api/memories/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, content })
+        });
+        const data = await res.json();
+        if (data.success) {
+          newMemoryInput.value = "";
+          fetchMemories();
+        } else {
+          alert("エラー: " + data.message);
+        }
+      } catch (err) {
+        console.error("Failed to add memory:", err);
+      }
+    });
+
+    newMemoryInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        btnAddMemory.click();
       }
     });
   }
@@ -2256,73 +2335,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle calendar ID deletion
-  async function handleDeleteCalendarId(calendarId) {
-    if (!confirm(`本当にカレンダーID "${calendarId}" を同期一覧から削除しますか？`)) return;
-    try {
-      const res = await fetch("/api/status");
-      const data = await res.json();
-      if (data.success) {
-        const currentList = (data.config.googleCalendars || []).map(c => c.id);
-        const newList = currentList.filter(id => id !== calendarId);
 
-        const saveRes = await fetch("/api/settings/calendars", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ calendars: newList })
-        });
-        const saveVal = await saveRes.json();
-        if (saveVal.success) {
-          fetchConfigSettings();
-        } else {
-          alert(saveVal.message);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      alert("通信エラーが発生しました。");
-    }
-  }
-
-  // Handle adding new calendar ID
-  const configCalendarForm = document.getElementById("config-calendar-form");
-  if (configCalendarForm) {
-    configCalendarForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const input = document.getElementById("config-new-calendar-id");
-      const calendarId = input.value.trim();
-      if (!calendarId) return;
-
-      try {
-        const res = await fetch("/api/status");
-        const data = await res.json();
-        if (data.success) {
-          const currentList = (data.config.googleCalendars || []).map(c => c.id);
-          if (currentList.includes(calendarId)) {
-            alert("このカレンダーIDは既に追加されています。");
-            return;
-          }
-          currentList.push(calendarId);
-
-          const saveRes = await fetch("/api/settings/calendars", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ calendars: currentList })
-          });
-          const saveVal = await saveRes.json();
-          if (saveVal.success) {
-            input.value = "";
-            fetchConfigSettings();
-          } else {
-            alert(saveVal.message);
-          }
-        }
-      } catch (e) {
-        console.error(e);
-        alert("通信エラーが発生しました。");
-      }
-    });
-  }
 
   // ==========================================
   // AI CREDENTIALS MANAGEMENT
@@ -3213,9 +3226,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // スケジュール保存フォーム
-  const scheduleForm = document.getElementById("playbook-schedule-form");
-  if (scheduleForm) {
-    scheduleForm.addEventListener("submit", async (e) => {
+  const playbookScheduleForm = document.getElementById("playbook-schedule-form");
+  if (playbookScheduleForm) {
+    playbookScheduleForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const playbookName = document.getElementById("schedule-playbook-select").value;
       const cronExpression = document.getElementById("schedule-cron-expression").value.trim();
@@ -3235,7 +3248,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = await res.json();
         if (data.success) {
           alert("スケジュールを保存しました。");
-          scheduleForm.reset();
+          playbookScheduleForm.reset();
           document.getElementById("schedule-enabled").checked = true;
           fetchPlaybookSchedulesList();
           fetchPlaybookRunsList();

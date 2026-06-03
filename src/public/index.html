@@ -70,6 +70,11 @@
             <input type="password" id="reg-password" required placeholder="••••••••••••" autocomplete="new-password">
           </div>
           <div class="form-group">
+            <label for="reg-gemini-key">Gemini API Key *</label>
+            <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+            <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
+          </div>
+          <div class="form-group">
             <label for="reg-invite-code">招待コード *</label>
             <input type="text" id="reg-invite-code" required placeholder="管理者から配布されたコード">
           </div>
@@ -100,6 +105,11 @@
           <div class="form-group">
             <label for="setup-password">管理者パスワード *</label>
             <input type="password" id="setup-password" required placeholder="••••••••••••" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="setup-gemini-key">Gemini API Key *</label>
+            <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+            <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
           </div>
           <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">管理者アカウントを登録する</button>
         </form>
@@ -161,7 +171,7 @@
 
   <!-- Create Bot Modal -->
   <div id="modal-create-bot" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3>新規Botの作成</h3>
         <button class="btn-close" id="btn-close-create-bot">
@@ -827,15 +837,24 @@
               </div>
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="discord-persona">AI ペルソナ設定 (任意)</label>
-                <textarea id="discord-persona"
-                  placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。など。空欄の場合は汎用アシスタントのペルソナが適用されます。"></textarea>
-                <span class="field-sub">※キャラクター設定、話し方、行動指針などを自由に記述できます。</span>
+                <div style="display: flex; gap: 8px; align-items: flex-start;">
+                  <textarea id="discord-persona" readonly placeholder="設定されたペルソナがここに表示されます..." style="flex-grow: 1; min-height: 80px; background-color: rgba(255,255,255,0.02); resize: none; cursor: default;"></textarea>
+                  <button type="button" id="btn-open-persona-modal" class="btn btn-secondary" style="white-space: nowrap; height: 38px; display: flex; align-items: center; gap: 4px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">open_in_full</span> 編集
+                  </button>
+                </div>
+                <span class="field-sub">※キャラクター設定、話し方、行動指針などを広いモーダル画面で記述できます。</span>
               </div>
               <div class="form-group" style="margin-bottom: 12px;">
-                <label for="discord-memories">覚えておいてほしいこと (任意)</label>
-                <textarea id="discord-memories"
-                  placeholder="例:&#10;- 私の名前は田中です&#10;- 毎朝7時に起きます&#10;- 猫アレルギーがあります&#10;&#10;AIが会話で参照する情報（好み・習慣・事実など）を自由に登録できます。"></textarea>
-                <span class="field-sub">※ペルソナとは別に、AIに常に覚えていてほしい情報を記述できます。会話のたびに参照されます。</span>
+                <label>覚えておいてほしいこと (記憶の管理)</label>
+                <div id="memories-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 250px; overflow-y: auto; padding-right: 4px;">
+                  <!-- Dynamically populated memory chunks -->
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="new-memory-input" placeholder="例: 私は猫アレルギーがあります" style="flex-grow: 1;">
+                  <button type="button" id="btn-add-memory" class="btn btn-secondary" style="white-space: nowrap; height: var(--btn-height, 38px);">＋ 記憶を追加</button>
+                </div>
+                <span class="field-sub">※AIに常に覚えていてほしい情報（好み・習慣・事実など）を短い文章（チャンク）で登録・管理できます。会話のたびに参照されます。</span>
               </div>
               <button type="submit" class="btn btn-primary">Discord ＆ ペルソナ設定を保存</button>
             </form>
@@ -843,13 +862,17 @@
 
           <!-- Google OAuth settings -->
           <div id="config-google-section" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+            <div class="column-header" style="display: flex; justify-content: space-between; align-items: center;">
               <h3><svg class="header-icon-symbol"
                   style="width: 1.35rem; height: 1.35rem; fill: currentColor; vertical-align: middle; margin-right: 8px; display: inline-block;"
                   viewBox="0 0 24 24">
                   <path
                     d="M12.24 10.285V13.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.866-3.577-7.866-8s3.536-8 7.866-8c2.46 0 4.105 1.025 5.047 1.926l2.427-2.334C17.955 2.192 15.34 1 12.24 1 5.48 1 0 6.48 0 13s5.48 12 12.24 12c7.06 0 11.75-4.97 11.75-11.96 0-.81-.08-1.42-.18-1.755H12.24z" />
                 </svg>Google アカウント連携 (OAuth2)</h3>
+              <div id="google-linked-status" style="display: none; align-items: center; gap: 6px; font-size: 0.85rem; background-color: rgba(3, 218, 198, 0.1); border: 1px solid var(--color-secondary); padding: 4px 10px; border-radius: 20px;">
+                <span class="material-symbols-outlined" style="color: var(--color-secondary); font-size: 1.1rem;">check_circle</span>
+                <span style="color: var(--color-secondary); font-weight: 600;">連携済み</span>
+              </div>
             </div>
             <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google
               アカウントとの連携を行います。</p>
@@ -892,25 +915,6 @@
               </div>
             </form>
           </div>
-          <!-- Google Calendars Management Card (Matte Flat Style) -->
-          <div id="config-calendars-section" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">calendar_today</span>Google連携カレンダー管理</h3>
-            </div>
-
-            <!-- Calendar IDs List -->
-            <div id="config-calendars-list"
-              style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; margin-bottom: 20px;">
-              <!-- Generated dynamically -->
-            </div>
-
-            <!-- Add Calendar Form -->
-            <form id="config-calendar-form" style="display: flex; gap: 12px; margin-top: 16px;">
-              <input type="text" id="config-new-calendar-id" required placeholder="example@group.calendar.google.com"
-                style="flex-grow: 1;">
-              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">追加</button>
-            </form>
-          </div>
 
           <!-- AI Credentials Management Card (Matte Flat Style) -->
           <div class="config-card card" style="margin-top: 24px;">
@@ -936,7 +940,7 @@
                     <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">
                       最終更新</th>
                     <th
-                      style="text-align: right; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa; width: 80px;">
+                      style="text-align: right; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa; width: 110px;">
                       操作</th>
                   </tr>
                 </thead>
@@ -1091,7 +1095,7 @@
 
   <!-- Edit Bot Profile Modal -->
   <div id="modal-edit-bot-profile" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3>Botプロフィール編集</h3>
         <button class="btn-close" id="btn-close-edit-bot-profile">
@@ -1116,7 +1120,7 @@
 
   <!-- Add Credential Modal -->
   <div id="modal-credential" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3>新規認証情報の登録</h3>
         <button class="btn-close">
@@ -1146,7 +1150,7 @@
 
   <!-- Add Task Modal -->
   <div id="modal-task" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3>新規タスクの追加</h3>
         <button class="btn-close">
@@ -1183,7 +1187,7 @@
 
   <!-- Add Schedule Modal -->
   <div id="modal-schedule" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3>新規予定の登録</h3>
         <button class="btn-close">
@@ -1220,7 +1224,7 @@
 
   <!-- Add Expense Plan Modal -->
   <div id="modal-expense-plan" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3>支払い予定の追加</h3>
         <button class="btn-close" id="btn-close-expense-plan">
@@ -1267,7 +1271,7 @@
 
   <!-- Budget Limit Settings Modal -->
   <div id="modal-budget-settings" class="modal">
-    <div class="modal-content card">
+    <div class="modal-content">
       <div class="modal-header">
         <h3><span class="material-symbols-outlined header-icon-symbol">tune</span>カテゴリ別予算上限設定</h3>
         <button class="btn-close" id="btn-close-budget-settings">
@@ -1275,7 +1279,7 @@
         </button>
       </div>
       <p class="description-text" style="margin-bottom:16px;">カテゴリごとに月間の予算上限金額を設定します。未設定のカテゴリは上限なし（バー非表示）になります。</p>
-      <div id="budget-settings-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+      <div id="budget-settings-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px;max-height:180px;overflow-y:auto;padding-right:6px;">
         <!-- Generated dynamically -->
       </div>
       <form id="budget-limit-form" style="display:flex;flex-direction:column;gap:12px;margin-top:8px;border-top:1px solid var(--border-divider);padding-top:16px;">
@@ -1299,14 +1303,14 @@
             <input type="number" id="budget-limit-amount" placeholder="50000" min="1">
           </div>
         </div>
-        <button type="submit" class="btn btn-primary">設定を保存</button>
+        <button type="submit" class="btn btn-primary btn-block">設定を保存</button>
       </form>
     </div>
   </div>
 
   <!-- AI Receipt Result Modal -->
   <div id="modal-receipt-result" class="modal">
-    <div class="modal-content card wide-modal">
+    <div class="modal-content wide-modal">
       <div class="modal-header">
         <h3><span class="material-symbols-outlined header-icon-symbol">analytics</span>AI解析結果の報告</h3>
         <button class="btn-close">
@@ -1325,6 +1329,30 @@
       <div class="modal-footer">
         <button class="btn btn-primary btn-close-modal">確認しました</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Edit Persona Modal -->
+  <div id="modal-persona" class="modal">
+    <div class="modal-content wide-modal" style="max-width: 800px; width: 90%;">
+      <div class="modal-header">
+        <h3>AI ペルソナ設定の編集</h3>
+        <button class="btn-close" id="btn-close-persona-modal">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="persona-modal-form" style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="form-group">
+          <label for="persona-modal-textarea">ペルソナ定義（システムプロンプト指示）</label>
+          <textarea id="persona-modal-textarea" placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。" 
+            style="min-height: 350px; font-family: inherit; font-size: 0.9rem; line-height: 1.5; width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+          <span class="field-sub">※キャラクター設定、口調、応答スタイル、行動制限ルールなどを詳細に記述できます。</span>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" id="btn-cancel-persona" class="btn btn-secondary" style="height: 38px;">キャンセル</button>
+          <button type="submit" class="btn btn-primary" style="height: 38px;">適用する</button>
+        </div>
+      </form>
     </div>
   </div>
 

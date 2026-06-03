@@ -6,6 +6,7 @@ import * as expenseFn from "./expenseFunctions.js";
 import * as browserFn from "./browserFunctions.js";
 import * as credentialFn from "./credentialFunctions.js";
 import * as playbookFn from "./playbookFunctions.js";
+import * as memoryFn from "./memoryFunctions.js";
 import { buildRichContentEmbed } from "../utils/embeds.js";
 import type { EmbedBuilder } from "discord.js";
 
@@ -476,6 +477,20 @@ export const functionDeclarations: FunctionDeclaration[] = [
       },
     },
   },
+  {
+    name: "addMemory",
+    description: "ユーザーから「〜〜を覚えておいて」「〜〜と記憶して」と指示された際、あるいは会話の中で重要だと思われるユーザーの好み・習慣・事実を小さなコンテキストの塊（メモ・記憶）として保存します。複雑な自動化手順（ログイン手順など）はsavePlaybookを使用し、ここには保存しないでください。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        content: {
+          type: SchemaType.STRING,
+          description: "記憶する短い文章 (例: '先生は甘いものが好き', '月曜の朝は会議がある')",
+        },
+      },
+      required: ["content"],
+    },
+  },
 ];
 
 
@@ -581,6 +596,8 @@ export async function dispatchFunction(
       return await playbookFn.savePlaybook(botId, args as Parameters<typeof playbookFn.savePlaybook>[1]);
     case "findPlaybooks":
       return await playbookFn.findPlaybooks(botId, args as Parameters<typeof playbookFn.findPlaybooks>[1]);
+    case "addMemory":
+      return memoryFn.addBotMemory(botId, args as Parameters<typeof memoryFn.addBotMemory>[1]);
 
     // リッチコンテンツEmbed表示
     case "showRichContent": {

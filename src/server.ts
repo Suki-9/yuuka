@@ -62,6 +62,7 @@ import {
   unsuspendBot,
   isBotSuspended,
 } from "./db/botRepo.js";
+import { addMemory, listMemories, deleteMemory } from "./db/memoryRepo.js";
 import { startCustomBot, stopCustomBot, client as defaultBotClient, customClients, restartDefaultBot } from "./bot.js";
 import { isValidCode, validateAndConsumeCode, listInviteCodes, createInviteCode } from "./db/inviteRepo.js";
 import { encryptText } from "./utils/crypto.js";
@@ -871,6 +872,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
           reminderCron: config.reminderCron,
           googleCalendarId: googleConfig?.calendarId || "未設定",
           googleCalendars: calendars,
+          googleLinked: !!googleConfig?.refreshToken,
           geminiModel: geminiConfig?.model || "gemini-3.1-flash-lite",
           geminiApiKey: mask(geminiConfig?.apiKeyEncrypted ? "configured" : null),
           backupEnabled: botRecord?.google_drive_backup_enabled === 1,
@@ -957,12 +959,15 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       const hasToken = !!(current?.tokenEncrypted && current?.tokenIv && current?.tokenTag);
       const tokenMasked = hasToken ? "••••••••••••" : "";
       
+      const memoriesList = listMemories(botId!);
+      const memoriesConcatenated = memoriesList.map(m => m.content).join("\n");
+      
       sendJson(res, 200, {
         success: true,
         hasToken,
         tokenMasked,
         persona: current?.persona ?? "",
-        memories: current?.memories ?? "",
+        memories: memoriesConcatenated,
       });
     } catch (err: any) {
       console.error("Discord 設定取得エラー:", err);
@@ -1015,7 +1020,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
       // ペルソナの処理 (空欄の場合は null にする)
       const personaVal = (persona && persona.trim() !== "") ? persona.trim() : null;
-      const memoriesVal = (memories && memories.trim() !== "") ? memories.trim() : null;
+      const memoriesVal = null; // 管理画面の設定フォームからは記憶カラムの直接更新はせず、専用APIで処理
 
       const botRecord = getBotById(botId)!;
       // データベースを更新
@@ -1223,6 +1228,55 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       sendJson(res, 200, { success });
     } catch (err: any) {
       sendError(res, 500, "資格情報の削除に失敗しました。");
+    }
+    return;
+  }
+
+  // ── 記憶・メモ（覚えておいてほしいこと）API ──
+  if (pathname === "/api/memories" && method === "GET") {
+    try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      const list = listMemories(botId!);
+      sendJson(res, 200, { success: true, memories: list });
+    } catch (err: any) {
+      sendError(res, 500, "記憶一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/memories/add" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, content } = JSON.parse(body);
+
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!content || !content.trim()) {
+        return sendError(res, 400, "記憶する内容は必須です。");
+      }
+
+      const memory = addMemory(botId, content.trim());
+      sendJson(res, 200, { success: true, memory, message: "記憶を追加しました。" });
+    } catch (err: any) {
+      sendError(res, 500, "記憶の保存に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/memories/delete" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, id } = JSON.parse(body);
+
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (id == null) {
+        return sendError(res, 400, "記憶IDは必須です。");
+      }
+
+      const success = deleteMemory(botId, Number(id));
+      sendJson(res, 200, { success, message: success ? "記憶を削除しました。" : "削除に失敗しました。" });
+    } catch (err: any) {
+      sendError(res, 500, "記憶の削除に失敗しました。");
     }
     return;
   }
@@ -1526,7 +1580,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       }
 
       console.log(`📸 [Bot: ${botId}] WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
-      const response = await parseReceipt(botId, imageBase64, mimeType, additionalText);
+      const response = await parseReceipt(botId, imageBase64, mimeType, additionalText, undefined, userId);
       sendJson(res, 200, { success: true, response });
     } catch (err: any) {
       console.error("WEBレシート解析エラー:", err);
