@@ -2147,7 +2147,76 @@ textarea:focus {
    6. ADMIN VIEW STYLES (Master Management Page)
    ============================================================================= */
 
-/* Admin Stats Grid */
+/* Admin KPI Row (no-card flat stats) */
+.admin-kpi-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-divider);
+  margin-bottom: 8px;
+}
+
+.admin-kpi {
+  flex: 1;
+  padding: 20px 0;
+  padding-right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-kpi-sep {
+  width: 1px;
+  background-color: var(--border-divider);
+  margin: 16px 24px 16px 0;
+  flex-shrink: 0;
+}
+
+.admin-kpi-value {
+  font-size: 2rem;
+  font-weight: 800;
+  font-family: var(--font-family-mono);
+  color: var(--color-white);
+  line-height: 1;
+}
+
+.admin-kpi-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-zinc-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Admin Section (replaces config-card for admin tab) */
+.admin-section {
+  padding: 28px 0;
+  border-bottom: 1px solid var(--border-divider);
+}
+
+.admin-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.admin-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-white);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.admin-section-title .material-symbols-outlined {
+  font-size: 1.1rem !important;
+  color: var(--color-zinc-muted);
+}
+
+/* Admin Stats Grid (legacy, kept for compatibility) */
 .admin-stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

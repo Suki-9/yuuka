@@ -335,6 +335,27 @@ export function updateBotDiscordProfile(
   return result.changes > 0;
 }
 
+/**
+ * Botの表示名とアバターURLを更新する（手動編集用）
+ * discord_username も同時に更新することで Bot選択画面に即反映される
+ */
+export function updateBotProfile(
+  botId: string,
+  name: string,
+  avatarUrl: string | null
+): boolean {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE bots SET
+      name = ?,
+      discord_username = ?,
+      discord_avatar_url = ?,
+      updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(name, name, avatarUrl, botId);
+  return result.changes > 0;
+}
+
 // --- Admin モデレーション ---
 
 /**

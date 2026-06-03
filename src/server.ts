@@ -49,6 +49,7 @@ import {
   getBotGoogleConfig,
   getBotDiscordConfig,
   updateBotDiscordProfile,
+  updateBotProfile,
   listAllBots,
   suspendBot,
   unsuspendBot,
@@ -704,6 +705,28 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     } catch (err: any) {
       console.error("Discord同期エラー:", err);
       sendError(res, 500, "Discord情報の同期に失敗しました。");
+    }
+    return;
+  }
+
+  // ── Botプロフィール編集API ──
+  if (pathname === "/api/bots/profile" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, name, avatarUrl } = JSON.parse(body);
+      if (!botId) return sendError(res, 400, "botId が必要です。");
+      if (botId === "system_default") return sendError(res, 403, "デフォルトBotのプロフィールは変更できません。");
+
+      const bot = getBotById(botId);
+      if (!bot || bot.user_id !== userId) return sendError(res, 403, "Botの所有者のみが変更できます。");
+
+      const cleanName = (name ?? "").trim();
+      if (!cleanName) return sendError(res, 400, "Botの名前は必須です。");
+
+      updateBotProfile(botId, cleanName, avatarUrl?.trim() || null);
+      sendJson(res, 200, { success: true, message: "Botのプロフィールを更新しました。" });
+    } catch (err: any) {
+      sendError(res, 500, "Botプロフィールの更新に失敗しました。");
     }
     return;
   }

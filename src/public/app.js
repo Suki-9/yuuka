@@ -460,6 +460,23 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       actionsDiv.appendChild(syncBtn);
 
+      // 編集ボタン（デフォルトBot以外、所有者のみ）
+      if (!bot.id.startsWith("bot_default_") && bot.id !== "system_default") {
+        const editBtn = document.createElement("button");
+        editBtn.className = "btn-sync-discord";
+        editBtn.title = "名前・アイコンを編集";
+        editBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 15px;">edit</span>`;
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const profileModal = document.getElementById("modal-edit-bot-profile");
+          document.getElementById("edit-bot-profile-id").value = bot.id;
+          document.getElementById("edit-bot-profile-name").value = bot.discord_username || bot.name;
+          document.getElementById("edit-bot-profile-avatar").value = bot.discord_avatar_url || "";
+          if (profileModal) profileModal.classList.add("active");
+        });
+        actionsDiv.appendChild(editBtn);
+      }
+
       // 削除ボタン（デフォルトBot以外）
       if (!bot.id.startsWith("bot_default_") && bot.id !== "system_default") {
         const delBtn = document.createElement("button");
@@ -512,6 +529,41 @@ document.addEventListener("DOMContentLoaded", () => {
     updateSidebarBotBranding();
 
     navigateTo("/config");
+  }
+
+  // Bot Profile Edit Modal
+  const modalEditBotProfile = document.getElementById("modal-edit-bot-profile");
+  const editBotProfileForm = document.getElementById("edit-bot-profile-form");
+  const btnCloseEditBotProfile = document.getElementById("btn-close-edit-bot-profile");
+
+  if (btnCloseEditBotProfile && modalEditBotProfile) {
+    btnCloseEditBotProfile.addEventListener("click", () => modalEditBotProfile.classList.remove("active"));
+  }
+
+  if (editBotProfileForm) {
+    editBotProfileForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const botId = document.getElementById("edit-bot-profile-id").value;
+      const name = document.getElementById("edit-bot-profile-name").value.trim();
+      const avatarUrl = document.getElementById("edit-bot-profile-avatar").value.trim();
+
+      try {
+        const res = await originalFetch("/api/bots/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId, name, avatarUrl: avatarUrl || null })
+        });
+        const data = await res.json();
+        if (data.success) {
+          modalEditBotProfile.classList.remove("active");
+          fetchBotList();
+        } else {
+          alert("更新に失敗しました: " + data.message);
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
   }
 
   // Switch Bot handler
@@ -1665,6 +1717,13 @@ document.addEventListener("DOMContentLoaded", () => {
             configDiscordCard.classList.remove("hidden");
           }
         }
+
+        // system_default を非管理者が見ている場合、Google連携・バックアップ・カレンダーを隠す
+        const restrictedForNonAdmin = isSystemDefault && !isAdmin;
+        ["config-google-section", "config-backup-section", "config-calendars-section"].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.classList.toggle("hidden", restrictedForNonAdmin);
+        });
 
         // Fetch and fill Discord / Persona config values
         if (!isSystemDefault || isAdmin) {

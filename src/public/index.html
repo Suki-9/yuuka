@@ -739,7 +739,7 @@
           </div>
 
           <!-- Google OAuth settings -->
-          <div class="config-card card" style="margin-top: 24px;">
+          <div id="config-google-section" class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
               <h3><svg class="header-icon-symbol"
                   style="width: 1.35rem; height: 1.35rem; fill: currentColor; vertical-align: middle; margin-right: 8px; display: inline-block;"
@@ -762,7 +762,7 @@
 
 
           <!-- Google Drive Backup Settings Card -->
-          <div class="config-card card" style="margin-top: 24px;">
+          <div id="config-backup-section" class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">cloud_sync</span>Google Drive バックアップ</h3>
               <span class="badge badge-accent">Beta</span>
@@ -790,7 +790,7 @@
             </form>
           </div>
           <!-- Google Calendars Management Card (Matte Flat Style) -->
-          <div class="config-card card" style="margin-top: 24px;">
+          <div id="config-calendars-section" class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">calendar_today</span>Google連携カレンダー管理</h3>
             </div>
@@ -855,51 +855,43 @@
              ========================================== -->
         <section id="tab-admin" class="tab-view">
 
-          <!-- Admin System Stats Cards -->
-          <div class="admin-stats-grid">
-            <div class="admin-stat-card card">
-              <div class="admin-stat-icon"><span class="material-symbols-outlined">group</span></div>
-              <div class="admin-stat-info">
-                <span class="admin-stat-label">総ユーザー数</span>
-                <span class="admin-stat-value" id="admin-stat-users">0</span>
-              </div>
+          <!-- KPI Row -->
+          <div class="admin-kpi-row">
+            <div class="admin-kpi">
+              <span class="admin-kpi-value" id="admin-stat-users">0</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">group</span>ユーザー</span>
             </div>
-            <div class="admin-stat-card card">
-              <div class="admin-stat-icon"><span class="material-symbols-outlined">robot_2</span></div>
-              <div class="admin-stat-info">
-                <span class="admin-stat-label">総Bot数</span>
-                <span class="admin-stat-value" id="admin-stat-bots">0</span>
-              </div>
+            <div class="admin-kpi-sep"></div>
+            <div class="admin-kpi">
+              <span class="admin-kpi-value" id="admin-stat-bots">0</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">robot_2</span>Bot 総数</span>
             </div>
-            <div class="admin-stat-card card">
-              <div class="admin-stat-icon"><span class="material-symbols-outlined">block</span></div>
-              <div class="admin-stat-info">
-                <span class="admin-stat-label">差し押さえ中</span>
-                <span class="admin-stat-value" id="admin-stat-suspended">0</span>
-              </div>
+            <div class="admin-kpi-sep"></div>
+            <div class="admin-kpi">
+              <span class="admin-kpi-value" id="admin-stat-suspended">0</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">block</span>差し押さえ</span>
             </div>
-            <div class="admin-stat-card card">
-              <div class="admin-stat-icon"><span class="material-symbols-outlined">confirmation_number</span></div>
-              <div class="admin-stat-info">
-                <span class="admin-stat-label">招待コード残数</span>
-                <span class="admin-stat-value" id="admin-stat-invites">0</span>
-              </div>
+            <div class="admin-kpi-sep"></div>
+            <div class="admin-kpi">
+              <span class="admin-kpi-value" id="admin-stat-invites">0</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">confirmation_number</span>招待コード残</span>
             </div>
           </div>
 
-          <!-- Admin Default Bot Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">smart_toy</span>システムデフォルト Bot 設定</h3>
-              <span class="hud-tag" style="background-color: #3b82f6;">SYSTEM</span>
+          <!-- Default Bot Settings -->
+          <div class="admin-section">
+            <div class="admin-section-header">
+              <span class="admin-section-title">
+                <span class="material-symbols-outlined">smart_toy</span>システムデフォルト Bot
+              </span>
+              <span class="hud-tag" style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
             </div>
             <p class="description-text">システム共通で動作するデフォルトBotのDiscordトークンを更新します。トークンは安全に暗号化されて保存されます。</p>
             <form id="admin-default-bot-form" style="margin-top: 16px;">
               <div class="form-group">
                 <label for="admin-default-bot-token">デフォルト Bot トークン *</label>
                 <div style="display: flex; gap: 12px; margin-top: 8px;">
-                  <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力"
-                    style="flex-grow: 1;">
+                  <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力" style="flex-grow: 1;">
                   <button type="submit" class="btn btn-primary" style="white-space: nowrap;">設定を更新</button>
                 </div>
                 <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
@@ -907,17 +899,19 @@
             </form>
           </div>
 
-          <!-- Admin User Management -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">manage_accounts</span>ユーザー管理</h3>
+          <!-- User Management -->
+          <div class="admin-section">
+            <div class="admin-section-header">
+              <span class="admin-section-title">
+                <span class="material-symbols-outlined">manage_accounts</span>ユーザー管理
+              </span>
               <span class="hud-tag">ADMIN</span>
             </div>
             <p class="description-text">登録済みユーザーの一覧とロール管理を行います。個人情報（パスワード等）は表示されません。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
                 <thead>
-                  <tr style="border-bottom: 1px solid #27272a;">
+                  <tr>
                     <th class="admin-table-th">ユーザー名</th>
                     <th class="admin-table-th">Discord ID</th>
                     <th class="admin-table-th">ロール</th>
@@ -925,24 +919,24 @@
                     <th class="admin-table-th" style="text-align: right; width: 120px;">操作</th>
                   </tr>
                 </thead>
-                <tbody id="admin-users-tbody">
-                  <!-- Generated dynamically -->
-                </tbody>
+                <tbody id="admin-users-tbody"></tbody>
               </table>
             </div>
           </div>
 
-          <!-- Admin Bot Moderation -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">security</span>Bot モデレーション</h3>
+          <!-- Bot Moderation -->
+          <div class="admin-section">
+            <div class="admin-section-header">
+              <span class="admin-section-title">
+                <span class="material-symbols-outlined">security</span>Bot モデレーション
+              </span>
               <span class="hud-tag">MODERATION</span>
             </div>
             <p class="description-text">システム上の全Botの管理・差し押さえを行います。差し押さえるとBotのDiscordクライアントが停止され、所有者は再起動できなくなります。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
                 <thead>
-                  <tr style="border-bottom: 1px solid #27272a;">
+                  <tr>
                     <th class="admin-table-th">Bot名</th>
                     <th class="admin-table-th">所有者</th>
                     <th class="admin-table-th">ステータス</th>
@@ -950,39 +944,34 @@
                     <th class="admin-table-th" style="text-align: right; width: 140px;">操作</th>
                   </tr>
                 </thead>
-                <tbody id="admin-bots-tbody">
-                  <!-- Generated dynamically -->
-                </tbody>
+                <tbody id="admin-bots-tbody"></tbody>
               </table>
             </div>
           </div>
 
-          <!-- Admin Invite Codes Management -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">confirmation_number</span>招待コード管理</h3>
+          <!-- Invite Codes -->
+          <div class="admin-section" style="border-bottom: none;">
+            <div class="admin-section-header">
+              <span class="admin-section-title">
+                <span class="material-symbols-outlined">confirmation_number</span>招待コード管理
+              </span>
             </div>
             <p class="description-text">新規ユーザー登録に必要な招待コードの管理を行います。</p>
-
-            <!-- Add Invite Code Form -->
             <form id="admin-invite-form" style="display: flex; gap: 12px; margin-top: 16px; margin-bottom: 20px;">
               <input type="text" id="admin-invite-code-input" required placeholder="新しい招待コードを入力" style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">コード作成</button>
             </form>
-
             <div class="table-responsive">
               <table class="expense-table" style="width: 100%;">
                 <thead>
-                  <tr style="border-bottom: 1px solid #27272a;">
+                  <tr>
                     <th class="admin-table-th">コード</th>
                     <th class="admin-table-th">ステータス</th>
                     <th class="admin-table-th">使用者</th>
                     <th class="admin-table-th">作成日</th>
                   </tr>
                 </thead>
-                <tbody id="admin-invites-tbody">
-                  <!-- Generated dynamically -->
-                </tbody>
+                <tbody id="admin-invites-tbody"></tbody>
               </table>
             </div>
           </div>
@@ -996,6 +985,31 @@
   <!-- ==========================================
        MODALS DIALOGS
        ========================================== -->
+
+  <!-- Edit Bot Profile Modal -->
+  <div id="modal-edit-bot-profile" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>Botプロフィール編集</h3>
+        <button class="btn-close" id="btn-close-edit-bot-profile">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="edit-bot-profile-form">
+        <input type="hidden" id="edit-bot-profile-id">
+        <div class="form-group">
+          <label for="edit-bot-profile-name">表示名 *</label>
+          <input type="text" id="edit-bot-profile-name" required placeholder="例: アシスタント">
+        </div>
+        <div class="form-group">
+          <label for="edit-bot-profile-avatar">アイコン URL（任意）</label>
+          <input type="url" id="edit-bot-profile-avatar" placeholder="https://example.com/avatar.png">
+          <span class="field-sub">※Discord同期ボタンを押すと上書きされます。空欄でアイコンをリセット。</span>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">保存する</button>
+      </form>
+    </div>
+  </div>
 
   <!-- Add Credential Modal -->
   <div id="modal-credential" class="modal">

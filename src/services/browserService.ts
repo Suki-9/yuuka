@@ -1,10 +1,8 @@
 import puppeteer, { Browser, Page } from "puppeteer";
 import path from "node:path";
 import fs from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { spawn, ChildProcess } from "node:child_process";
+import { createInterface } from "node:readline";
 
 const SCREENSHOT_DIR = path.resolve(process.cwd(), "data/screenshots");
 const DEBUG_SCRAPES_DIR = path.resolve(process.cwd(), "data/debug_scrapes");
@@ -58,16 +56,140 @@ function getCrawlerBinPath(): string | null {
   return null;
 }
 
-async function runRustCrawler(command: "fetch" | "search", target: string): Promise<string> {
-  const binPath = getCrawlerBinPath();
-  if (!binPath) {
-    throw new Error("Rust crawler binary not found.");
+// Puppeteerのバンドル済みChromiumパスをキャッシュ
+let cachedChromePath: string | null | undefined = undefined;
+
+async function getChromePath(): Promise<string | null> {
+  if (cachedChromePath !== undefined) return cachedChromePath;
+
+  // Puppeteerの executablePath() でバンドル済みChromiumを取得
+  try {
+    const p = (puppeteer as any).executablePath?.();
+    if (typeof p === "string" && p && fs.existsSync(p)) {
+      cachedChromePath = p;
+      return cachedChromePath;
+    }
+  } catch {}
+
+  // 一般的なシステムパスも確認
+  const commonPaths = [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/snap/bin/chromium",
+  ];
+  for (const p of commonPaths) {
+    if (fs.existsSync(p)) {
+      cachedChromePath = p;
+      return cachedChromePath;
+    }
   }
-  const { stdout } = await execFileAsync(binPath, [command, target], {
-    maxBuffer: 10 * 1024 * 1024, // 10MB
-    timeout: 30000, // 30秒
-  });
-  return stdout;
+
+  cachedChromePath = null;
+  return null;
+}
+
+// ─── Crawler Daemon（常駐プロセス、プロセス起動コストをゼロに） ──────────────────
+
+interface CrawlerDaemonResponse {
+  id: number;
+  ok: boolean;
+  result?: string;
+  error?: string;
+}
+
+interface PendingCrawlerRequest {
+  resolve: (value: string) => void;
+  reject: (err: Error) => void;
+  timer: NodeJS.Timeout;
+}
+
+class CrawlerDaemon {
+  private proc: ChildProcess | null = null;
+  private pending = new Map<number, PendingCrawlerRequest>();
+  private nextId = 0;
+  private startingPromise: Promise<void> | null = null;
+
+  constructor(private binPath: string) {}
+
+  private start(): Promise<void> {
+    if (this.proc) return Promise.resolve();
+    if (this.startingPromise) return this.startingPromise;
+
+    this.startingPromise = (async () => {
+      const chromePath = await getChromePath();
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      if (chromePath) env.CHROME_EXECUTABLE_PATH = chromePath;
+
+      const proc = spawn(this.binPath, ["daemon"], { stdio: ["pipe", "pipe", "pipe"], env });
+
+      createInterface({ input: proc.stdout! }).on("line", (line: string) => {
+        try {
+          const res: CrawlerDaemonResponse = JSON.parse(line);
+          const req = this.pending.get(res.id);
+          if (!req) return;
+          clearTimeout(req.timer);
+          this.pending.delete(res.id);
+          if (res.ok && res.result != null) {
+            req.resolve(res.result);
+          } else {
+            req.reject(new Error(res.error ?? "Unknown daemon error"));
+          }
+        } catch { /* malformed line は無視 */ }
+      });
+
+      proc.stderr?.on("data", (data: Buffer) => {
+        process.stderr.write(`[Crawler Daemon] ${data}`);
+      });
+
+      proc.on("exit", (code) => {
+        console.error(`[Crawler Daemon] Process exited (code: ${code}), 次のリクエスト時に再起動します`);
+        this.proc = null;
+        this.startingPromise = null;
+        for (const [, req] of this.pending) {
+          clearTimeout(req.timer);
+          req.reject(new Error("Crawler daemon exited unexpectedly"));
+        }
+        this.pending.clear();
+      });
+
+      this.proc = proc;
+      this.startingPromise = null;
+    })();
+
+    return this.startingPromise;
+  }
+
+  async send(command: string, target: string, extra?: string, timeoutMs = 40_000): Promise<string> {
+    await this.start();
+    const id = ++this.nextId;
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Crawler daemon timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      this.proc!.stdin!.write(JSON.stringify({ id, command, target, extra }) + "\n");
+    });
+  }
+
+  shutdown(): void {
+    this.proc?.kill();
+    this.proc = null;
+  }
+}
+
+let _crawlerDaemon: CrawlerDaemon | null = null;
+
+process.on("exit", () => { _crawlerDaemon?.shutdown(); });
+
+async function runRustCrawler(command: string, ...args: string[]): Promise<string> {
+  const binPath = getCrawlerBinPath();
+  if (!binPath) throw new Error("Rust crawler binary not found.");
+  if (!_crawlerDaemon) _crawlerDaemon = new CrawlerDaemon(binPath);
+  // screenshot は args[0]=target, args[1]=output_path(extra)
+  return _crawlerDaemon.send(command, args[0] ?? "", args[1]);
 }
 
 // ─── 永続インタラクティブブラウザ状態（ユーザー別分離） ───────────────────────────────────
@@ -397,6 +519,24 @@ export async function fetchCleanPageContent(url: string): Promise<{ title: strin
     console.warn(`[Rust Crawler] Fetch failed: ${err.message}. Falling back to Puppeteer...`);
   }
 
+  // Rust fetch が失敗した場合、Chrome dump-dom によるJSレンダリングを試みる
+  if (!result) {
+    try {
+      console.log(`[Rust Crawler] Trying JS fetch: ${url}`);
+      const markdown = await runRustCrawler("fetch-js", url);
+      let title = "無題のページ";
+      const titleMatch = markdown.match(/^#\s+(.+)$/m);
+      if (titleMatch) {
+        title = titleMatch[1];
+      }
+      console.log(`[Rust Crawler] JS fetch succeeded: ${url}`);
+      result = { title, markdown };
+    } catch (err: any) {
+      console.warn(`[Rust Crawler] JS fetch failed: ${err.message}. Falling back to Puppeteer...`);
+    }
+  }
+
+  // 最終フォールバック: Puppeteer（networkidle2 待機あり）
   if (!result) {
     const browser = await puppeteer.launch({
       headless: true,
@@ -405,11 +545,11 @@ export async function fetchCleanPageContent(url: string): Promise<{ title: strin
 
     try {
       const page = await browser.newPage();
-      
+
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
-      
+
       await page.setExtraHTTPHeaders({
         "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
       });
@@ -455,6 +595,22 @@ export async function fetchCleanPageContent(url: string): Promise<{ title: strin
  * @returns 保存された画像ファイルの相対パス
  */
 export async function takePageScreenshot(url: string, filename: string = `screenshot_${Date.now()}.png`): Promise<string> {
+  const safeFilename = path.basename(filename);
+  const savePath = path.join(SCREENSHOT_DIR, safeFilename);
+
+  // まず Rust（Chrome CLI直接呼び出し）でスクリーンショットを試みる
+  try {
+    console.log(`[Rust Crawler] Taking screenshot: ${url}`);
+    await runRustCrawler("screenshot", url, savePath);
+    if (fs.existsSync(savePath)) {
+      console.log(`[Rust Crawler] Screenshot saved: ${savePath}`);
+      return path.relative(process.cwd(), savePath);
+    }
+  } catch (err: any) {
+    console.warn(`[Rust Crawler] Screenshot failed: ${err.message}. Falling back to Puppeteer...`);
+  }
+
+  // フォールバック: Puppeteer（fullPage: true でフルページキャプチャ）
   const browser = await puppeteer.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
@@ -464,11 +620,7 @@ export async function takePageScreenshot(url: string, filename: string = `screen
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
-
-    const safeFilename = path.basename(filename);
-    const savePath = path.join(SCREENSHOT_DIR, safeFilename);
     await page.screenshot({ path: savePath, fullPage: true });
-
     return path.relative(process.cwd(), savePath);
   } finally {
     await browser.close();
