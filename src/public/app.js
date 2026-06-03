@@ -39,6 +39,29 @@ document.addEventListener("DOMContentLoaded", () => {
     return originalFetch(resource, options);
   };
 
+  // Theme management
+  const THEME_KEY = "yuuka-theme";
+  const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
+  document.documentElement.setAttribute("data-theme", savedTheme);
+
+  const btnThemeToggle = document.getElementById("btn-theme-toggle");
+  const themeIcon = document.getElementById("theme-icon");
+
+  function applyThemeIcon(theme) {
+    themeIcon.textContent = theme === "dark" ? "light_mode" : "dark_mode";
+    btnThemeToggle.title = theme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え";
+  }
+
+  applyThemeIcon(savedTheme);
+
+  btnThemeToggle.addEventListener("click", () => {
+    const current = document.documentElement.getAttribute("data-theme");
+    const next = current === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem(THEME_KEY, next);
+    applyThemeIcon(next);
+  });
+
   // State management
   let activeTab = "dashboard";
   let activeUserId = "";
@@ -332,6 +355,8 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchExpensesList();
     } else if (activeTab === "playbooks") {
       fetchPlaybooksList();
+      fetchPlaybookSchedulesList();
+      fetchPlaybookRunsList();
     } else if (activeTab === "config") {
       fetchConfigSettings();
     } else if (activeTab === "admin") {
@@ -1989,6 +2014,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (discordData.success) {
                   document.getElementById("discord-token").value = discordData.tokenMasked;
                   document.getElementById("discord-persona").value = discordData.persona;
+                  document.getElementById("discord-memories").value = discordData.memories;
                 }
               })
               .catch(err => console.error("Failed to load Discord settings:", err));
@@ -2127,12 +2153,13 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       const token = document.getElementById("discord-token").value.trim();
       const persona = document.getElementById("discord-persona").value.trim();
+      const memories = document.getElementById("discord-memories").value.trim();
 
       try {
         const res = await fetch("/api/settings/discord", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, persona })
+          body: JSON.stringify({ token, persona, memories })
         });
         const data = await res.json();
         if (data.success) {
@@ -3021,6 +3048,242 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchPlaybooksList();
       }
     });
+  }
+
+  // ── Playbook スケジュール管理 ──────────────────────────
+
+  // Cronプリセット選択 → cron式入力欄に反映
+  const schedCronPreset = document.getElementById("schedule-cron-preset");
+  const schedCronExpr = document.getElementById("schedule-cron-expression");
+  if (schedCronPreset && schedCronExpr) {
+    schedCronPreset.addEventListener("change", () => {
+      const val = schedCronPreset.value;
+      if (val && val !== "custom") {
+        schedCronExpr.value = val;
+      }
+    });
+  }
+
+  async function fetchPlaybookSchedulesList() {
+    const container = document.getElementById("playbook-schedules-list");
+    if (!container) return;
+    try {
+      const res = await fetch("/api/playbooks/schedules");
+      const data = await res.json();
+      container.innerHTML = "";
+      if (!data.success || !data.schedules || data.schedules.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "empty-state-text";
+        empty.textContent = "スケジュールが登録されていません。";
+        container.appendChild(empty);
+
+        // セレクトボックスもPlaybook一覧で更新
+        await _populatePlaybookSelect();
+        return;
+      }
+      data.schedules.forEach(sc => {
+        const card = document.createElement("div");
+        card.style.cssText = "background: var(--surface-2); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color);";
+
+        const header = document.createElement("div");
+        header.style.cssText = "display: flex; justify-content: space-between; align-items: center; gap: 8px;";
+
+        const info = document.createElement("div");
+        info.style.cssText = "flex: 1; min-width: 0;";
+        info.innerHTML = `
+          <div style="font-weight: 600; font-size: 0.9rem; truncate; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${sc.playbook_name}</div>
+          <div style="font-family: var(--font-family-mono); font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">${sc.cron_expression}</div>
+          ${sc.description ? `<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">${sc.description}</div>` : ""}
+          ${sc.last_run_at ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">最終実行: ${sc.last_run_at}</div>` : ""}
+        `;
+
+        const actions = document.createElement("div");
+        actions.style.cssText = "display: flex; gap: 6px; align-items: center; flex-shrink: 0;";
+
+        // 有効/無効トグル
+        const toggleBtn = document.createElement("button");
+        toggleBtn.className = `btn ${sc.enabled ? "btn-secondary" : "btn-primary"}`;
+        toggleBtn.style.cssText = "font-size: 0.75rem; padding: 4px 10px;";
+        toggleBtn.textContent = sc.enabled ? "無効化" : "有効化";
+        toggleBtn.addEventListener("click", async () => {
+          await handleToggleSchedule(sc.id, !sc.enabled);
+        });
+
+        // 削除ボタン
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn btn-danger";
+        delBtn.style.cssText = "font-size: 0.75rem; padding: 4px 10px;";
+        delBtn.textContent = "削除";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`スケジュール「${sc.playbook_name}」を削除しますか？`)) return;
+          await handleDeleteSchedule(sc.id);
+        });
+
+        // ステータスバッジ
+        const badge = document.createElement("span");
+        badge.style.cssText = `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; background: ${sc.enabled ? "var(--color-success, #22c55e)" : "var(--border-color)"}; color: ${sc.enabled ? "#fff" : "var(--text-muted)"};`;
+        badge.textContent = sc.enabled ? "有効" : "停止中";
+
+        actions.appendChild(badge);
+        actions.appendChild(toggleBtn);
+        actions.appendChild(delBtn);
+        header.appendChild(info);
+        header.appendChild(actions);
+        card.appendChild(header);
+        container.appendChild(card);
+      });
+
+      await _populatePlaybookSelect();
+    } catch (e) {
+      console.error("スケジュール一覧の取得失敗:", e);
+    }
+  }
+
+  async function _populatePlaybookSelect() {
+    const sel = document.getElementById("schedule-playbook-select");
+    if (!sel) return;
+    try {
+      const res = await fetch("/api/playbooks");
+      const data = await res.json();
+      const current = sel.value;
+      sel.innerHTML = '<option value="">-- Playbookを選択 --</option>';
+      if (data.success && data.playbooks) {
+        data.playbooks.forEach(pb => {
+          const opt = document.createElement("option");
+          opt.value = pb.name;
+          opt.textContent = `${pb.title} (${pb.name})`;
+          sel.appendChild(opt);
+        });
+      }
+      if (current) sel.value = current;
+    } catch (e) {
+      console.error("Playbook選択肢の取得失敗:", e);
+    }
+  }
+
+  // 実行ステータスごとのアイコンと色
+  function runStatusVisual(status) {
+    if (status === "success") return { icon: "check_circle", color: "var(--color-success, #22c55e)" };
+    if (status === "failed") return { icon: "cancel", color: "var(--color-danger, #ef4444)" };
+    return { icon: "pending", color: "var(--color-warning, #f59e0b)" };
+  }
+
+  // 開始〜終了の所要時間を「N秒」/「N分N秒」形式に整形（未完了なら空文字）
+  function formatRunDuration(startedAt, finishedAt) {
+    if (!startedAt || !finishedAt) return "";
+    const diff = Math.round((new Date(finishedAt) - new Date(startedAt)) / 1000);
+    return diff < 60 ? `${diff}秒` : `${Math.floor(diff / 60)}分${diff % 60}秒`;
+  }
+
+  async function fetchPlaybookRunsList(scheduleId) {
+    const container = document.getElementById("playbook-runs-list");
+    if (!container) return;
+    try {
+      const url = scheduleId ? `/api/playbooks/runs?scheduleId=${scheduleId}` : "/api/playbooks/runs";
+      const res = await fetch(url);
+      const data = await res.json();
+      container.innerHTML = "";
+      if (!data.success || !data.runs || data.runs.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "empty-state-text";
+        empty.textContent = "実行履歴がありません。";
+        container.appendChild(empty);
+        return;
+      }
+      data.runs.forEach(run => {
+        const { icon: statusIcon, color: statusColor } = runStatusVisual(run.status);
+        const duration = formatRunDuration(run.started_at, run.finished_at);
+
+        const row = document.createElement("div");
+        row.style.cssText = "display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; background: var(--surface-2); border-radius: 6px; border-left: 3px solid " + statusColor + ";";
+
+        row.innerHTML = `
+          <span class="material-symbols-outlined" style="font-size: 1.1rem; color: ${statusColor}; flex-shrink: 0; margin-top: 2px;">${statusIcon}</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 600; font-size: 0.85rem;">${run.playbook_name}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${run.started_at}${duration ? " (" + duration + ")" : ""}</div>
+            ${run.output ? `<div style="font-size: 0.78rem; margin-top: 4px; color: var(--text-secondary); max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">${run.output.substring(0, 300)}${run.output.length > 300 ? "..." : ""}</div>` : ""}
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    } catch (e) {
+      console.error("実行履歴の取得失敗:", e);
+    }
+  }
+
+  // スケジュール保存フォーム
+  const scheduleForm = document.getElementById("playbook-schedule-form");
+  if (scheduleForm) {
+    scheduleForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const playbookName = document.getElementById("schedule-playbook-select").value;
+      const cronExpression = document.getElementById("schedule-cron-expression").value.trim();
+      const description = document.getElementById("schedule-description").value.trim();
+      const enabled = document.getElementById("schedule-enabled").checked;
+
+      if (!playbookName || !cronExpression) {
+        alert("Playbookとcron式を入力してください。");
+        return;
+      }
+      try {
+        const res = await fetch("/api/playbooks/schedules/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playbookName, cronExpression, description, enabled }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("スケジュールを保存しました。");
+          scheduleForm.reset();
+          document.getElementById("schedule-enabled").checked = true;
+          fetchPlaybookSchedulesList();
+          fetchPlaybookRunsList();
+        } else {
+          alert("エラー: " + (data.message || "保存に失敗しました。"));
+        }
+      } catch (e) {
+        console.error("スケジュール保存エラー:", e);
+        alert("保存中にエラーが発生しました。");
+      }
+    });
+  }
+
+  async function handleToggleSchedule(id, enabled) {
+    try {
+      const res = await fetch("/api/playbooks/schedules/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, enabled }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchPlaybookSchedulesList();
+      } else {
+        alert("エラー: " + (data.message || "操作に失敗しました。"));
+      }
+    } catch (e) {
+      console.error("スケジュールトグルエラー:", e);
+    }
+  }
+
+  async function handleDeleteSchedule(id) {
+    try {
+      const res = await fetch("/api/playbooks/schedules/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchPlaybookSchedulesList();
+        fetchPlaybookRunsList();
+      } else {
+        alert("エラー: " + (data.message || "削除に失敗しました。"));
+      }
+    } catch (e) {
+      console.error("スケジュール削除エラー:", e);
+    }
   }
 
   // Handle popstate event (back/forward browser buttons)

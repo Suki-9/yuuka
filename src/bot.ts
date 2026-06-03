@@ -175,10 +175,12 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         );
       }
 
-      let response: string;
       const statusCallback = (status: "thinking" | "writing" | "idle") => {
         setBotStatus(botClient, status);
       };
+
+      let responseText: string;
+      let responseEmbeds: import("discord.js").EmbedBuilder[] = [];
 
       if (imageAttachment) {
         console.log(`📷 画像受信 (返信先含む): ${imageAttachment.name} from ${message.author.tag}`);
@@ -188,12 +190,16 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         const imageBase64 = imageBuffer.toString("base64");
         const mimeType = imageAttachment.contentType || "image/jpeg";
 
-        response = await parseReceipt(resolvedBotId, imageBase64, mimeType, text || undefined, statusCallback);
+        const result = await parseReceipt(resolvedBotId, imageBase64, mimeType, text || undefined, statusCallback);
+        responseText = result.text;
+        responseEmbeds = result.embeds;
       } else if (fullText.trim()) {
         const chatMessage: ChatMessage = { text: fullText };
-        response = await processMessage(resolvedBotId, chatMessage, statusCallback);
+        const result = await processMessage(resolvedBotId, chatMessage, statusCallback);
+        responseText = result.text;
+        responseEmbeds = result.embeds;
       } else {
-        response = "何かお手伝いできることはありますか？ 📋\n\nタスク管理、予定管理、家計管理ができますよ！";
+        responseText = "何かお手伝いできることはありますか？ 📋\n\nタスク管理、予定管理、家計管理ができますよ！";
       }
 
       // 応答が完了したため、タイマーをクリア
@@ -202,14 +208,20 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         typingInterval = null;
       }
 
-      // Discord の文字数制限 (2000文字) に対応
-      if (response.length > 2000) {
-        const chunks = splitMessage(response, 2000);
-        for (const chunk of chunks) {
-          await message.reply(chunk);
+      // Discord の文字数制限 (2000文字) に対応しつつEmbedを添付
+      if (responseText.length > 2000) {
+        const chunks = splitMessage(responseText, 2000);
+        for (let i = 0; i < chunks.length; i++) {
+          const isLast = i === chunks.length - 1;
+          await message.reply({
+            content: chunks[i],
+            ...(isLast && responseEmbeds.length > 0 ? { embeds: responseEmbeds } : {}),
+          });
         }
+      } else if (responseEmbeds.length > 0) {
+        await message.reply({ content: responseText, embeds: responseEmbeds });
       } else {
-        await message.reply(response);
+        await message.reply(responseText);
       }
     } catch (error) {
       if (typingInterval) {

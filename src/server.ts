@@ -66,6 +66,13 @@ import { startCustomBot, stopCustomBot, client as defaultBotClient, customClient
 import { isValidCode, validateAndConsumeCode, listInviteCodes, createInviteCode } from "./db/inviteRepo.js";
 import { encryptText } from "./utils/crypto.js";
 import { findPlaybooks, savePlaybook, deletePlaybook } from "./services/playbookService.js";
+import {
+  listSchedules,
+  upsertSchedule,
+  toggleSchedule,
+  deleteSchedule as deletePlaybookSchedule,
+  listRuns,
+} from "./services/playbookScheduleService.js";
 
 
 /**
@@ -955,6 +962,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         hasToken,
         tokenMasked,
         persona: current?.persona ?? "",
+        memories: current?.memories ?? "",
       });
     } catch (err: any) {
       console.error("Discord 設定取得エラー:", err);
@@ -967,7 +975,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/settings/discord" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { botId, token, persona } = JSON.parse(body);
+      const { botId, token, persona, memories } = JSON.parse(body);
       if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
 
       if (botId === "system_default" && !verifyAdmin(userId)) {
@@ -1007,10 +1015,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
 
       // ペルソナの処理 (空欄の場合は null にする)
       const personaVal = (persona && persona.trim() !== "") ? persona.trim() : null;
+      const memoriesVal = (memories && memories.trim() !== "") ? memories.trim() : null;
 
       const botRecord = getBotById(botId)!;
       // データベースを更新
-      updateBotSettings(botId, botRecord.name, encrypted, iv, tag, personaVal);
+      updateBotSettings(botId, botRecord.name, encrypted, iv, tag, personaVal, memoriesVal);
 
       // トークンがクリアされた場合、動作中の独自Botを完全にクローズする
       if (tokenCleared) {
@@ -1265,6 +1274,78 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       sendJson(res, 200, { success, message: success ? "手順書を削除しました。" : "削除に失敗しました。" });
     } catch (err: any) {
       sendError(res, 500, "手順書の削除に失敗しました。");
+    }
+    return;
+  }
+
+  // ── プレイブックスケジュールAPI ──
+
+  if (pathname === "/api/playbooks/schedules" && method === "GET") {
+    try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      const schedules = listSchedules(botId!);
+      sendJson(res, 200, { success: true, schedules });
+    } catch (err: any) {
+      sendError(res, 500, "スケジュール一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/playbooks/schedules/save" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, playbookName, cronExpression, description, enabled } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!playbookName || !cronExpression) {
+        return sendError(res, 400, "playbookNameとcronExpressionは必須です。");
+      }
+      const result = upsertSchedule(botId, playbookName, cronExpression, description || "", enabled !== false);
+      sendJson(res, result.success ? 200 : 400, result);
+    } catch (err: any) {
+      sendError(res, 500, "スケジュールの保存に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/playbooks/schedules/toggle" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, id, enabled } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (id == null) return sendError(res, 400, "idは必須です。");
+      const result = toggleSchedule(Number(id), !!enabled);
+      sendJson(res, result.success ? 200 : 400, result);
+    } catch (err: any) {
+      sendError(res, 500, "スケジュールのトグルに失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/playbooks/schedules/delete" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, id } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (id == null) return sendError(res, 400, "idは必須です。");
+      const result = deletePlaybookSchedule(botId, Number(id));
+      sendJson(res, result.success ? 200 : 400, result);
+    } catch (err: any) {
+      sendError(res, 500, "スケジュールの削除に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/playbooks/runs" && method === "GET") {
+    try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      const scheduleIdParam = parsedUrl.searchParams.get("scheduleId");
+      const scheduleId = scheduleIdParam ? Number(scheduleIdParam) : undefined;
+      const runs = listRuns(botId!, scheduleId);
+      sendJson(res, 200, { success: true, runs });
+    } catch (err: any) {
+      sendError(res, 500, "実行履歴の取得に失敗しました。");
     }
     return;
   }

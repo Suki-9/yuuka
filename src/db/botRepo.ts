@@ -20,6 +20,7 @@ export interface BotRecord {
   google_drive_backup_enabled: number;
   google_drive_backup_folder_id: string | null;
   backup_cron: string;
+  memories: string | null;
   discord_username: string | null;
   discord_avatar_url: string | null;
   suspended: number;
@@ -47,6 +48,7 @@ export interface BotDiscordConfig {
   tokenIv: string | null;
   tokenTag: string | null;
   persona: string | null;
+  memories: string | null;
 }
 
 /**
@@ -124,7 +126,8 @@ export function updateBotSettings(
   discordTokenEncrypted: string | null,
   discordTokenIv: string | null,
   discordTokenTag: string | null,
-  persona: string | null
+  persona: string | null,
+  memories: string | null = null
 ): boolean {
   const db = getDb();
   const result = db.prepare(`
@@ -134,9 +137,10 @@ export function updateBotSettings(
       discord_token_iv = ?,
       discord_token_tag = ?,
       persona = ?,
+      memories = ?,
       updated_at = datetime('now', 'localtime')
     WHERE id = ?
-  `).run(name, discordTokenEncrypted, discordTokenIv, discordTokenTag, persona, botId);
+  `).run(name, discordTokenEncrypted, discordTokenIv, discordTokenTag, persona, memories, botId);
   return result.changes > 0;
 }
 
@@ -286,13 +290,14 @@ export function getBotGoogleConfig(botId: string): BotGoogleConfig | null {
 export function getBotDiscordConfig(botId: string): BotDiscordConfig | null {
   const db = getDb();
   const row = db.prepare(`
-    SELECT discord_token_encrypted, discord_token_iv, discord_token_tag, persona
+    SELECT discord_token_encrypted, discord_token_iv, discord_token_tag, persona, memories
     FROM bots WHERE id = ?
   `).get(botId) as {
     discord_token_encrypted: string | null;
     discord_token_iv: string | null;
     discord_token_tag: string | null;
     persona: string | null;
+    memories: string | null;
   } | undefined;
 
   if (!row) return null;
@@ -301,6 +306,7 @@ export function getBotDiscordConfig(botId: string): BotDiscordConfig | null {
     tokenIv: row.discord_token_iv,
     tokenTag: row.discord_token_tag,
     persona: row.persona,
+    memories: row.memories,
   };
 }
 

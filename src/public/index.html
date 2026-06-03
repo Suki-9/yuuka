@@ -257,6 +257,9 @@
             <span class="material-symbols-outlined icon-small">person</span>
             <span id="current-user-display">ロード中...</span>
           </div>
+          <button id="btn-theme-toggle" class="btn-icon" title="ライトテーマに切り替え">
+            <span class="material-symbols-outlined" id="theme-icon">light_mode</span>
+          </button>
           <button id="btn-logout" class="btn btn-secondary btn-sm" title="ログアウト">
             <span class="material-symbols-outlined icon-button-left">logout</span> ログアウト
           </button>
@@ -695,6 +698,74 @@
               </div>
             </div>
           </div>
+
+          <!-- ── スケジュール実行 ── -->
+          <div class="expense-actions-columns" style="margin-top: 24px;">
+            <!-- Schedule Form Card -->
+            <div class="action-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">schedule</span>定期実行スケジュール設定</h3>
+              </div>
+              <p class="description-text">Playbookを定期的に自動実行するスケジュールを設定します。</p>
+              <form id="playbook-schedule-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 8px;">
+                <div class="form-group">
+                  <label for="schedule-playbook-select">実行するPlaybook *</label>
+                  <select id="schedule-playbook-select" required>
+                    <option value="">-- Playbookを選択 --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="schedule-cron-preset">実行頻度プリセット</label>
+                  <select id="schedule-cron-preset">
+                    <option value="">-- プリセットを選択 --</option>
+                    <option value="0 9 * * *">毎朝9時</option>
+                    <option value="0 18 * * *">毎夕18時</option>
+                    <option value="0 9 * * 1">毎週月曜 9時</option>
+                    <option value="0 9 1 * *">毎月1日 9時</option>
+                    <option value="*/30 * * * *">30分ごと</option>
+                    <option value="0 * * * *">1時間ごと</option>
+                    <option value="custom">カスタム入力</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="schedule-cron-expression">Cron式 *</label>
+                  <input type="text" id="schedule-cron-expression" required placeholder="例: 0 9 * * * (毎朝9時)" style="font-family: var(--font-family-mono);">
+                  <span class="field-sub">分 時 日 月 曜日 の順。例: <code>0 9 * * 1</code> = 毎週月曜9時</span>
+                </div>
+                <div class="form-group">
+                  <label for="schedule-description">メモ</label>
+                  <input type="text" id="schedule-description" placeholder="例: 毎朝の売上チェック">
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                  <label for="schedule-enabled" style="margin: 0;">有効</label>
+                  <input type="checkbox" id="schedule-enabled" checked style="width: auto; margin: 0;">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">スケジュールを保存</button>
+              </form>
+            </div>
+
+            <!-- Schedules List Card -->
+            <div class="action-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">event_repeat</span>登録済みスケジュール一覧</h3>
+              </div>
+              <p class="description-text">設定されている定期実行スケジュールです。</p>
+              <div id="playbook-schedules-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px;">
+                <!-- Generated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 実行履歴カード -->
+          <div class="card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">history</span>実行履歴</h3>
+            </div>
+            <p class="description-text">Playbookの自動実行ログです。</p>
+            <div id="playbook-runs-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding-right: 4px; margin-top: 8px;">
+              <!-- Generated dynamically -->
+            </div>
+          </div>
         </section>
 
         <!-- ==========================================
@@ -759,6 +830,12 @@
                 <textarea id="discord-persona"
                   placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。など。空欄の場合は汎用アシスタントのペルソナが適用されます。"></textarea>
                 <span class="field-sub">※キャラクター設定、話し方、行動指針などを自由に記述できます。</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="discord-memories">覚えておいてほしいこと (任意)</label>
+                <textarea id="discord-memories"
+                  placeholder="例:&#10;- 私の名前は田中です&#10;- 毎朝7時に起きます&#10;- 猫アレルギーがあります&#10;&#10;AIが会話で参照する情報（好み・習慣・事実など）を自由に登録できます。"></textarea>
+                <span class="field-sub">※ペルソナとは別に、AIに常に覚えていてほしい情報を記述できます。会話のたびに参照されます。</span>
               </div>
               <button type="submit" class="btn btn-primary">Discord ＆ ペルソナ設定を保存</button>
             </form>

@@ -6,6 +6,8 @@ import * as expenseFn from "./expenseFunctions.js";
 import * as browserFn from "./browserFunctions.js";
 import * as credentialFn from "./credentialFunctions.js";
 import * as playbookFn from "./playbookFunctions.js";
+import { buildRichContentEmbed } from "../utils/embeds.js";
+import type { EmbedBuilder } from "discord.js";
 
 // ─── Function Declarations for Gemini ──────────────────────────────────
 
@@ -429,6 +431,38 @@ export const functionDeclarations: FunctionDeclaration[] = [
       required: ["name", "title", "keywords", "description", "steps"],
     },
   },
+  // ── リッチコンテンツ表示 ──
+  {
+    name: "showRichContent",
+    description: "天気・ニュース・株価・路線情報など、データを視覚的に整理してDiscordのEmbed（カード形式）で表示します。テキストだけで返すより読みやすく伝えたいデータがある場合に積極的に呼び出してください。このツールはEmbedをキューに積むだけで、返信テキストと一緒にDiscordへ送信されます。",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        title: { type: SchemaType.STRING, description: "Embedのタイトル（例: '🌤️ 東京の今日の天気'）" },
+        description: { type: SchemaType.STRING, description: "タイトル直下に表示する概要テキスト（任意）" },
+        color: {
+          type: SchemaType.STRING,
+          description: "カラーテーマ: default（青紫）, success（緑）, warning（黄）, error（赤）, info（水色）, weather（空色）, news（オレンジ）, data（紫）",
+        },
+        fields: {
+          type: SchemaType.ARRAY,
+          description: "表示するフィールドの配列",
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              name: { type: SchemaType.STRING, description: "フィールドのラベル" },
+              value: { type: SchemaType.STRING, description: "フィールドの値" },
+              inline: { type: SchemaType.BOOLEAN, description: "横並び表示にするか（デフォルト: false）" },
+            },
+            required: ["name", "value"],
+          },
+        },
+        footer: { type: SchemaType.STRING, description: "フッターに表示する補足テキスト（例: 'データ提供: 気象庁'）（任意）" },
+      },
+      required: ["title"],
+    },
+  },
+
   {
     name: "findPlaybooks",
     description: "登録されているすべての自動化手順書（Playbook）の一覧、またはキーワード部分一致に関連する手順書とその中身の詳細を検索して取得します。ユーザーからブラウザ自動化や何らかの操作自動化を指示された際、すでに対応する手順書が登録されていないか確認する目的で最初に呼び出します。",
@@ -452,7 +486,8 @@ type FunctionArgs = Record<string, unknown>;
 export async function dispatchFunction(
   functionName: string,
   args: FunctionArgs,
-  botId: string
+  botId: string,
+  embeds: EmbedBuilder[]
 ): Promise<string> {
   switch (functionName) {
     // タスク
@@ -546,6 +581,19 @@ export async function dispatchFunction(
       return await playbookFn.savePlaybook(botId, args as Parameters<typeof playbookFn.savePlaybook>[1]);
     case "findPlaybooks":
       return await playbookFn.findPlaybooks(botId, args as Parameters<typeof playbookFn.findPlaybooks>[1]);
+
+    // リッチコンテンツEmbed表示
+    case "showRichContent": {
+      const data = args as {
+        title: string;
+        description?: string;
+        color?: string;
+        fields?: Array<{ name: string; value: string; inline?: boolean }>;
+        footer?: string;
+      };
+      embeds.push(buildRichContentEmbed(data));
+      return JSON.stringify({ success: true });
+    }
 
     default:
       return JSON.stringify({ success: false, message: `不明な関数: ${functionName}` });

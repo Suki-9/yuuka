@@ -65,6 +65,115 @@
   --font-family-mono: "JetBrains Mono", Consolas, monospace;
 }
 
+/* ==============================================================================
+   LIGHT THEME TOKENS (Material Design 2 Light)
+   ============================================================================== */
+[data-theme="light"] {
+  --bg-primary: #FAFAFA;
+  --bg-secondary: #FAFAFA;
+  --bg-sidebar: #F5F5F5;
+  --bg-body: #FAFAFA;
+
+  --surface-0dp: #FFFFFF;
+  --surface-1dp: #F5F5F5;
+  --surface-2dp: #EEEEEE;
+  --surface-3dp: #E8E8E8;
+  --surface-4dp: #E3E3E3;
+  --surface-6dp: #DCDCDC;
+  --surface-8dp: #D8D8D8;
+  --surface-12dp: #D3D3D3;
+  --surface-16dp: #CFCFCF;
+  --surface-24dp: #CACACA;
+
+  --color-primary: #6200EE;
+  --color-primary-variant: #3700B3;
+  --color-secondary: #018786;
+  --color-error: #B00020;
+
+  --color-on-primary: #FFFFFF;
+  --color-on-secondary: #FFFFFF;
+  --color-on-error: #FFFFFF;
+
+  --text-high: rgba(0, 0, 0, 0.87);
+  --text-medium: rgba(0, 0, 0, 0.60);
+  --text-disabled: rgba(0, 0, 0, 0.38);
+
+  --card-matte: transparent;
+  --card-matte-hover: rgba(0, 0, 0, 0.04);
+  --border-matte: rgba(0, 0, 0, 0.12);
+  --border-divider: rgba(0, 0, 0, 0.12);
+  --border-focus: var(--color-primary);
+
+  --color-white: rgba(0, 0, 0, 0.87);
+  --color-zinc-light: rgba(0, 0, 0, 0.60);
+  --color-zinc-muted: rgba(0, 0, 0, 0.38);
+  --color-green: #388E3C;
+  --color-red: var(--color-error);
+
+  --text-primary: rgba(0, 0, 0, 0.87);
+  --text-secondary: rgba(0, 0, 0, 0.60);
+
+  --discord-blurple: var(--color-primary);
+  --discord-blurple-hover: #7722FF;
+  --discord-blurple-active: #4A00C4;
+  --discord-grey-secondary: var(--surface-4dp);
+  --discord-grey-secondary-hover: var(--surface-8dp);
+}
+
+/* Light theme component overrides for hardcoded dark values */
+[data-theme="light"] ::-webkit-scrollbar-track { background: var(--bg-primary); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #d4d4d8; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+
+[data-theme="light"] .checkbox-custom { border-color: rgba(0, 0, 0, 0.38); }
+
+[data-theme="light"] .badge-normal {
+  background-color: #e4e4e7;
+  color: rgba(0, 0, 0, 0.60);
+  border-color: #d4d4d8;
+}
+
+[data-theme="light"] .spinner {
+  border-color: rgba(0, 0, 0, 0.1);
+  border-top-color: rgba(0, 0, 0, 0.87);
+}
+
+[data-theme="light"] .btn-primary:hover { background-color: #7722FF; }
+[data-theme="light"] .btn-primary:active { background-color: var(--color-primary-variant); }
+[data-theme="light"] .btn-secondary:hover { background-color: rgba(98, 0, 238, 0.08); }
+[data-theme="light"] .btn-filter:hover { background-color: rgba(98, 0, 238, 0.08); }
+[data-theme="light"] .btn-filter.active { background-color: var(--color-primary); border-color: var(--color-primary); color: #FFFFFF; }
+[data-theme="light"] .btn-icon:hover { background-color: rgba(0, 0, 0, 0.04); }
+
+[data-theme="light"] .menu-item:hover { background-color: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .menu-item.active { color: var(--color-primary); background-color: rgba(98, 0, 238, 0.12); }
+
+[data-theme="light"] .bot-context-badge {
+  background-color: rgba(98, 0, 238, 0.08);
+  border-color: rgba(98, 0, 238, 0.3);
+  color: #6200EE;
+}
+[data-theme="light"] .bot-context-badge:hover {
+  background-color: rgba(98, 0, 238, 0.16);
+  border-color: rgba(98, 0, 238, 0.6);
+}
+
+[data-theme="light"] .stat-card-badge-trend.positive {
+  color: var(--color-primary);
+  border-color: rgba(98, 0, 238, 0.3);
+}
+
+[data-theme="light"] #trend-area-path { fill: rgba(98, 0, 238, 0.08) !important; }
+[data-theme="light"] #donut-segment { stroke: var(--color-secondary) !important; }
+[data-theme="light"] #trend-line-path { stroke: var(--color-primary) !important; }
+
+[data-theme="light"] .urgent-item:hover { color: var(--color-primary); }
+[data-theme="light"] .bot-item-card:hover { border-bottom-color: var(--color-primary); }
+[data-theme="light"] .bot-item-card.default-bot { border-bottom-color: rgba(98, 0, 238, 0.3); }
+[data-theme="light"] .sidebar { box-shadow: none; }
+
+[data-theme="light"] .modal { background-color: rgba(0, 0, 0, 0.5); }
+
 /* Base Styles & Resets */
 * {
   box-sizing: border-box;
@@ -78,6 +187,7 @@ body {
   font-family: var(--font-family-sans);
   min-height: 100vh;
   overflow-x: hidden;
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
 }
 
 /* ==============================================================================

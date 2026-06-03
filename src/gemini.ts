@@ -4,6 +4,7 @@ import {
   type Part,
   type FunctionCall,
 } from "@google/generative-ai";
+import type { EmbedBuilder } from "discord.js";
 import { getAllFunctionDeclarations, dispatchFunction } from "./functions/index.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import { addChatMessage, getRecentChatHistory } from "./db/chatHistoryRepo.js";
@@ -82,6 +83,7 @@ async function buildSystemInstruction(botId: string): Promise<string> {
 
   const discordBotConfig = getBotDiscordConfig(botId);
   const customPersona = discordBotConfig?.persona?.trim();
+  const customMemories = discordBotConfig?.memories?.trim();
 
   let roleAndPersona = "";
   let syncRule = "";
@@ -105,8 +107,13 @@ async function buildSystemInstruction(botId: string): Promise<string> {
     freeChatRule = "- 機能に関係ない雑談や質問にも、フレンドリーかつ丁寧に応じてください。";
   }
 
+  const memoriesSection = customMemories
+    ? `\n# 覚えておくこと（ユーザーから登録された記憶・メモ）\n以下は、ユーザーが「覚えておいてほしい」として登録した情報です。会話の中で適切に活用してください。\n${customMemories}`
+    : "";
+
   const parts = [
     roleAndPersona,
+    memoriesSection,
     "",
     `# リアルタイム情報の正確性とファクトチェック（極めて重要）
 - 先生から天気予報、電車の運行情報、ニュース、最新技術トレンド、または事実確認を求められた場合、セミナーの有能な会計（ミレニアムの計算機）としてのプライドにかけて、不正確な推測や無根拠なデータを伝えてはいけません。
@@ -251,6 +258,11 @@ async function generateWithRetry(
   throw new Error("リトライ上限に達しました");
 }
 
+export interface ProcessResult {
+  text: string;
+  embeds: EmbedBuilder[];
+}
+
 /**
  * メッセージを処理し、Function Callingループを含む完全な応答を返す
  */
@@ -258,7 +270,10 @@ export async function processMessage(
   botId: string,
   message: ChatMessage,
   onStatusChange?: (status: "thinking" | "writing" | "idle") => void
-): Promise<string> {
+): Promise<ProcessResult> {
+  // このリクエストで生成された表示用Embedを収集する（Function Callから push される）
+  const pendingEmbeds: EmbedBuilder[] = [];
+
   // 1. ユーザーのメッセージをDB履歴に保存
   if (message.text) {
     await addChatMessage(botId, "user", message.text);
@@ -344,7 +359,7 @@ export async function processMessage(
         const { name, args } = fc.functionCall;
         console.log(`🔧 Function Call: ${name}`, JSON.stringify(args));
 
-        const functionResult = await dispatchFunction(name, args as Record<string, unknown>, botId);
+        const functionResult = await dispatchFunction(name, args as Record<string, unknown>, botId, pendingEmbeds);
         console.log(`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`);
 
         // ブラウザツールの実行と成否判定
@@ -410,26 +425,28 @@ export async function processMessage(
       console.warn("response.text() retrieval failed:", e);
     }
 
+    const embeds = pendingEmbeds;
+
     if (text && text.trim()) {
       await addChatMessage(botId, "model", text);
-      return text;
+      return { text, embeds };
     } else {
       if (browserToolCalled || browserToolFailed) {
-        return "ブラウザ操作に失敗しました。求めた結果が得られませんでした。";
+        return { text: "ブラウザ操作に失敗しました。求めた結果が得られませんでした。", embeds };
       }
-      return "処理が完了しました。";
+      return { text: "処理が完了しました。", embeds };
     }
   } catch (error) {
     if (error instanceof Error && error.message.includes("API Key")) {
-      return `⚠️ ${error.message}`;
+      return { text: `⚠️ ${error.message}`, embeds: [] };
     }
     if (isRateLimitError(error)) {
       console.error("Gemini API レート制限:", error);
-      return "⚠️ 現在APIの利用制限（トークン枯渇など）に達しています。しばらく待ってからもう一度お試しください。";
+      return { text: "⚠️ 現在APIの利用制限（トークン枯渇など）に達しています。しばらく待ってからもう一度お試しください。", embeds: [] };
     }
     if (isServerError(error)) {
       console.error("Gemini API サーバーエラー:", error);
-      return "⚠️ AIサーバーが現在混み合っているか、一時的なエラーが発生しています（503等）。しばらく待ってからもう一度お試しください。";
+      return { text: "⚠️ AIサーバーが現在混み合っているか、一時的なエラーが発生しています（503等）。しばらく待ってからもう一度お試しください。", embeds: [] };
     }
     console.error("Gemini API エラー:", error);
     throw error;

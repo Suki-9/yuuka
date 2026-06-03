@@ -186,6 +186,60 @@ export function buildReceiptParsedEmbed(
     .setTimestamp();
 }
 
+// ─── リッチコンテンツEmbed ──────────────────────────────────────────────
+
+const COLOR_MAP: Record<string, number> = {
+  default: THEME_COLOR,
+  success: SUCCESS_COLOR,
+  warning: WARNING_COLOR,
+  error: EXPENSE_COLOR,
+  info: 0x5bc0eb,
+  weather: 0x4fc3f7,
+  news: 0xf5a623,
+  data: 0x9b59b6,
+};
+
+export interface RichContentField {
+  name: string;
+  value: string;
+  inline?: boolean;
+}
+
+export interface RichContentData {
+  title: string;
+  description?: string;
+  color?: string;
+  thumbnail_url?: string;
+  image_url?: string;
+  fields?: RichContentField[];
+  footer?: string;
+}
+
+export function buildRichContentEmbed(data: RichContentData): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle(data.title)
+    .setColor(COLOR_MAP[data.color ?? "default"] ?? THEME_COLOR)
+    .setTimestamp();
+
+  if (data.description) embed.setDescription(data.description);
+
+  if (data.fields && data.fields.length > 0) {
+    embed.addFields(
+      data.fields.map((f) => ({
+        name: f.name,
+        value: f.value,
+        inline: f.inline ?? false,
+      }))
+    );
+  }
+
+  if (data.thumbnail_url) embed.setThumbnail(data.thumbnail_url);
+  if (data.image_url) embed.setImage(data.image_url);
+  if (data.footer) embed.setFooter({ text: data.footer });
+
+  return embed;
+}
+
 function categoryEmoji(category: string): string {
   const map: Record<string, string> = {
     食費: "🍽️",

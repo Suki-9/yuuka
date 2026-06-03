@@ -1,5 +1,18 @@
 import { getDb } from "./database.js";
 
+/** 既存DBに後発カラムを安全に追加する（既に存在する場合は無視する） */
+function addColumnIfMissing(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  columnDef: string
+): void {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+  } catch (_) {
+    // カラムが既に存在する場合は無視
+  }
+}
+
 export async function runMigrations(): Promise<void> {
   const db = getDb();
 
@@ -21,19 +34,12 @@ export async function runMigrations(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
   `);
 
-  // 既存のDB環境向けにカラム追加（後発対応）
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN gemini_api_key_encrypted TEXT");
-  } catch (_) {}
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN gemini_api_key_iv TEXT");
-  } catch (_) {}
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN gemini_api_key_tag TEXT");
-  } catch (_) {}
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN gemini_model TEXT DEFAULT 'gemini-3.1-flash-lite'");
-  } catch (_) {}
+  // 既存のDB環境向けの後発カラム追加（既に存在する場合は無視）
+  addColumnIfMissing(db, "bots", "memories TEXT");
+  addColumnIfMissing(db, "users", "gemini_api_key_encrypted TEXT");
+  addColumnIfMissing(db, "users", "gemini_api_key_iv TEXT");
+  addColumnIfMissing(db, "users", "gemini_api_key_tag TEXT");
+  addColumnIfMissing(db, "users", "gemini_model TEXT DEFAULT 'gemini-3.1-flash-lite'");
 
   // bots テーブル作成
   db.exec(`
@@ -241,6 +247,42 @@ export async function runMigrations(): Promise<void> {
       FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_expense_plans_bot ON expense_plans(bot_id, planned_date);
+  `);
+
+  // playbook_schedules テーブル作成（定期実行スケジュール）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS playbook_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id TEXT NOT NULL,
+      playbook_name TEXT NOT NULL,
+      cron_expression TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at TEXT,
+      next_run_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_playbook_schedules_bot ON playbook_schedules(bot_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_playbook_schedules_bot_playbook ON playbook_schedules(bot_id, playbook_name);
+  `);
+
+  // playbook_runs テーブル作成（実行履歴）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS playbook_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schedule_id INTEGER NOT NULL,
+      bot_id TEXT NOT NULL,
+      playbook_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      output TEXT DEFAULT '',
+      started_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      finished_at TEXT,
+      FOREIGN KEY (schedule_id) REFERENCES playbook_schedules(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_playbook_runs_schedule ON playbook_runs(schedule_id);
+    CREATE INDEX IF NOT EXISTS idx_playbook_runs_bot ON playbook_runs(bot_id);
   `);
 
   console.log("✅ データベースマイグレーション完了");

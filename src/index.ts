@@ -5,6 +5,7 @@ import { startWebServer, stopWebServer } from "./server.js";
 import { initRedis, closeRedis } from "./db/redis.js";
 import { config } from "./config.js";
 import { seedInitialCodes } from "./db/inviteRepo.js";
+import { startPlaybookScheduleService, stopPlaybookScheduleService } from "./services/playbookScheduleService.js";
 
 async function main() {
   console.log("🚀 Yuuka 起動中...");
@@ -27,10 +28,14 @@ async function main() {
   // Bot起動
   await startBot();
 
+  // Playbookスケジュールサービス起動
+  startPlaybookScheduleService();
+
   console.log("✨ Yuuka が起動しました！");
 }
 
 async function gracefulShutdown(): Promise<void> {
+  stopPlaybookScheduleService();
   stopWebServer();
   stopBot();
   closeDb();
