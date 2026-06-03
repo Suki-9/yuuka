@@ -75,4 +75,13 @@ export const config = {
   /** 外部公開用ベースURL */
   baseUrl: getSetting("BASE_URL", ""),
 
+  /** 一般公開のプライバシーポリシーURL */
+  privacyPolicyUrl: getSetting("PRIVACY_POLICY_URL", ""),
+
+  /** 一般公開の利用規約URL */
+  termsUrl: getSetting("TERMS_URL", ""),
+
+  /** Google Search Console 所有権確認トークン */
+  googleSiteVerification: getSetting("GOOGLE_SITE_VERIFICATION", ""),
+
 } as const;

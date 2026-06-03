@@ -230,6 +230,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const usageOverlay = document.getElementById("usage-overlay");
     if (usageOverlay) usageOverlay.classList.remove("active");
+    const termsOverlay = document.getElementById("terms-overlay");
+    if (termsOverlay) termsOverlay.classList.remove("active");
+    const privacyOverlay = document.getElementById("privacy-overlay");
+    if (privacyOverlay) privacyOverlay.classList.remove("active");
 
     if (cleanPath === "/usage") {
       appContainer.classList.add("hidden");
@@ -238,6 +242,26 @@ document.addEventListener("DOMContentLoaded", () => {
       const botSetupTabContent = document.getElementById("bot-setup-tab-content");
       if (botSetupTabContent) botSetupTabContent.classList.remove("active");
       if (usageOverlay) usageOverlay.classList.add("active");
+      return;
+    }
+
+    if (cleanPath === "/terms") {
+      appContainer.classList.add("hidden");
+      botSelectionOverlay.classList.remove("active");
+      loginOverlay.classList.remove("active");
+      const botSetupTabContent = document.getElementById("bot-setup-tab-content");
+      if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+      if (termsOverlay) termsOverlay.classList.add("active");
+      return;
+    }
+
+    if (cleanPath === "/privacy") {
+      appContainer.classList.add("hidden");
+      botSelectionOverlay.classList.remove("active");
+      loginOverlay.classList.remove("active");
+      const botSetupTabContent = document.getElementById("bot-setup-tab-content");
+      if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+      if (privacyOverlay) privacyOverlay.classList.add("active");
       return;
     }
 
@@ -334,6 +358,57 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnUsageBackLogin = document.getElementById("btn-usage-back-login");
   if (btnUsageBackLogin) {
     btnUsageBackLogin.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateTo("/login");
+    });
+  }
+
+  // Terms of Use Link / Button Listeners
+  const linkShowTerms = document.getElementById("link-show-terms");
+  if (linkShowTerms) {
+    linkShowTerms.addEventListener("click", (e) => {
+      const href = linkShowTerms.getAttribute("href");
+      if (href && href.startsWith("/")) {
+        e.preventDefault();
+        navigateTo(href);
+      }
+    });
+  }
+
+  const btnTermsBackLogin = document.getElementById("btn-terms-back-login");
+  if (btnTermsBackLogin) {
+    btnTermsBackLogin.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateTo("/login");
+    });
+  }
+
+  // Privacy Policy Link / Button Listeners
+  const linkPrivacyPolicy = document.getElementById("link-privacy-policy");
+  if (linkPrivacyPolicy) {
+    linkPrivacyPolicy.addEventListener("click", (e) => {
+      const href = linkPrivacyPolicy.getAttribute("href");
+      if (href && href.startsWith("/")) {
+        e.preventDefault();
+        navigateTo(href);
+      }
+    });
+  }
+
+  const linkPrivacyPolicyUsage = document.getElementById("link-privacy-policy-usage");
+  if (linkPrivacyPolicyUsage) {
+    linkPrivacyPolicyUsage.addEventListener("click", (e) => {
+      const href = linkPrivacyPolicyUsage.getAttribute("href");
+      if (href && href.startsWith("/")) {
+        e.preventDefault();
+        navigateTo(href);
+      }
+    });
+  }
+
+  const btnPrivacyBackLogin = document.getElementById("btn-privacy-back-login");
+  if (btnPrivacyBackLogin) {
+    btnPrivacyBackLogin.addEventListener("click", (e) => {
       e.preventDefault();
       navigateTo("/login");
     });
@@ -680,10 +755,65 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function updatePrivacyPolicyLinks(url) {
+    const linkLogin = document.getElementById("link-privacy-policy");
+    const linkUsage = document.getElementById("link-privacy-policy-usage");
+    if (url && url.trim() !== "") {
+      const isInternal = url.startsWith("/");
+      [linkLogin, linkUsage].forEach(link => {
+        if (link) {
+          link.href = url;
+          if (isInternal) {
+            link.removeAttribute("target");
+            link.removeAttribute("rel");
+          } else {
+            link.setAttribute("target", "_blank");
+            link.setAttribute("rel", "noopener");
+          }
+          link.classList.remove("hidden");
+        }
+      });
+    } else {
+      [linkLogin, linkUsage].forEach(link => {
+        if (link) {
+          link.removeAttribute("href");
+          link.classList.add("hidden");
+        }
+      });
+    }
+  }
+
+  function updateTermsLinks(url) {
+    const linkLogin = document.getElementById("link-show-terms");
+    if (url && url.trim() !== "") {
+      const isInternal = url.startsWith("/");
+      if (linkLogin) {
+        linkLogin.href = url;
+        if (isInternal) {
+          linkLogin.removeAttribute("target");
+          linkLogin.removeAttribute("rel");
+        } else {
+          linkLogin.setAttribute("target", "_blank");
+          linkLogin.setAttribute("rel", "noopener");
+        }
+        linkLogin.classList.remove("hidden");
+      }
+    } else {
+      if (linkLogin) {
+        linkLogin.removeAttribute("href");
+        linkLogin.classList.add("hidden");
+      }
+    }
+  }
+
   async function checkSetupStatus() {
     try {
       const res = await originalFetch("/api/setup/status");
       const data = await res.json();
+
+      if (data.privacyPolicyUrl !== undefined) {
+        updatePrivacyPolicyLinks(data.privacyPolicyUrl);
+      }
       
       const loginTabContent = document.getElementById("login-tab-content");
       const registerTabContent = document.getElementById("register-tab-content");
@@ -734,6 +864,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await originalFetch("/api/me");
       const data = await res.json();
       if (data.success) {
+        if (data.privacyPolicyUrl !== undefined) {
+          updatePrivacyPolicyLinks(data.privacyPolicyUrl);
+        }
+        if (data.termsUrl !== undefined) {
+          updateTermsLinks(data.termsUrl);
+        }
+
         activeUserId = data.user.discordId;
         activeUserRole = data.user.role || "user";
         document.getElementById("current-user-display").textContent = `${data.user.username} (${activeUserId})`;
@@ -2517,7 +2654,8 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchAdminStats(),
       fetchAdminUsers(),
       fetchAdminBots(),
-      fetchAdminInviteCodes()
+      fetchAdminInviteCodes(),
+      fetchAdminSystemSettings()
     ]);
   }
 
@@ -2838,6 +2976,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  async function fetchAdminSystemSettings() {
+    try {
+      const res = await originalFetch("/api/admin/system-settings");
+      const data = await res.json();
+      if (data.success) {
+        const inputPrivacy = document.getElementById("admin-privacy-policy-url");
+        if (inputPrivacy) {
+          inputPrivacy.value = data.privacyPolicyUrl || "";
+        }
+        const inputTerms = document.getElementById("admin-terms-url");
+        if (inputTerms) {
+          inputTerms.value = data.termsUrl || "";
+        }
+      }
+    } catch (err) {
+      console.error("Admin system settings fetch error", err);
+    }
+  }
+
   // Admin Invite Code Form
   const adminInviteForm = document.getElementById("admin-invite-form");
   if (adminInviteForm) {
@@ -2896,6 +3053,36 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  // Admin System Settings Form
+  const adminSystemSettingsForm = document.getElementById("admin-system-settings-form");
+  if (adminSystemSettingsForm) {
+    adminSystemSettingsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const privacyPolicyUrl = document.getElementById("admin-privacy-policy-url").value.trim();
+      const termsUrl = document.getElementById("admin-terms-url").value.trim();
+
+      try {
+        const res = await originalFetch("/api/admin/system-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ privacyPolicyUrl, termsUrl })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("システム設定を保存しました。");
+          updatePrivacyPolicyLinks(privacyPolicyUrl);
+          updateTermsLinks(termsUrl);
+        } else {
+          alert("保存に失敗しました: " + data.message);
+        }
+      } catch (err) {
+        console.error("System settings save failed", err);
+        alert("保存処理中に通信エラーが発生しました。");
+      }
+    });
+  }
+
 
   // ==========================================
   // PLAYBOOKS MANAGEMENT

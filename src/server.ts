@@ -74,6 +74,8 @@ import {
   deleteSchedule as deletePlaybookSchedule,
   listRuns,
 } from "./services/playbookScheduleService.js";
+import { getSystemSetting, setSystemSetting } from "./db/systemSettingsRepo.js";
+
 
 
 /**
@@ -115,7 +117,7 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15分間ロックアウト
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';";
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
@@ -294,6 +296,25 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
       ...SECURITY_HEADERS,
     });
 
+    if (ext === ".html" && path.basename(finalPath) === "index.html") {
+      fs.readFile(finalPath, "utf-8", (err, content) => {
+        if (err) {
+          console.error("Failed to read index.html:", err);
+          res.end("Internal Server Error");
+          return;
+        }
+        let html = content;
+        if (config.googleSiteVerification) {
+          const metaTag = `<meta name="google-site-verification" content="${config.googleSiteVerification}" />`;
+          html = html.replace("<!-- GOOGLE_SITE_VERIFICATION -->", metaTag);
+        } else {
+          html = html.replace("<!-- GOOGLE_SITE_VERIFICATION -->", "");
+        }
+        res.end(html);
+      });
+      return;
+    }
+
     const stream = fs.createReadStream(finalPath);
     stream.pipe(res);
   });
@@ -440,7 +461,9 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/setup/status" && method === "GET") {
     try {
       const users = listAllUsers();
-      sendJson(res, 200, { needSetup: users.length === 0 });
+      const privacyPolicyUrl = getSystemSetting("privacy_policy_url") || config.privacyPolicyUrl;
+      const termsUrl = getSystemSetting("terms_url") || config.termsUrl;
+      sendJson(res, 200, { needSetup: users.length === 0, privacyPolicyUrl, termsUrl });
     } catch (err: any) {
       console.error("セットアップ状態確認エラー:", err);
       sendError(res, 500, "システム状態の取得に失敗しました。");
@@ -606,13 +629,17 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     if (!user) {
       return sendError(res, 404, "ユーザーが見つかりません。");
     }
+    const privacyPolicyUrl = getSystemSetting("privacy_policy_url") || config.privacyPolicyUrl;
+    const termsUrl = getSystemSetting("terms_url") || config.termsUrl;
     sendJson(res, 200, {
       success: true,
       user: {
         discordId: user.discord_id,
         username: user.username,
         role: user.role || "user",
-      }
+      },
+      privacyPolicyUrl,
+      termsUrl
     });
     return;
   }
@@ -1763,6 +1790,56 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     } catch (err: any) {
       console.error("Admin 統計取得エラー:", err);
       sendError(res, 500, "統計情報の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: システム全体設定の取得
+  if (pathname === "/api/admin/system-settings" && method === "GET") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const privacyPolicyUrl = getSystemSetting("privacy_policy_url") || config.privacyPolicyUrl;
+      const termsUrl = getSystemSetting("terms_url") || config.termsUrl;
+      sendJson(res, 200, { success: true, privacyPolicyUrl, termsUrl });
+    } catch (err: any) {
+      console.error("Admin システム設定取得エラー:", err);
+      sendError(res, 500, "システム設定の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: システム全体設定の保存
+  if (pathname === "/api/admin/system-settings" && method === "POST") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const body = await getRequestBody(req);
+      const { privacyPolicyUrl, termsUrl } = JSON.parse(body);
+
+      // URLのバリデーション (空欄を許可するため、入力された場合のみチェック。スラッシュから始まる相対パスも許可)
+      if (privacyPolicyUrl && privacyPolicyUrl.trim() !== "" && !privacyPolicyUrl.trim().startsWith("/")) {
+        try {
+          new URL(privacyPolicyUrl.trim());
+        } catch (_) {
+          return sendError(res, 400, "無効なプライバシーポリシーのURL形式です。");
+        }
+      }
+
+      if (termsUrl && termsUrl.trim() !== "" && !termsUrl.trim().startsWith("/")) {
+        try {
+          new URL(termsUrl.trim());
+        } catch (_) {
+          return sendError(res, 400, "無効な利用規約のURL形式です。");
+        }
+      }
+
+      setSystemSetting("privacy_policy_url", privacyPolicyUrl ? privacyPolicyUrl.trim() : "");
+      setSystemSetting("terms_url", termsUrl ? termsUrl.trim() : "");
+      sendJson(res, 200, { success: true, message: "システム設定を保存しました。" });
+    } catch (err: any) {
+      console.error("Admin システム設定保存エラー:", err);
+      sendError(res, 500, "システム設定の保存に失敗しました。");
     }
     return;
   }

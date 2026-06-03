@@ -298,6 +298,16 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_bot_memories_bot ON bot_memories(bot_id);
   `);
 
+  // system_settings テーブル作成（システム全体設定）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+
   // 旧記憶データの移行（存在する場合）
   try {
     const columnsInfo = db.pragma("table_info(bots)") as { name: string }[];

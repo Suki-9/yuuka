@@ -10,7 +10,7 @@ import { processMessage, type ChatMessage } from "./gemini.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import { startReminderService, stopReminderService } from "./services/reminderService.js";
 import { isRegisteredUser } from "./db/userRepo.js";
-import { getBotById, getBotDiscordConfig, listAllBotIds, listBotsForUser } from "./db/botRepo.js";
+import { getBotById, getBotDiscordConfig, listAllBotIds, listBotsForUser, updateBotDiscordProfile } from "./db/botRepo.js";
 import { decryptText } from "./utils/crypto.js";
 
 const DISCORD_CLIENT_OPTIONS = {
@@ -73,11 +73,20 @@ export function setBotStatus(botClient: Client, status: "thinking" | "writing" |
   }
 }
 
-client.once(Events.ClientReady, (c) => {
+client.on(Events.ClientReady, (c) => {
   console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
   setBotStatus(client, "idle");
   // リマインダーサービスを開始
   startReminderService();
+
+  // Discordからプロフィールを同期
+  try {
+    const avatarUrl = c.user.displayAvatarURL();
+    updateBotDiscordProfile("system_default", c.user.username, avatarUrl);
+    console.log(`[Discord Bot] デフォルトBotのプロフィールを同期しました: ${c.user.username}`);
+  } catch (err) {
+    console.error("[Discord Bot] デフォルトBotのプロフィールの同期に失敗しました:", err);
+  }
 });
 
 /**
@@ -301,6 +310,14 @@ export async function startCustomBot(botId: string): Promise<boolean> {
     customClient.once(Events.ClientReady, (c) => {
       console.log(`✅ 独自Bot (Bot: ${botId}): ${c.user.tag} としてログインしました`);
       setBotStatus(customClient, "idle");
+      // Discordからプロフィールを同期
+      try {
+        const avatarUrl = c.user.displayAvatarURL();
+        updateBotDiscordProfile(botId, c.user.username, avatarUrl);
+        console.log(`[Discord Bot] 独自Bot (Bot: ${botId}) のプロフィールを同期しました: ${c.user.username}`);
+      } catch (err) {
+        console.error(`[Discord Bot] 独自Bot (Bot: ${botId}) のプロフィールの同期に失敗しました:`, err);
+      }
     });
 
     setupMessageListener(customClient, botId);
@@ -342,7 +359,22 @@ export async function restartDefaultBot(token: string): Promise<boolean> {
   try {
     // 既存のリスナーを除去してから再登録（二重登録防止）
     client.removeAllListeners("messageCreate");
+    client.removeAllListeners(Events.ClientReady);
     setupMessageListener(client);
+
+    // Readyイベントの再登録
+    client.on(Events.ClientReady, (c) => {
+      console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
+      setBotStatus(client, "idle");
+      try {
+        const avatarUrl = c.user.displayAvatarURL();
+        updateBotDiscordProfile("system_default", c.user.username, avatarUrl);
+        console.log(`[Discord Bot] デフォルトBotのプロフィールを同期しました: ${c.user.username}`);
+      } catch (err) {
+        console.error("[Discord Bot] デフォルトBotのプロフィールの同期に失敗しました:", err);
+      }
+    });
+
     await client.login(token);
     console.log("✅ デフォルトBotが新しいトークンでログイン成功しました。");
     return true;

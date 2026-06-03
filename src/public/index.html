@@ -4,7 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Personal Assistant - パーソナルアシスタント管理室</title>
+  <!-- GOOGLE_SITE_VERIFICATION -->
+  <title>Yuuka - パーソナルアシスタント管理室</title>
   <!-- Google Fonts for Modern & Matte Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,128 +24,198 @@
        LOGIN VIEW (Matte dark overlay)
        ========================================== -->
   <div id="login-overlay" class="overlay active">
-    <div class="login-card">
-      <div class="login-header">
-        <div class="logo-icon-container">
-          <span class="material-symbols-outlined icon-display-large">calculate</span>
+    <div class="landing-container">
+      
+      <!-- 左側：アプリ紹介セクション -->
+      <div class="landing-info-section">
+        <div class="landing-logo-header">
+          <div class="landing-logo-icon-container">
+            <span class="material-symbols-outlined landing-logo-icon">calculate</span>
+          </div>
+          <div class="landing-title-container">
+            <h2>Yuuka</h2>
+            <span class="landing-subtitle">Seminar Accounting</span>
+          </div>
         </div>
-        <h1>SEMINAR ACCOUNTING</h1>
-        <p>AIアシスタントと連携したパーソナル管理システム</p>
-      </div>
-
-      <div class="login-tabs">
-        <button class="login-tab-btn active" id="btn-tab-login" type="button">ログイン</button>
-        <button class="login-tab-btn" id="btn-tab-register" type="button">アカウント作成</button>
-      </div>
-
-      <!-- ログイン用フォーム -->
-      <div id="login-tab-content" class="login-tab-pane active">
-        <form id="login-form">
-          <div class="form-group">
-            <label for="login-discord-id">Discord ユーザーID *</label>
-            <input type="text" id="login-discord-id" required placeholder="例: 123456789012345678">
+        <p class="landing-tagline">AIアシスタントと連携したスマートなパーソナル管理システム</p>
+        
+        <div class="landing-features">
+          <div class="landing-feature-card">
+            <div class="feature-icon-wrapper">
+              <span class="material-symbols-outlined feature-icon">robot_2</span>
+            </div>
+            <div class="feature-text">
+              <h3>AI秘書 Bot (Discord連携)</h3>
+              <p>Discord上の使い慣れたチャットで会話するだけで、AI秘書がタスクやスケジュール、経費の記録をあなたの代わりに自動で行います。</p>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="login-password">パスワード *</label>
-            <input type="password" id="login-password" required placeholder="••••••••••••"
-              autocomplete="current-password">
+          
+          <div class="landing-feature-card">
+            <div class="feature-icon-wrapper">
+              <span class="material-symbols-outlined feature-icon">checklist</span>
+            </div>
+            <div class="feature-text">
+              <h3>スマートタスク & リマインダー</h3>
+              <p>優先度付きのタスク管理を搭載。処理が滞っているタスクや期限の近い予定をAIが検知し、適切にリマインドします。</p>
+            </div>
           </div>
-          <button type="submit" class="btn btn-primary btn-block">アクセスを承認する</button>
-        </form>
-      </div>
-
-      <!-- アカウント作成用フォーム -->
-      <div id="register-tab-content" class="login-tab-pane">
-        <form id="register-form">
-          <div class="form-group">
-            <label for="reg-discord-id">Discord ユーザーID *</label>
-            <input type="text" id="reg-discord-id" required placeholder="例: 123456789012345678">
-            <span class="field-sub">※Discord上で右クリックしてコピーしたID</span>
+          
+          <div class="landing-feature-card">
+            <div class="feature-icon-wrapper">
+              <span class="material-symbols-outlined feature-icon">payments</span>
+            </div>
+            <div class="feature-text">
+              <h3>AI家計簿 & レシートスキャナー</h3>
+              <p>金額やカテゴリの自動判定はもちろん、レシート画像を送信するだけでGeminiが詳細な品目を自動解析して家計簿に記録します。</p>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="reg-username">ユーザーネーム（表示名） *</label>
-            <input type="text" id="reg-username" required placeholder="例: ユーザー名">
+          
+          <div class="landing-feature-card">
+            <div class="feature-icon-wrapper">
+              <span class="material-symbols-outlined feature-icon">description</span>
+            </div>
+            <div class="feature-text">
+              <h3>Playbook 自動化エージェント</h3>
+              <p>ブラウザやAPIを活用した定型操作の自動実行手順（Playbook）を記述し、指定スケジュールで安全に実行できます。</p>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="reg-password">パスワード *</label>
-            <input type="password" id="reg-password" required placeholder="••••••••••••" autocomplete="new-password">
-          </div>
-          <div class="form-group">
-            <label for="reg-gemini-key">Gemini API Key *</label>
-            <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
-            <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank"
-                rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
-          </div>
-          <div class="form-group">
-            <label for="reg-invite-code">招待コード *</label>
-            <input type="text" id="reg-invite-code" required placeholder="管理者から配布されたコード">
-          </div>
-          <button type="submit" class="btn btn-primary btn-block">登録してログインする</button>
-        </form>
-      </div>
-
-      <!-- 初期セットアップ用フォーム (ユーザー数が0の場合のみ表示) -->
-      <div id="setup-tab-content" class="login-tab-pane">
-        <div style="margin-bottom: 16px; border-bottom: 1px solid #27272a; padding-bottom: 12px; text-align: center;">
-          <h2
-            style="font-size: 1.25rem; font-weight: 600; color: #f4f4f5; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <span class="material-symbols-outlined" style="color: #3b82f6;">build</span>
-            初期セットアップ
-          </h2>
-          <p style="font-size: 0.85rem; color: #a1a1aa; margin-top: 4px;">最初のユーザーは自動的にシステム管理者になります。</p>
         </div>
-        <form id="setup-form">
-          <div class="form-group">
-            <label for="setup-discord-id">管理者 Discord ユーザーID *</label>
-            <input type="text" id="setup-discord-id" required placeholder="例: 123456789012345678">
-            <span class="field-sub">※Discord上で右クリックしてコピーしたID</span>
-          </div>
-          <div class="form-group">
-            <label for="setup-username">管理者ユーザーネーム（表示名） *</label>
-            <input type="text" id="setup-username" required placeholder="例: 管理者ユーザー名">
-          </div>
-          <div class="form-group">
-            <label for="setup-password">管理者パスワード *</label>
-            <input type="password" id="setup-password" required placeholder="••••••••••••" autocomplete="new-password">
-          </div>
-          <div class="form-group">
-            <label for="setup-gemini-key">Gemini API Key *</label>
-            <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
-            <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey"
-                target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">管理者アカウントを登録する</button>
-        </form>
       </div>
 
-      <!-- デフォルトBotセットアップ用フォーム (管理者登録完了後に表示) -->
-      <div id="bot-setup-tab-content" class="login-tab-pane">
-        <div style="margin-bottom: 16px; border-bottom: 1px solid #27272a; padding-bottom: 12px; text-align: center;">
-          <h2
-            style="font-size: 1.25rem; font-weight: 600; color: #f4f4f5; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <span class="material-symbols-outlined" style="color: #10b981;">robot_2</span>
-            デフォルトBotセットアップ
-          </h2>
-          <p style="font-size: 0.85rem; color: #a1a1aa; margin-top: 4px;">システム共通で動作するデフォルトBotのトークンを登録してください。</p>
+      <!-- 右側：ログイン / 登録フォーム -->
+      <div class="login-card">
+        <div class="login-header">
+          <div class="logo-icon-container">
+            <span class="material-symbols-outlined icon-display-large">calculate</span>
+          </div>
+          <h1>Yuuka</h1>
+          <p class="subtitle-accounting" style="font-size: 0.85rem; letter-spacing: 0.1em; color: var(--color-primary); margin-top: -8px; margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">Seminar Accounting</p>
+          <p>AIアシスタントと連携したパーソナル管理システム</p>
         </div>
-        <form id="bot-setup-form">
-          <div class="form-group">
-            <label for="bot-setup-token">デフォルト Bot トークン *</label>
-            <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力">
-            <span class="field-sub">※Discord Developer Portalから取得したBotのトークン</span>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">デフォルトBotをセットアップする</button>
-        </form>
-      </div>
 
-      <div id="login-error" class="error-msg"></div>
-      <div
-        style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border-divider); padding-top: 16px;">
-        <a href="/usage" id="link-show-usage"
-          style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
-          <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">help</span> 使い方ガイドを読む
-        </a>
+        <div class="login-tabs">
+          <button class="login-tab-btn active" id="btn-tab-login" type="button">ログイン</button>
+          <button class="login-tab-btn" id="btn-tab-register" type="button">アカウント作成</button>
+        </div>
+
+        <!-- ログイン用フォーム -->
+        <div id="login-tab-content" class="login-tab-pane active">
+          <form id="login-form">
+            <div class="form-group">
+              <label for="login-discord-id">Discord ユーザーID *</label>
+              <input type="text" id="login-discord-id" required placeholder="例: 123456789012345678">
+            </div>
+            <div class="form-group">
+              <label for="login-password">パスワード *</label>
+              <input type="password" id="login-password" required placeholder="••••••••••••"
+                autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">アクセスを承認する</button>
+          </form>
+        </div>
+
+        <!-- アカウント作成用フォーム -->
+        <div id="register-tab-content" class="login-tab-pane">
+          <form id="register-form">
+            <div class="form-group">
+              <label for="reg-discord-id">Discord ユーザーID *</label>
+              <input type="text" id="reg-discord-id" required placeholder="例: 123456789012345678">
+              <span class="field-sub">※Discord上で右クリックしてコピーしたID</span>
+            </div>
+            <div class="form-group">
+              <label for="reg-username">ユーザーネーム（表示名） *</label>
+              <input type="text" id="reg-username" required placeholder="例: ユーザー名">
+            </div>
+            <div class="form-group">
+              <label for="reg-password">パスワード *</label>
+              <input type="password" id="reg-password" required placeholder="••••••••••••" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+              <label for="reg-gemini-key">Gemini API Key *</label>
+              <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+              <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank"
+                  rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
+            </div>
+            <div class="form-group">
+              <label for="reg-invite-code">招待コード *</label>
+              <input type="text" id="reg-invite-code" required placeholder="管理者から配布されたコード">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">登録してログインする</button>
+          </form>
+        </div>
+
+        <!-- 初期セットアップ用フォーム (ユーザー数が0の場合のみ表示) -->
+        <div id="setup-tab-content" class="login-tab-pane">
+          <div style="margin-bottom: 16px; border-bottom: 1px solid #27272a; padding-bottom: 12px; text-align: center;">
+            <h2
+              style="font-size: 1.25rem; font-weight: 600; color: #f4f4f5; display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <span class="material-symbols-outlined" style="color: #3b82f6;">build</span>
+              初期セットアップ
+            </h2>
+            <p style="font-size: 0.85rem; color: #a1a1aa; margin-top: 4px;">最初のユーザーは自動的にシステム管理者になります。</p>
+          </div>
+          <form id="setup-form">
+            <div class="form-group">
+              <label for="setup-discord-id">管理者 Discord ユーザーID *</label>
+              <input type="text" id="setup-discord-id" required placeholder="例: 123456789012345678">
+              <span class="field-sub">※Discord上で右クリックしてコピーしたID</span>
+            </div>
+            <div class="form-group">
+              <label for="setup-username">管理者ユーザーネーム（表示名） *</label>
+              <input type="text" id="setup-username" required placeholder="例: 管理者ユーザー名">
+            </div>
+            <div class="form-group">
+              <label for="setup-password">管理者パスワード *</label>
+              <input type="password" id="setup-password" required placeholder="••••••••••••" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+              <label for="setup-gemini-key">Gemini API Key *</label>
+              <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+              <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey"
+                  target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">管理者アカウントを登録する</button>
+          </form>
+        </div>
+
+        <!-- デフォルトBotセットアップ用フォーム (管理者登録完了後に表示) -->
+        <div id="bot-setup-tab-content" class="login-tab-pane">
+          <div style="margin-bottom: 16px; border-bottom: 1px solid #27272a; padding-bottom: 12px; text-align: center;">
+            <h2
+              style="font-size: 1.25rem; font-weight: 600; color: #f4f4f5; display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <span class="material-symbols-outlined" style="color: #10b981;">robot_2</span>
+              デフォルトBotセットアップ
+            </h2>
+            <p style="font-size: 0.85rem; color: #a1a1aa; margin-top: 4px;">システム共通で動作するデフォルトBotのトークンを登録してください。</p>
+          </div>
+          <form id="bot-setup-form">
+            <div class="form-group">
+              <label for="bot-setup-token">デフォルト Bot トークン *</label>
+              <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力">
+              <span class="field-sub">※Discord Developer Portalから取得したBotのトークン</span>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">デフォルトBotをセットアップする</button>
+          </form>
+        </div>
+
+        <div id="login-error" class="error-msg"></div>
+        <div
+          style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border-divider); padding-top: 16px; display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+          <a href="/usage" id="link-show-usage"
+            style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+            <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">help</span> 使い方ガイドを読む
+          </a>
+          <a href="/terms" id="link-show-terms"
+            style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+            <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">gavel</span> 利用規約
+          </a>
+          <a href="#" id="link-privacy-policy" class="hidden" target="_blank" rel="noopener"
+            style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+            <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">policy</span> プライバシーポリシー
+          </a>
+        </div>
       </div>
+      
     </div>
   </div>
 
@@ -202,8 +273,153 @@
         </div>
       </div>
 
-      <div style="margin-top: 24px; text-align: center;">
+      <div style="margin-top: 24px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
         <button id="btn-usage-back-login" class="btn btn-secondary" style="min-width: 150px;">ログイン画面に戻る</button>
+        <a href="#" id="link-privacy-policy-usage" class="hidden" target="_blank" rel="noopener"
+          style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+          <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">policy</span> プライバシーポリシー
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       TERMS OF USE VIEW (Matte dark overlay, public access)
+       ========================================== -->
+  <div id="terms-overlay" class="overlay">
+    <div class="usage-card">
+      <div class="login-header">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+          <div class="logo-icon-container"
+            style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
+            <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">gavel</span>
+          </div>
+          <h1 style="font-size: 1.5rem; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">Terms of Use</h1>
+        </div>
+        <p style="margin-bottom: 16px;">Yuuka (Discord 秘書 Bot 兼 管理画面) 利用規約</p>
+      </div>
+
+      <div class="usage-content">
+        <div class="usage-section">
+          <h3>1. はじめに</h3>
+          <p>この利用規約（以下「本規約」）は、本システム『Yuuka』（以下「本サービス」）の利用条件を定めるものです。ユーザーは本サービスを利用することにより、本規約のすべての内容に同意したものとみなされます。</p>
+        </div>
+
+        <div class="usage-section">
+          <h3>2. 利用資格とアカウント管理</h3>
+          <ul>
+            <li>本サービスは、管理者が発行した「招待コード」を所持しているユーザー、または初期管理者として登録されたユーザーのみが利用できます。</li>
+            <li>ユーザーは、自己の責任においてDiscordユーザーIDおよびログインパスワード、招待コードを厳重に管理するものとします。</li>
+            <li>アカウントの第三者への譲渡、貸与、共有は一切禁止します。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>3. Gemini APIキーおよび各種認証情報</h3>
+          <ul>
+            <li>ユーザーは、本サービスを利用するために自身が取得した Google Gemini API キーを登録する必要があります。</li>
+            <li>登録されたAPIキーおよび連携したGoogleアカウント（OAuth）の認証情報は、本サービス内部で暗号化して保管され、AIアシスタント機能の実行およびGoogle カレンダー同期以外の目的には使用されません。</li>
+            <li>ユーザーは、自身が登録するAPIキーの利用枠および発生する利用料金等について、自己の責任で管理するものとします。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>4. 禁止事項</h3>
+          <p>ユーザーは、本サービスの利用にあたり、以下の行為を行ってはなりません。</p>
+          <ul>
+            <li>他者なりすましによる本サービスの不正利用行為</li>
+            <li>本サービスのバグや脆弱性を意図的に悪用し、システムに不当な負荷をかける行為</li>
+            <li>AIモデル（Gemini API）に対する有害なプロンプトの入力、その他公序良俗に反するコンテンツの生成を目的とした利用</li>
+            <li>管理者の事前の許可なく本サービスを商用目的で第三者に提供・再販売する行為</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>5. 免責事項</h3>
+          <ul>
+            <li>本サービスで提供されるAIによるテキスト生成、レシート画像の解析結果等の正確性、完全性、最新性について、本システムおよびその開発者は一切の保証を行いません。</li>
+            <li>本サービスの利用、または利用できなかったことによりユーザーに生じた損害（Gemini APIの利用料金、Google カレンダー同期に伴う予定の消失、データの損壊等を含む）について、一切の責任を負いません。</li>
+            <li>本サービスは事前の予告なく、機能の変更、追加、一時停止、または提供終了を行うことがあります。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>6. 規約の変更</h3>
+          <p>管理者は、必要と判断した場合にはいつでも本規約を変更することができるものとします。変更後の利用規約は本画面に表示された時点から効力を生じるものとし、ユーザーが変更後に本サービスを利用した場合は、変更後の規約に同意したものとみなされます。</p>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px; text-align: center;">
+        <button id="btn-terms-back-login" class="btn btn-secondary" style="min-width: 150px;">ログイン画面に戻る</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       PRIVACY POLICY VIEW (Matte dark overlay, public access)
+       ========================================== -->
+  <div id="privacy-overlay" class="overlay">
+    <div class="usage-card">
+      <div class="login-header">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+          <div class="logo-icon-container"
+            style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
+            <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">security</span>
+          </div>
+          <h1 style="font-size: 1.5rem; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">Privacy Policy</h1>
+        </div>
+        <p style="margin-bottom: 16px;">Yuuka (Discord 秘書 Bot 兼 管理画面) プライバシーポリシー</p>
+      </div>
+
+      <div class="usage-content">
+        <div class="usage-section">
+          <h3>1. 収集する情報</h3>
+          <p>本システムは、機能提供のために以下の情報を収集・利用します。</p>
+          <ul>
+            <li><strong>アカウント情報:</strong> Discord ユーザーID、表示名、ログイン用パスワード（ハッシュ化して保存）。</li>
+            <li><strong>AI設定情報:</strong> ユーザーが個別に登録した Google Gemini API キー。</li>
+            <li><strong>外部サービス連携情報:</strong> Google Calendar API 連携のための OAuth 認証情報。</li>
+            <li><strong>システム利用データ:</strong> タスク、スケジュール、家計簿データ（レシート解析画像を含む）、および自動実行用プレイブック。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>2. 情報の利用目的</h3>
+          <p>収集した情報は、以下の目的でのみ使用します。</p>
+          <ul>
+            <li>本サービスにおけるログイン認証およびユーザー識別のため。</li>
+            <li>Gemini API を利用した Discord 秘書 Bot による応答およびレシート画像の解析処理のため。</li>
+            <li>Google カレンダーとのスケジュール同期、および Google Drive へのバックアップ実行のため。</li>
+            <li>登録されたプレイブックに基づいた自動ブラウジング等の実行のため。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>3. データの安全管理</h3>
+          <ul>
+            <li>Gemini API キー、Discord Token、およびブラウザ自動実行用の外部サービスパスワードなどの機密情報は、暗号化（AES-256-GCM）を施した上でデータベースに保存されます。</li>
+            <li>データの漏洩、紛失、改ざんを防止するため、適切なセキュリティ対策を講じています。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>4. 第三者への開示・提供</h3>
+          <p>本システムは、ユーザーの同意がある場合、または法令に基づく場合を除き、収集した個人情報を第三者に提供・開示することはありません。</p>
+        </div>
+
+        <div class="usage-section">
+          <h3>5. 外部APIの利用</h3>
+          <p>AI機能の処理にあたり、ユーザーが登録したAPIキーを使用して Google Gemini API にリクエストを送信します。送信されたデータの取り扱いは、Googleのプライバシーポリシーに従います。</p>
+        </div>
+
+        <div class="usage-section">
+          <h3>6. ポリシーの変更</h3>
+          <p>管理者は、本ポリシーを必要に応じて変更することができます。変更後のポリシーは本画面に表示された時点から適用されます。</p>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px; text-align: center;">
+        <button id="btn-privacy-back-login" class="btn btn-secondary" style="min-width: 150px;">ログイン画面に戻る</button>
       </div>
     </div>
   </div>
@@ -1096,6 +1312,33 @@
                 </div>
                 <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
               </div>
+            </form>
+          </div>
+
+          <!-- System Settings -->
+          <div class="admin-section">
+            <div class="admin-section-header">
+              <span class="admin-section-title">
+                <span class="material-symbols-outlined">settings</span>システム全体設定
+              </span>
+              <span class="hud-tag"
+                style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
+            </div>
+            <p class="description-text">システム全体の共通設定を行います。</p>
+            <form id="admin-system-settings-form" style="margin-top: 16px;">
+              <div class="form-group">
+                <label for="admin-privacy-policy-url">一般公開プライバシーポリシーへのリンク (URL / パス)</label>
+                <input type="text" id="admin-privacy-policy-url" placeholder="https://example.com/privacy または /privacy"
+                  style="margin-top: 8px;">
+                <span class="field-sub">※空欄にすると、ログイン画面および使い方ガイドからプライバシーポリシーのリンクが非表示になります。</span>
+              </div>
+              <div class="form-group" style="margin-top: 16px;">
+                <label for="admin-terms-url">一般公開利用規約へのリンク (URL / パス)</label>
+                <input type="text" id="admin-terms-url" placeholder="https://example.com/terms または /terms"
+                  style="margin-top: 8px;">
+                <span class="field-sub">※空欄にすると、ログイン画面および使い方ガイドから利用規約のリンクが非表示になります。</span>
+              </div>
+              <button type="submit" class="btn btn-primary" style="margin-top: 16px; min-width: 150px;">設定を更新</button>
             </form>
           </div>
 
