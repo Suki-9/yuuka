@@ -213,5 +213,35 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_playbooks_bot ON playbooks(bot_id);
   `);
 
+  // bot_budget_limits テーブル作成（カテゴリ別予算上限）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_budget_limits (
+      bot_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      limit_amount INTEGER NOT NULL DEFAULT 50000,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (bot_id, category),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+  `);
+
+  // expense_plans テーブル作成（支払い予定）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS expense_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      description TEXT,
+      planned_date TEXT NOT NULL,
+      is_paid INTEGER NOT NULL DEFAULT 0,
+      paid_expense_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_expense_plans_bot ON expense_plans(bot_id, planned_date);
+  `);
+
   console.log("✅ データベースマイグレーション完了");
 }

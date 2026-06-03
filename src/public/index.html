@@ -501,18 +501,44 @@
             <div class="hud-card card">
               <p>当月支出合計</p>
               <h2 id="expense-month-total">¥0</h2>
-              <div class="hud-card-sub">先週比 -8.3%</div>
+              <div class="hud-card-sub" id="expense-plans-due-count">支払い予定: 0件</div>
             </div>
-            <!-- Dynamic Category Progress Bar -->
+            <!-- カテゴリ別予算進捗 -->
             <div class="hud-card card col-span-2">
-              <p>カテゴリー別上限進捗 (目標上限: ¥50,000)</p>
-              <div class="budget-progress-container">
-                <div class="budget-progress-bar" id="expense-budget-bar"></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <p style="margin:0;">カテゴリー別上限進捗</p>
+                <button id="btn-open-budget-settings" class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:4px 10px;">
+                  <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;">settings</span> 上限設定
+                </button>
               </div>
-              <div class="budget-info">
-                <span id="expense-budget-percent">0%</span>
-                <span id="expense-budget-status">健全な支出状況です！</span>
+              <div id="category-budget-bars" style="display:flex;flex-direction:column;gap:8px;">
+                <!-- Generated dynamically -->
               </div>
+            </div>
+          </div>
+
+          <!-- 支払い予定 Section -->
+          <div class="expense-table-card card" style="margin-bottom:20px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">event_upcoming</span>支払い予定</h3>
+              <button id="btn-new-expense-plan" class="btn btn-primary btn-sm">＋ 予定追加</button>
+            </div>
+            <div class="table-responsive">
+              <table class="expense-table">
+                <thead>
+                  <tr>
+                    <th>予定日</th>
+                    <th>タイトル</th>
+                    <th>カテゴリー</th>
+                    <th>メモ</th>
+                    <th>金額</th>
+                    <th style="text-align:right;width:100px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="expense-plans-tbody">
+                  <!-- Generated dynamically -->
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -1111,6 +1137,92 @@
           <input type="number" id="sched-remind" value="30" placeholder="30">
         </div>
         <button type="submit" class="btn btn-primary btn-block">予定登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Expense Plan Modal -->
+  <div id="modal-expense-plan" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>支払い予定の追加</h3>
+        <button class="btn-close" id="btn-close-expense-plan">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="expense-plan-form">
+        <div class="form-group">
+          <label for="plan-title">タイトル *</label>
+          <input type="text" id="plan-title" required placeholder="例: 電気代・家賃">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="plan-amount">金額 (円) *</label>
+            <input type="number" id="plan-amount" required placeholder="5000">
+          </div>
+          <div class="form-group">
+            <label for="plan-category">カテゴリー *</label>
+            <select id="plan-category" required>
+              <option value="食費">食費</option>
+              <option value="日用品">日用品</option>
+              <option value="交通費">交通費</option>
+              <option value="光熱費">光熱費</option>
+              <option value="通信費">通信費</option>
+              <option value="医療費">医療費</option>
+              <option value="娯楽">娯楽</option>
+              <option value="衣服">衣服</option>
+              <option value="その他">その他</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="plan-date">支払予定日 *</label>
+          <input type="date" id="plan-date" required>
+        </div>
+        <div class="form-group">
+          <label for="plan-description">メモ</label>
+          <input type="text" id="plan-description" placeholder="備考など">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">予定を登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Budget Limit Settings Modal -->
+  <div id="modal-budget-settings" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">tune</span>カテゴリ別予算上限設定</h3>
+        <button class="btn-close" id="btn-close-budget-settings">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <p class="description-text" style="margin-bottom:16px;">カテゴリごとに月間の予算上限金額を設定します。未設定のカテゴリは上限なし（バー非表示）になります。</p>
+      <div id="budget-settings-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+        <!-- Generated dynamically -->
+      </div>
+      <form id="budget-limit-form" style="display:flex;flex-direction:column;gap:12px;margin-top:8px;border-top:1px solid var(--border-divider);padding-top:16px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="budget-category">カテゴリー</label>
+            <select id="budget-category">
+              <option value="食費">食費</option>
+              <option value="日用品">日用品</option>
+              <option value="交通費">交通費</option>
+              <option value="光熱費">光熱費</option>
+              <option value="通信費">通信費</option>
+              <option value="医療費">医療費</option>
+              <option value="娯楽">娯楽</option>
+              <option value="衣服">衣服</option>
+              <option value="その他">その他</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="budget-limit-amount">上限金額 (円)</label>
+            <input type="number" id="budget-limit-amount" placeholder="50000" min="1">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">設定を保存</button>
       </form>
     </div>
   </div>

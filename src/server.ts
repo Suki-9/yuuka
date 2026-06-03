@@ -22,6 +22,13 @@ import {
   listRecentExpenses,
   getMonthlyTotal,
   getMonthlyCategoryBreakdown,
+  getBudgetLimits,
+  upsertBudgetLimit,
+  deleteBudgetLimit,
+  addExpensePlan,
+  listExpensePlans,
+  markExpensePlanPaid,
+  deleteExpensePlan,
 } from "./db/expenseRepo.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import * as secretService from "./services/secretService.js";
@@ -1443,6 +1450,110 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     } catch (err: any) {
       console.error("WEBレシート解析エラー:", err);
       sendError(res, 500, "レシート解析中にエラーが発生しました。");
+    }
+    return;
+  }
+
+  // ── 予算上限API ──
+  if (pathname === "/api/expenses/budget-limits" && method === "GET") {
+    try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      const limits = getBudgetLimits(botId!);
+      sendJson(res, 200, { success: true, limits });
+    } catch (err: any) {
+      sendError(res, 500, "予算上限の取得に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/expenses/budget-limits" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, category, limitAmount } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!category || limitAmount === undefined) return sendError(res, 400, "category と limitAmount は必須です。");
+      if (typeof limitAmount !== "number" || limitAmount < 0) return sendError(res, 400, "limitAmount は0以上の数値で指定してください。");
+      upsertBudgetLimit(botId, category, limitAmount);
+      sendJson(res, 200, { success: true, message: `${category} の予算上限を ¥${limitAmount.toLocaleString()} に設定しました。` });
+    } catch (err: any) {
+      sendError(res, 500, "予算上限の更新に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/expenses/budget-limits/delete" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, category } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!category) return sendError(res, 400, "category は必須です。");
+      deleteBudgetLimit(botId, category);
+      sendJson(res, 200, { success: true, message: `${category} の予算上限を削除しました。` });
+    } catch (err: any) {
+      sendError(res, 500, "予算上限の削除に失敗しました。");
+    }
+    return;
+  }
+
+  // ── 支払い予定API ──
+  if (pathname === "/api/expenses/plans" && method === "GET") {
+    try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      const includePaid = parsedUrl.searchParams.get("includePaid") === "true";
+      const plans = listExpensePlans(botId!, includePaid);
+      sendJson(res, 200, { success: true, plans });
+    } catch (err: any) {
+      sendError(res, 500, "支払い予定の取得に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/expenses/plans/add" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, title, amount, category, plannedDate, description } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!title || !amount || !category || !plannedDate) return sendError(res, 400, "title、amount、category、plannedDate は必須です。");
+      const plan = addExpensePlan(botId, title, Number(amount), category, plannedDate, description);
+      sendJson(res, 200, { success: true, plan });
+    } catch (err: any) {
+      sendError(res, 500, "支払い予定の追加に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/expenses/plans/pay" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, id } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!id) return sendError(res, 400, "id は必須です。");
+
+      const plan = listExpensePlans(botId, true).find(p => p.id === Number(id));
+      if (!plan) return sendError(res, 404, "支払い予定が見つかりません。");
+      if (plan.is_paid) return sendError(res, 400, "既に支払い済みです。");
+
+      const expense = addExpense(botId, plan.amount, plan.category, plan.title, undefined, undefined, "plan");
+      markExpensePlanPaid(Number(id), botId, expense.id);
+      sendJson(res, 200, { success: true, expense, message: `「${plan.title}」の支払いを完了しました。` });
+    } catch (err: any) {
+      sendError(res, 500, "支払い完了処理に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/expenses/plans/delete" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, id } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!id) return sendError(res, 400, "id は必須です。");
+      const ok = deleteExpensePlan(Number(id), botId);
+      sendJson(res, 200, { success: ok });
+    } catch (err: any) {
+      sendError(res, 500, "支払い予定の削除に失敗しました。");
     }
     return;
   }

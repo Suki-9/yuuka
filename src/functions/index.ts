@@ -181,6 +181,106 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
 
+  // ── 予算上限管理 ──
+  {
+    name: "getBudgetLimits",
+    description: "カテゴリ別の月間予算上限の一覧を取得する",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {},
+    },
+  },
+  {
+    name: "setBudgetLimit",
+    description: "指定カテゴリの月間予算上限を設定（追加・更新）する",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        category: {
+          type: SchemaType.STRING,
+          description: "対象カテゴリ: 食費, 日用品, 交通費, 光熱費, 通信費, 医療費, 娯楽, 衣服, その他",
+        },
+        limit_amount: {
+          type: SchemaType.NUMBER,
+          description: "月間上限金額（円、整数）",
+        },
+      },
+      required: ["category", "limit_amount"],
+    },
+  },
+  {
+    name: "deleteBudgetLimit",
+    description: "指定カテゴリの月間予算上限を削除する",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        category: {
+          type: SchemaType.STRING,
+          description: "削除するカテゴリ名",
+        },
+      },
+      required: ["category"],
+    },
+  },
+
+  // ── 支払い予定管理 ──
+  {
+    name: "listExpensePlans",
+    description: "支払い予定の一覧を取得する。期限超過の予定も確認できる",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        include_paid: {
+          type: SchemaType.BOOLEAN,
+          description: "支払済みの予定も含めるか (デフォルト: false = 未払いのみ)",
+        },
+      },
+    },
+  },
+  {
+    name: "addExpensePlan",
+    description: "将来の支払い予定（家賃・光熱費・サブスクなど）を登録する",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        title: { type: SchemaType.STRING, description: "支払い予定のタイトル（例: 家賃、電気代）" },
+        amount: { type: SchemaType.NUMBER, description: "支払予定金額（円、整数）" },
+        category: {
+          type: SchemaType.STRING,
+          description: "カテゴリ: 食費, 日用品, 交通費, 光熱費, 通信費, 医療費, 娯楽, 衣服, その他",
+        },
+        planned_date: {
+          type: SchemaType.STRING,
+          description: "支払予定日 (YYYY-MM-DD形式)",
+        },
+        description: { type: SchemaType.STRING, description: "メモ・備考（任意）" },
+      },
+      required: ["title", "amount", "category", "planned_date"],
+    },
+  },
+  {
+    name: "payExpensePlan",
+    description: "支払い予定を支払済みにする。家計簿に自動で記録される",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        plan_id: { type: SchemaType.NUMBER, description: "支払い予定のID (#番号)" },
+      },
+      required: ["plan_id"],
+    },
+  },
+  {
+    name: "deleteExpensePlan",
+    description: "支払い予定を削除する（支払わずにキャンセルする場合）",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        plan_id: { type: SchemaType.NUMBER, description: "削除する支払い予定のID" },
+      },
+      required: ["plan_id"],
+    },
+  },
+
   // ── ヘッドレスブラウザ操作 ──
   {
     name: "fetchDynamicPage",
@@ -394,6 +494,24 @@ export async function dispatchFunction(
         botId,
         args as Parameters<typeof expenseFn.listRecentExpenses>[1]
       );
+
+    // 予算上限
+    case "getBudgetLimits":
+      return expenseFn.getBudgetLimits(botId);
+    case "setBudgetLimit":
+      return expenseFn.setBudgetLimit(botId, args as Parameters<typeof expenseFn.setBudgetLimit>[1]);
+    case "deleteBudgetLimit":
+      return expenseFn.deleteBudgetLimit(botId, args as Parameters<typeof expenseFn.deleteBudgetLimit>[1]);
+
+    // 支払い予定
+    case "listExpensePlans":
+      return expenseFn.listExpensePlans(botId, args as Parameters<typeof expenseFn.listExpensePlans>[1]);
+    case "addExpensePlan":
+      return expenseFn.addExpensePlan(botId, args as Parameters<typeof expenseFn.addExpensePlan>[1]);
+    case "payExpensePlan":
+      return expenseFn.payExpensePlan(botId, args as Parameters<typeof expenseFn.payExpensePlan>[1]);
+    case "deleteExpensePlan":
+      return expenseFn.deleteExpensePlan(botId, args as Parameters<typeof expenseFn.deleteExpensePlan>[1]);
 
     // ヘッドレスブラウザ操作
     case "fetchDynamicPage":

@@ -125,9 +125,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Expenses Tab DOM
   const expenseMonthTotal = document.getElementById("expense-month-total");
-  const expenseBudgetBar = document.getElementById("expense-budget-bar");
-  const expenseBudgetPercent = document.getElementById("expense-budget-percent");
-  const expenseBudgetStatus = document.getElementById("expense-budget-status");
   const receiptDropzone = document.getElementById("receipt-dropzone");
   const receiptFileInput = document.getElementById("receipt-file-input");
   const scanStatus = document.getElementById("scan-status");
@@ -307,6 +304,10 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalReceiptResult);
       closeModal(modalCredential);
       closeModal(modalCreateBot);
+      const mPlan = document.getElementById("modal-expense-plan");
+      const mBudget = document.getElementById("modal-budget-settings");
+      if (mPlan) closeModal(mPlan);
+      if (mBudget) closeModal(mBudget);
     });
   });
 
@@ -1518,28 +1519,29 @@ document.addEventListener("DOMContentLoaded", () => {
     expensesTableBody.replaceChildren();
 
     try {
-      const res = await fetch("/api/expenses");
-      const data = await res.json();
+      const [expRes, limitsRes, plansRes] = await Promise.all([
+        fetch("/api/expenses"),
+        fetch("/api/expenses/budget-limits"),
+        fetch("/api/expenses/plans"),
+      ]);
+      const data = await expRes.json();
+      const limitsData = await limitsRes.json();
+      const plansData = await plansRes.json();
 
       if (data.success) {
-        // Month stats
         expenseMonthTotal.textContent = `¥${data.total.toLocaleString()}`;
 
-        // Progress bar calculation
-        const percent = Math.min((data.total / 50000) * 100, 100);
-        expenseBudgetBar.style.width = `${percent}%`;
-        expenseBudgetPercent.textContent = `${Math.round(percent)}%`;
-
-        if (percent > 90) {
-          expenseBudgetBar.style.backgroundColor = "var(--color-red)";
-          expenseBudgetStatus.textContent = "警告：予算上限に近づいています！無駄遣いをやめましょう。";
-        } else if (percent > 60) {
-          expenseBudgetBar.style.backgroundColor = "#fbbf24"; // warning orange
-          expenseBudgetStatus.textContent = "注意：中程度の支出状況です。計画的な利用を。";
-        } else {
-          expenseBudgetBar.style.backgroundColor = "var(--discord-blurple)";
-          expenseBudgetStatus.textContent = "健全：非常に計画的な支出コントロールです！";
+        // 支払い予定件数バッジ
+        const plansDueCount = document.getElementById("expense-plans-due-count");
+        if (plansDueCount && plansData.success) {
+          const today = new Date().toISOString().slice(0, 10);
+          const dueSoon = (plansData.plans || []).filter(p => p.planned_date <= today);
+          plansDueCount.textContent = `支払い予定: ${(plansData.plans || []).length}件${dueSoon.length > 0 ? ` (本日以前 ${dueSoon.length}件)` : ""}`;
+          plansDueCount.style.color = dueSoon.length > 0 ? "var(--color-red)" : "";
         }
+
+        // カテゴリ別予算進捗バー
+        renderCategoryBudgetBars(data.breakdown || [], limitsData.success ? limitsData.limits : []);
 
         // Render Ledger table
         if (data.expenses && data.expenses.length > 0) {
@@ -1561,10 +1563,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const sourceIcon = document.createElement("span");
             sourceIcon.className = "material-symbols-outlined source-icon";
-            sourceIcon.textContent = exp.source === "receipt" ? "photo_camera" : "web";
+            const srcKey = exp.source === "receipt" ? "receipt" : exp.source === "plan" ? "plan" : "manual";
+            sourceIcon.textContent = srcKey === "receipt" ? "photo_camera" : srcKey === "plan" ? "event_available" : "web";
 
             tdSource.appendChild(sourceIcon);
-            tdSource.appendChild(document.createTextNode(exp.source === "receipt" ? "レシートAI" : "手動"));
+            tdSource.appendChild(document.createTextNode(srcKey === "receipt" ? "レシートAI" : srcKey === "plan" ? "支払い予定" : "手動"));
 
             const tdAmount = document.createElement("td");
             tdAmount.className = "amount-cell";
@@ -1587,9 +1590,138 @@ document.addEventListener("DOMContentLoaded", () => {
           expensesTableBody.appendChild(tr);
         }
       }
+
+      // 支払い予定テーブル
+      if (plansData.success) {
+        renderExpensePlans(plansData.plans || []);
+      }
     } catch (e) {
       console.error(e);
     }
+  }
+
+  function renderCategoryBudgetBars(breakdown, limits) {
+    const container = document.getElementById("category-budget-bars");
+    if (!container) return;
+    container.innerHTML = "";
+
+    if (limits.length === 0) {
+      container.innerHTML = `<p style="font-size:0.8rem;color:var(--text-secondary);">予算上限が設定されていません。「上限設定」ボタンから設定してください。</p>`;
+      return;
+    }
+
+    const spendMap = {};
+    breakdown.forEach(b => { spendMap[b.category] = b.total; });
+
+    limits.forEach(lim => {
+      const spent = spendMap[lim.category] || 0;
+      const pct = Math.min((spent / lim.limit_amount) * 100, 100);
+      const color = pct > 90 ? "var(--color-red)" : pct > 60 ? "#fbbf24" : "var(--color-primary)";
+
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+      row.innerHTML = `
+        <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-secondary);">
+          <span>${lim.category}</span>
+          <span>¥${spent.toLocaleString()} / ¥${lim.limit_amount.toLocaleString()} (${Math.round(pct)}%)</span>
+        </div>
+        <div style="background:var(--surface-4dp);border-radius:3px;height:6px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width 0.4s ease;"></div>
+        </div>
+      `;
+      container.appendChild(row);
+    });
+  }
+
+  function renderExpensePlans(plans) {
+    const tbody = document.getElementById("expense-plans-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (plans.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.style.textAlign = "center";
+      td.textContent = "支払い予定はありません。";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    plans.forEach(plan => {
+      const tr = document.createElement("tr");
+      const isOverdue = plan.planned_date <= today;
+      if (isOverdue) tr.style.background = "rgba(207,102,121,0.07)";
+
+      const tdDate = document.createElement("td");
+      tdDate.textContent = plan.planned_date;
+      if (isOverdue) tdDate.style.color = "var(--color-red)";
+
+      const tdTitle = document.createElement("td");
+      tdTitle.textContent = plan.title;
+
+      const tdCat = document.createElement("td");
+      tdCat.textContent = plan.category;
+
+      const tdDesc = document.createElement("td");
+      tdDesc.textContent = plan.description || "—";
+      tdDesc.style.color = "var(--text-secondary)";
+
+      const tdAmount = document.createElement("td");
+      tdAmount.className = "amount-cell";
+      tdAmount.textContent = `¥${plan.amount.toLocaleString()}`;
+
+      const tdActions = document.createElement("td");
+      tdActions.style.textAlign = "right";
+
+      const payBtn = document.createElement("button");
+      payBtn.className = "btn btn-primary btn-sm";
+      payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;margin-right:4px;";
+      payBtn.textContent = "支払完了";
+      payBtn.addEventListener("click", async () => {
+        if (!confirm(`「${plan.title}」¥${plan.amount.toLocaleString()} の支払いを完了しますか？\n家計簿に自動記録されます。`)) return;
+        try {
+          const res = await fetch("/api/expenses/plans/pay", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: plan.id })
+          });
+          const result = await res.json();
+          if (result.success) { fetchExpensesList(); }
+          else { alert("エラー: " + result.message); }
+        } catch (e) { alert("通信エラーが発生しました。"); }
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btn-secondary btn-sm";
+      delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;";
+      delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">delete</span>`;
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(`「${plan.title}」を削除しますか？`)) return;
+        try {
+          const res = await fetch("/api/expenses/plans/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: plan.id })
+          });
+          const result = await res.json();
+          if (result.success) { fetchExpensesList(); }
+        } catch (e) { alert("通信エラーが発生しました。"); }
+      });
+
+      tdActions.appendChild(payBtn);
+      tdActions.appendChild(delBtn);
+
+      tr.appendChild(tdDate);
+      tr.appendChild(tdTitle);
+      tr.appendChild(tdCat);
+      tr.appendChild(tdDesc);
+      tr.appendChild(tdAmount);
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
   }
 
   expenseForm.addEventListener("submit", async (e) => {
@@ -1619,6 +1751,129 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error(e);
     }
   });
+
+  // ── 支払い予定モーダル ──
+  const modalExpensePlan = document.getElementById("modal-expense-plan");
+  const expensePlanForm = document.getElementById("expense-plan-form");
+  const btnNewExpensePlan = document.getElementById("btn-new-expense-plan");
+  const btnCloseExpensePlan = document.getElementById("btn-close-expense-plan");
+
+  if (btnNewExpensePlan && modalExpensePlan) {
+    btnNewExpensePlan.addEventListener("click", () => {
+      document.getElementById("plan-date").value = new Date().toISOString().slice(0, 10);
+      modalExpensePlan.classList.add("active");
+    });
+  }
+  if (btnCloseExpensePlan && modalExpensePlan) {
+    btnCloseExpensePlan.addEventListener("click", () => modalExpensePlan.classList.remove("active"));
+  }
+  if (expensePlanForm) {
+    expensePlanForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const title = document.getElementById("plan-title").value.trim();
+      const amount = parseInt(document.getElementById("plan-amount").value, 10);
+      const category = document.getElementById("plan-category").value;
+      const plannedDate = document.getElementById("plan-date").value;
+      const description = document.getElementById("plan-description").value.trim();
+      try {
+        const res = await fetch("/api/expenses/plans/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, amount, category, plannedDate, description })
+        });
+        const data = await res.json();
+        if (data.success) {
+          expensePlanForm.reset();
+          modalExpensePlan.classList.remove("active");
+          fetchExpensesList();
+        } else {
+          alert("エラー: " + data.message);
+        }
+      } catch (e) { console.error(e); }
+    });
+  }
+
+  // ── 予算上限設定モーダル ──
+  const modalBudgetSettings = document.getElementById("modal-budget-settings");
+  const budgetLimitForm = document.getElementById("budget-limit-form");
+  const btnOpenBudgetSettings = document.getElementById("btn-open-budget-settings");
+  const btnCloseBudgetSettings = document.getElementById("btn-close-budget-settings");
+
+  if (btnOpenBudgetSettings && modalBudgetSettings) {
+    btnOpenBudgetSettings.addEventListener("click", async () => {
+      await renderBudgetSettingsList();
+      modalBudgetSettings.classList.add("active");
+    });
+  }
+  if (btnCloseBudgetSettings && modalBudgetSettings) {
+    btnCloseBudgetSettings.addEventListener("click", () => modalBudgetSettings.classList.remove("active"));
+  }
+
+  async function renderBudgetSettingsList() {
+    const list = document.getElementById("budget-settings-list");
+    if (!list) return;
+    try {
+      const res = await fetch("/api/expenses/budget-limits");
+      const data = await res.json();
+      list.innerHTML = "";
+      if (!data.success || data.limits.length === 0) {
+        list.innerHTML = `<p style="font-size:0.8rem;color:var(--text-secondary);">設定済みの上限はありません。</p>`;
+        return;
+      }
+      data.limits.forEach(lim => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-divider);";
+        row.innerHTML = `
+          <span style="font-size:0.88rem;">${lim.category}</span>
+          <span style="font-size:0.88rem;color:var(--text-secondary);">¥${lim.limit_amount.toLocaleString()}</span>
+        `;
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn btn-secondary btn-sm";
+        delBtn.style.cssText = "font-size:0.72rem;padding:2px 8px;margin-left:10px;";
+        delBtn.textContent = "削除";
+        delBtn.addEventListener("click", async () => {
+          try {
+            await fetch("/api/expenses/budget-limits/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ category: lim.category })
+            });
+            await renderBudgetSettingsList();
+            fetchExpensesList();
+          } catch (e) { console.error(e); }
+        });
+        row.appendChild(delBtn);
+        list.appendChild(row);
+      });
+    } catch (e) { console.error(e); }
+  }
+
+  if (budgetLimitForm) {
+    budgetLimitForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const category = document.getElementById("budget-category").value;
+      const limitAmount = parseInt(document.getElementById("budget-limit-amount").value, 10);
+      if (!category || isNaN(limitAmount) || limitAmount <= 0) {
+        alert("カテゴリーと有効な上限金額を入力してください。");
+        return;
+      }
+      try {
+        const res = await fetch("/api/expenses/budget-limits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category, limitAmount })
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById("budget-limit-amount").value = "";
+          await renderBudgetSettingsList();
+          fetchExpensesList();
+        } else {
+          alert("エラー: " + data.message);
+        }
+      } catch (e) { console.error(e); }
+    });
+  }
 
   // AI Receipt Dropzone drag-drop
   if (receiptDropzone) {
