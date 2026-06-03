@@ -69,11 +69,13 @@ export async function closeRedis(): Promise<void> {
   if (client) {
     console.log("🔌 Redis 接続を切断しています...");
     try {
-      await client.quit();
+      if (client.isOpen) {
+        await client.quit();
+      }
     } catch (err) {
       console.error("Redis 切断中にエラーが発生しました:", err);
       try {
-        await client.disconnect();
+        if (client.isOpen) await client.disconnect();
       } catch (e) {}
     } finally {
       client = null;
