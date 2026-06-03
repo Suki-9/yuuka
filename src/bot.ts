@@ -13,8 +13,7 @@ import { isRegisteredUser } from "./db/userRepo.js";
 import { getBotById, getBotDiscordConfig, listAllBotIds, listBotsForUser } from "./db/botRepo.js";
 import { decryptText } from "./utils/crypto.js";
 
-// デフォルト（共有）クライアント
-export const client = new Client({
+const DISCORD_CLIENT_OPTIONS = {
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -22,7 +21,10 @@ export const client = new Client({
     GatewayIntentBits.DirectMessages,
   ],
   partials: [Partials.Channel, Partials.Message],
-});
+};
+
+// デフォルト（共有）クライアント
+export const client = new Client(DISCORD_CLIENT_OPTIONS);
 
 // Botごとのカスタムクライアント: Map<botId, Client>
 export const customClients = new Map<string, Client>();
@@ -281,15 +283,7 @@ export async function startCustomBot(botId: string): Promise<boolean> {
     customClients.delete(botId);
   }
 
-  const customClient = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.DirectMessages,
-    ],
-    partials: [Partials.Channel, Partials.Message],
-  });
+  const customClient = new Client(DISCORD_CLIENT_OPTIONS);
 
   try {
     customClient.once(Events.ClientReady, (c) => {

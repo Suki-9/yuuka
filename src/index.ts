@@ -30,22 +30,22 @@ async function main() {
   console.log("✨ Yuuka が起動しました！");
 }
 
-// グレースフルシャットダウン
-process.on("SIGINT", async () => {
-  console.log("\n👋 シャットダウン中...");
+async function gracefulShutdown(): Promise<void> {
   stopWebServer();
   stopBot();
   closeDb();
   await closeRedis();
+}
+
+process.on("SIGINT", async () => {
+  console.log("\n👋 シャットダウン中...");
+  await gracefulShutdown();
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
   console.log("\n👋 シャットダウン中...");
-  stopWebServer();
-  stopBot();
-  closeDb();
-  await closeRedis();
+  await gracefulShutdown();
   process.exit(0);
 });
 

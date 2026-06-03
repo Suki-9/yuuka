@@ -99,6 +99,13 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15分間ロックアウト
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';";
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Content-Security-Policy": CSP,
+} as const;
+
 // Mime Types 辞書
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -169,6 +176,18 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 }
 
 /**
+ * セッションクッキーをレスポンスにセットする
+ * maxAge=0 を指定するとクッキーを削除（ログアウト）する
+ */
+function setSessionCookie(res: http.ServerResponse, req: http.IncomingMessage, token: string, maxAge?: number): void {
+  const isHttps = checkHttps(req);
+  const name = isHttps ? "__Host-yuuka-session" : "yuuka-session";
+  const secure = isHttps ? "; Secure" : "";
+  const expires = maxAge !== undefined ? `; Max-Age=${maxAge}` : "";
+  res.setHeader("Set-Cookie", `${name}=${token}; Path=/; HttpOnly${secure}; SameSite=Lax${expires}`);
+}
+
+/**
  * リクエストが HTTPS 経由であるかどうかを判別する
  */
 function checkHttps(req: http.IncomingMessage): boolean {
@@ -210,12 +229,7 @@ function getSessionUser(req: http.IncomingMessage): string | null {
  * JSONレスポンスを送るショートカット
  */
 function sendJson(res: http.ServerResponse, status: number, data: any) {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "SAMEORIGIN",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';",
-  });
+  res.writeHead(status, { "Content-Type": "application/json", ...SECURITY_HEADERS });
   res.end(JSON.stringify(data));
 }
 
@@ -261,9 +275,7 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
     res.writeHead(200, {
       "Content-Type": contentType,
       "Cache-Control": "no-cache, no-store, must-revalidate",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "SAMEORIGIN",
-      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';",
+      ...SECURITY_HEADERS,
     });
 
     const stream = fs.createReadStream(finalPath);
@@ -447,15 +459,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       const sessionToken = crypto.randomBytes(32).toString("hex");
       activeSessions.set(sessionToken, { userId: cleanDiscordId, createdAt: Date.now() });
 
-      const isHttps = checkHttps(req);
-      const cookieName = isHttps ? "__Host-yuuka-session" : "yuuka-session";
-      const cookieSecure = isHttps ? "; Secure" : "";
-
-      res.setHeader(
-        "Set-Cookie",
-        `${cookieName}=${sessionToken}; Path=/; HttpOnly${cookieSecure}; SameSite=Lax`
-      );
-
+      setSessionCookie(res, req, sessionToken);
       sendJson(res, 200, { success: true, message: "管理者登録が完了しました。続いてデフォルトBotを設定してください。" });
     } catch (err: any) {
       console.error("初期セットアップエラー:", err);
@@ -532,17 +536,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         const sessionToken = crypto.randomBytes(32).toString("hex");
         activeSessions.set(sessionToken, { userId: cleanDiscordId, createdAt: Date.now() });
 
-        // セキュアクッキーの設定
-        // TODO(security): 本番環境（HTTPS）では安全なクッキー属性を強制し、非HTTPS環境ではフォールバックする
-        const isHttps = checkHttps(req);
-        const cookieName = isHttps ? "__Host-yuuka-session" : "yuuka-session";
-        const cookieSecure = isHttps ? "; Secure" : "";
-
-        res.setHeader(
-          "Set-Cookie",
-          `${cookieName}=${sessionToken}; Path=/; HttpOnly${cookieSecure}; SameSite=Lax`
-        );
-
+        setSessionCookie(res, req, sessionToken);
         sendJson(res, 200, { success: true, message: "ログインに成功しました！" });
       } else {
         // ログイン失敗
@@ -585,14 +579,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       activeSessions.delete(sessionToken);
     }
 
-    const isHttps = checkHttps(req);
-    const cookieName = isHttps ? "__Host-yuuka-session" : "yuuka-session";
-    const cookieSecure = isHttps ? "; Secure" : "";
-
-    res.setHeader(
-      "Set-Cookie",
-      `${cookieName}=; Path=/; HttpOnly${cookieSecure}; SameSite=Lax; Max-Age=0`
-    );
+    setSessionCookie(res, req, "", 0);
     sendJson(res, 200, { success: true, message: "ログアウトしました。" });
     return;
   }
@@ -1428,7 +1415,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       }
 
       console.log(`📸 [Bot: ${botId}] WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
-      const response = await parseReceipt(botId, imageBase64, mimeType, additionalText, undefined, userId);
+      const response = await parseReceipt(botId, imageBase64, mimeType, additionalText);
       sendJson(res, 200, { success: true, response });
     } catch (err: any) {
       console.error("WEBレシート解析エラー:", err);
