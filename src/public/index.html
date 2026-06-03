@@ -136,6 +136,68 @@
       </div>
 
       <div id="login-error" class="error-msg"></div>
+      <div style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border-divider); padding-top: 16px;">
+        <a href="/usage" id="link-show-usage" style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+          <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">help</span> 使い方ガイドを読む
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       USAGE VIEW (Matte dark overlay, public access)
+       ========================================== -->
+  <div id="usage-overlay" class="overlay">
+    <div class="usage-card">
+      <div class="login-header">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+          <div class="logo-icon-container" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
+            <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">help</span>
+          </div>
+          <h1 style="font-size: 1.5rem; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">Usage Guide</h1>
+        </div>
+        <p style="margin-bottom: 16px;">Yuuka (Discord 秘書 Bot 兼 管理画面) のご利用方法</p>
+      </div>
+
+      <div class="usage-content">
+        <div class="usage-section">
+          <h3>1. システム概要</h3>
+          <p>『Yuuka』は、Gemini API を活用した Discord 秘書 Bot と Web 管理画面のハイブリッドシステムです。タスク・予定（Googleカレンダー同期）・家計簿などをスマートに管理できます。</p>
+        </div>
+
+        <div class="usage-section">
+          <h3>2. アカウント登録と初期設定</h3>
+          <ul>
+            <li><strong>管理者登録（初期セットアップ）：</strong> データベースにユーザーがいない状態で起動すると、初期セットアップ画面が表示されます。Discord ユーザーID、パスワード、および Gemini API キーを入力して管理者を登録します。</li>
+            <li><strong>デフォルトBotの設定：</strong> 管理者登録後、Discord Developer Portal で作成した Discord Bot トークンを登録します。</li>
+            <li><strong>一般ユーザー登録：</strong> 管理者が生成した「招待コード」を使用し、新規アカウントを作成します。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>3. Discord での操作方法</h3>
+          <p>Bot にメンション、またはDMで話しかけて操作します。</p>
+          <ul>
+            <li><strong>タスク管理：</strong> 「〇〇をタスクに追加して」「タスク一覧を見せて」「〇〇のタスクを完了して」のように話しかけます。</li>
+            <li><strong>予定管理：</strong> 「明日14時からミーティング」「来週の予定を教えて」でスケジュールが追加され、Google カレンダーに同期されます。</li>
+            <li><strong>家計簿・支出：</strong> 「昼食代800円」「コンビニで日用品を1200円買った」と入力すると、自動で金額やカテゴリを判定して家計簿に記録します。</li>
+            <li><strong>レシート解析：</strong> レシート画像を Discord に貼り付けると、Gemini が画像を解析して家計簿へ登録します。</li>
+          </ul>
+        </div>
+
+        <div class="usage-section">
+          <h3>4. Web 管理画面の活用</h3>
+          <ul>
+            <li><strong>ダッシュボード：</strong> 支出の推移グラフやカテゴリ別比率、未完了タスクが一目でわかります。</li>
+            <li><strong>Playbook 管理：</strong> AIエージェントに実行させたいブラウザ操作等の自動化手順（Playbook）を記述し、Cron式で定期実行できます。</li>
+            <li><strong>AIレシートスキャナー：</strong> 管理画面からもレシート画像をドラッグ＆ドロップして自動家計簿登録が可能です。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px; text-align: center;">
+        <button id="btn-usage-back-login" class="btn btn-secondary" style="min-width: 150px;">ログイン画面に戻る</button>
+      </div>
     </div>
   </div>
 

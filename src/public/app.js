@@ -228,6 +228,19 @@ document.addEventListener("DOMContentLoaded", () => {
   function applyRoute(path) {
     const cleanPath = path.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
 
+    const usageOverlay = document.getElementById("usage-overlay");
+    if (usageOverlay) usageOverlay.classList.remove("active");
+
+    if (cleanPath === "/usage") {
+      appContainer.classList.add("hidden");
+      botSelectionOverlay.classList.remove("active");
+      loginOverlay.classList.remove("active");
+      const botSetupTabContent = document.getElementById("bot-setup-tab-content");
+      if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+      if (usageOverlay) usageOverlay.classList.add("active");
+      return;
+    }
+
     if (cleanPath === "/login") {
       appContainer.classList.add("hidden");
       botSelectionOverlay.classList.remove("active");
@@ -308,6 +321,23 @@ document.addEventListener("DOMContentLoaded", () => {
       navigateTo(`/${tabId}`);
     });
   });
+
+  // Usage Guide Link / Button Listeners
+  const linkShowUsage = document.getElementById("link-show-usage");
+  if (linkShowUsage) {
+    linkShowUsage.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateTo("/usage");
+    });
+  }
+
+  const btnUsageBackLogin = document.getElementById("btn-usage-back-login");
+  if (btnUsageBackLogin) {
+    btnUsageBackLogin.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateTo("/login");
+    });
+  }
 
   // ==========================================
   // MODALS CONTROL
