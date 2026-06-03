@@ -856,7 +856,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         success: true,
         user: {
           discordId: userId,
-          username: botRecord?.name || userId,
+          username: getUserByDiscordId(userId)?.username || userId,
         },
         stats: {
           tasks: taskCount.count,
@@ -905,6 +905,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         sendError(res, 400, "プロファイルの更新に失敗しました。同じ名前が既に使われている可能性があります。");
       }
     } catch (err: any) {
+      console.error("プロフィール更新エラー:", err);
       sendError(res, 500, "プロフィール更新処理に失敗しました。");
     }
     return;
