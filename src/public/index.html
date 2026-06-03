@@ -72,7 +72,8 @@
           <div class="form-group">
             <label for="reg-gemini-key">Gemini API Key *</label>
             <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
-            <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
+            <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank"
+                rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
           </div>
           <div class="form-group">
             <label for="reg-invite-code">招待コード *</label>
@@ -109,7 +110,8 @@
           <div class="form-group">
             <label for="setup-gemini-key">Gemini API Key *</label>
             <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
-            <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
+            <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey"
+                target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
           </div>
           <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">管理者アカウントを登録する</button>
         </form>
@@ -136,8 +138,10 @@
       </div>
 
       <div id="login-error" class="error-msg"></div>
-      <div style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border-divider); padding-top: 16px;">
-        <a href="/usage" id="link-show-usage" style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+      <div
+        style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border-divider); padding-top: 16px;">
+        <a href="/usage" id="link-show-usage"
+          style="color: var(--color-primary); font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
           <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">help</span> 使い方ガイドを読む
         </a>
       </div>
@@ -151,7 +155,8 @@
     <div class="usage-card">
       <div class="login-header">
         <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
-          <div class="logo-icon-container" style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
+          <div class="logo-icon-container"
+            style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
             <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">help</span>
           </div>
           <h1 style="font-size: 1.5rem; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">Usage Guide</h1>
@@ -162,13 +167,15 @@
       <div class="usage-content">
         <div class="usage-section">
           <h3>1. システム概要</h3>
-          <p>『Yuuka』は、Gemini API を活用した Discord 秘書 Bot と Web 管理画面のハイブリッドシステムです。タスク・予定（Googleカレンダー同期）・家計簿などをスマートに管理できます。</p>
+          <p>『Yuuka』は、Gemini API を活用した Discord 秘書 Bot と Web 管理画面のハイブリッドシステムです。タスク・予定（Googleカレンダー同期）・家計簿などをスマートに管理できます。
+          </p>
         </div>
 
         <div class="usage-section">
           <h3>2. アカウント登録と初期設定</h3>
           <ul>
-            <li><strong>管理者登録（初期セットアップ）：</strong> データベースにユーザーがいない状態で起動すると、初期セットアップ画面が表示されます。Discord ユーザーID、パスワード、および Gemini API キーを入力して管理者を登録します。</li>
+            <li><strong>管理者登録（初期セットアップ）：</strong> データベースにユーザーがいない状態で起動すると、初期セットアップ画面が表示されます。Discord ユーザーID、パスワード、および
+              Gemini API キーを入力して管理者を登録します。</li>
             <li><strong>デフォルトBotの設定：</strong> 管理者登録後、Discord Developer Portal で作成した Discord Bot トークンを登録します。</li>
             <li><strong>一般ユーザー登録：</strong> 管理者が生成した「招待コード」を使用し、新規アカウントを作成します。</li>
           </ul>
@@ -209,7 +216,8 @@
       <div class="login-header">
         <div style="display: flex; align-items: center; gap: 16px;">
           <div class="logo-icon-container">
-            <span class="material-symbols-outlined" style="font-size: 2.2rem !important; color: var(--color-primary);">robot_2</span>
+            <span class="material-symbols-outlined"
+              style="font-size: 2.2rem !important; color: var(--color-primary);">robot_2</span>
           </div>
           <div class="logo-text-wrapper">
             <h1>BOT SELECTION</h1>
@@ -224,9 +232,12 @@
       </div>
 
       <!-- Actions -->
-      <div class="bot-selection-actions" style="margin-top: 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-        <button id="btn-bot-logout" class="btn btn-secondary" style="min-width: 120px; padding: 10px 20px;">ログアウト</button>
-        <button id="btn-show-add-bot" class="btn btn-primary" style="min-width: 180px; padding: 10px 20px;">＋ 新しいBotを作成</button>
+      <div class="bot-selection-actions"
+        style="margin-top: 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+        <button id="btn-bot-logout" class="btn btn-secondary"
+          style="min-width: 120px; padding: 10px 20px;">ログアウト</button>
+        <button id="btn-show-add-bot" class="btn btn-primary" style="min-width: 180px; padding: 10px 20px;">＋
+          新しいBotを作成</button>
       </div>
     </div>
   </div>
@@ -295,8 +306,8 @@
             class="menu-text">経費・収支管理</span>
         </a>
         <a href="/playbooks" class="menu-item" data-tab="playbooks">
-          <span class="material-symbols-outlined menu-icon-symbol">description</span> <span
-            class="menu-text">Playbook 管理</span>
+          <span class="material-symbols-outlined menu-icon-symbol">description</span> <span class="menu-text">Playbook
+            管理</span>
         </a>
         <a href="/config" class="menu-item" data-tab="config">
           <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
@@ -582,8 +593,10 @@
             <div class="hud-card card col-span-2">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                 <p style="margin:0;">カテゴリー別上限進捗</p>
-                <button id="btn-open-budget-settings" class="btn btn-secondary btn-sm" style="font-size:0.75rem;padding:4px 10px;">
-                  <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;">settings</span> 上限設定
+                <button id="btn-open-budget-settings" class="btn btn-secondary btn-sm"
+                  style="font-size:0.75rem;padding:4px 10px;">
+                  <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;">settings</span>
+                  上限設定
                 </button>
               </div>
               <div id="category-budget-bars" style="display:flex;flex-direction:column;gap:8px;">
@@ -726,7 +739,8 @@
                 <div class="form-row">
                   <div class="form-group">
                     <label for="playbook-name">プレイブック名 (英数字・ハイフン) *</label>
-                    <input type="text" id="playbook-name" required placeholder="例: daily-sales-check" pattern="[a-zA-Z0-9\-_\/]+">
+                    <input type="text" id="playbook-name" required placeholder="例: daily-sales-check"
+                      pattern="[a-zA-Z0-9\-_\/]+">
                   </div>
                   <div class="form-group">
                     <label for="playbook-title">表示タイトル *</label>
@@ -758,14 +772,15 @@
                 <h3><span class="material-symbols-outlined header-icon-symbol">list_alt</span>登録済み Playbook 一覧</h3>
               </div>
               <p class="description-text">現在このBotに登録されている自動化手順書です。</p>
-              
+
               <!-- Search query input -->
               <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                 <input type="text" id="playbook-search-input" placeholder="キーワード・タイトルで検索..." style="flex-grow: 1;">
                 <button type="button" id="btn-playbook-search" class="btn btn-secondary">検索</button>
               </div>
 
-              <div id="playbooks-list-container" style="display: flex; flex-direction: column; gap: 12px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+              <div id="playbooks-list-container"
+                style="display: flex; flex-direction: column; gap: 12px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
                 <!-- Generated dynamically -->
               </div>
             </div>
@@ -779,7 +794,8 @@
                 <h3><span class="material-symbols-outlined header-icon-symbol">schedule</span>定期実行スケジュール設定</h3>
               </div>
               <p class="description-text">Playbookを定期的に自動実行するスケジュールを設定します。</p>
-              <form id="playbook-schedule-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 8px;">
+              <form id="playbook-schedule-form"
+                style="display: flex; flex-direction: column; gap: 12px; margin-top: 8px;">
                 <div class="form-group">
                   <label for="schedule-playbook-select">実行するPlaybook *</label>
                   <select id="schedule-playbook-select" required>
@@ -801,7 +817,8 @@
                 </div>
                 <div class="form-group">
                   <label for="schedule-cron-expression">Cron式 *</label>
-                  <input type="text" id="schedule-cron-expression" required placeholder="例: 0 9 * * * (毎朝9時)" style="font-family: var(--font-family-mono);">
+                  <input type="text" id="schedule-cron-expression" required placeholder="例: 0 9 * * * (毎朝9時)"
+                    style="font-family: var(--font-family-mono);">
                   <span class="field-sub">分 時 日 月 曜日 の順。例: <code>0 9 * * 1</code> = 毎週月曜9時</span>
                 </div>
                 <div class="form-group">
@@ -822,7 +839,8 @@
                 <h3><span class="material-symbols-outlined header-icon-symbol">event_repeat</span>登録済みスケジュール一覧</h3>
               </div>
               <p class="description-text">設定されている定期実行スケジュールです。</p>
-              <div id="playbook-schedules-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px;">
+              <div id="playbook-schedules-list"
+                style="display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px;">
                 <!-- Generated dynamically -->
               </div>
             </div>
@@ -834,7 +852,8 @@
               <h3><span class="material-symbols-outlined header-icon-symbol">history</span>実行履歴</h3>
             </div>
             <p class="description-text">Playbookの自動実行ログです。</p>
-            <div id="playbook-runs-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding-right: 4px; margin-top: 8px;">
+            <div id="playbook-runs-list"
+              style="display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding-right: 4px; margin-top: 8px;">
               <!-- Generated dynamically -->
             </div>
           </div>
@@ -871,9 +890,9 @@
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="gemini-model-select">Gemini モデル</label>
                 <select id="gemini-model-select" required>
-                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (推奨・最速)</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (推奨)</option>
                   <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (高度な推論)</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                   <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                   <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                 </select>
@@ -900,8 +919,10 @@
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="discord-persona">AI ペルソナ設定 (任意)</label>
                 <div style="display: flex; gap: 8px; align-items: flex-start;">
-                  <textarea id="discord-persona" readonly placeholder="設定されたペルソナがここに表示されます..." style="flex-grow: 1; min-height: 80px; background-color: rgba(255,255,255,0.02); resize: none; cursor: default;"></textarea>
-                  <button type="button" id="btn-open-persona-modal" class="btn btn-secondary" style="white-space: nowrap; height: 38px; display: flex; align-items: center; gap: 4px;">
+                  <textarea id="discord-persona" readonly placeholder="設定されたペルソナがここに表示されます..."
+                    style="flex-grow: 1; min-height: 80px; background-color: rgba(255,255,255,0.02); resize: none; cursor: default;"></textarea>
+                  <button type="button" id="btn-open-persona-modal" class="btn btn-secondary"
+                    style="white-space: nowrap; height: 38px; display: flex; align-items: center; gap: 4px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">open_in_full</span> 編集
                   </button>
                 </div>
@@ -909,12 +930,14 @@
               </div>
               <div class="form-group" style="margin-bottom: 12px;">
                 <label>覚えておいてほしいこと (記憶の管理)</label>
-                <div id="memories-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 250px; overflow-y: auto; padding-right: 4px;">
+                <div id="memories-container"
+                  style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 250px; overflow-y: auto; padding-right: 4px;">
                   <!-- Dynamically populated memory chunks -->
                 </div>
                 <div style="display: flex; gap: 8px;">
                   <input type="text" id="new-memory-input" placeholder="例: 私は猫アレルギーがあります" style="flex-grow: 1;">
-                  <button type="button" id="btn-add-memory" class="btn btn-secondary" style="white-space: nowrap; height: var(--btn-height, 38px);">＋ 記憶を追加</button>
+                  <button type="button" id="btn-add-memory" class="btn btn-secondary"
+                    style="white-space: nowrap; height: var(--btn-height, 38px);">＋ 記憶を追加</button>
                 </div>
                 <span class="field-sub">※AIに常に覚えていてほしい情報（好み・習慣・事実など）を短い文章（チャンク）で登録・管理できます。会話のたびに参照されます。</span>
               </div>
@@ -931,8 +954,10 @@
                   <path
                     d="M12.24 10.285V13.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.866-3.577-7.866-8s3.536-8 7.866-8c2.46 0 4.105 1.025 5.047 1.926l2.427-2.334C17.955 2.192 15.34 1 12.24 1 5.48 1 0 6.48 0 13s5.48 12 12.24 12c7.06 0 11.75-4.97 11.75-11.96 0-.81-.08-1.42-.18-1.755H12.24z" />
                 </svg>Google アカウント連携 (OAuth2)</h3>
-              <div id="google-linked-status" style="display: none; align-items: center; gap: 6px; font-size: 0.85rem; background-color: rgba(3, 218, 198, 0.1); border: 1px solid var(--color-secondary); padding: 4px 10px; border-radius: 20px;">
-                <span class="material-symbols-outlined" style="color: var(--color-secondary); font-size: 1.1rem;">check_circle</span>
+              <div id="google-linked-status"
+                style="display: none; align-items: center; gap: 6px; font-size: 0.85rem; background-color: rgba(3, 218, 198, 0.1); border: 1px solid var(--color-secondary); padding: 4px 10px; border-radius: 20px;">
+                <span class="material-symbols-outlined"
+                  style="color: var(--color-secondary); font-size: 1.1rem;">check_circle</span>
                 <span style="color: var(--color-secondary); font-weight: 600;">連携済み</span>
               </div>
             </div>
@@ -1028,22 +1053,26 @@
           <div class="admin-kpi-row">
             <div class="admin-kpi">
               <span class="admin-kpi-value" id="admin-stat-users">0</span>
-              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">group</span>ユーザー</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined"
+                  style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">group</span>ユーザー</span>
             </div>
             <div class="admin-kpi-sep"></div>
             <div class="admin-kpi">
               <span class="admin-kpi-value" id="admin-stat-bots">0</span>
-              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">robot_2</span>Bot 総数</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined"
+                  style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">robot_2</span>Bot 総数</span>
             </div>
             <div class="admin-kpi-sep"></div>
             <div class="admin-kpi">
               <span class="admin-kpi-value" id="admin-stat-suspended">0</span>
-              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">block</span>差し押さえ</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined"
+                  style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">block</span>差し押さえ</span>
             </div>
             <div class="admin-kpi-sep"></div>
             <div class="admin-kpi">
               <span class="admin-kpi-value" id="admin-stat-invites">0</span>
-              <span class="admin-kpi-label"><span class="material-symbols-outlined" style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">confirmation_number</span>招待コード残</span>
+              <span class="admin-kpi-label"><span class="material-symbols-outlined"
+                  style="font-size:0.9rem;vertical-align:middle;margin-right:3px;">confirmation_number</span>招待コード残</span>
             </div>
           </div>
 
@@ -1053,14 +1082,16 @@
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">smart_toy</span>システムデフォルト Bot
               </span>
-              <span class="hud-tag" style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
+              <span class="hud-tag"
+                style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
             </div>
             <p class="description-text">システム共通で動作するデフォルトBotのDiscordトークンを更新します。トークンは安全に暗号化されて保存されます。</p>
             <form id="admin-default-bot-form" style="margin-top: 16px;">
               <div class="form-group">
                 <label for="admin-default-bot-token">デフォルト Bot トークン *</label>
                 <div style="display: flex; gap: 12px; margin-top: 8px;">
-                  <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力" style="flex-grow: 1;">
+                  <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力"
+                    style="flex-grow: 1;">
                   <button type="submit" class="btn btn-primary" style="white-space: nowrap;">設定を更新</button>
                 </div>
                 <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
@@ -1341,10 +1372,12 @@
         </button>
       </div>
       <p class="description-text" style="margin-bottom:16px;">カテゴリごとに月間の予算上限金額を設定します。未設定のカテゴリは上限なし（バー非表示）になります。</p>
-      <div id="budget-settings-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px;max-height:180px;overflow-y:auto;padding-right:6px;">
+      <div id="budget-settings-list"
+        style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px;max-height:180px;overflow-y:auto;padding-right:6px;">
         <!-- Generated dynamically -->
       </div>
-      <form id="budget-limit-form" style="display:flex;flex-direction:column;gap:12px;margin-top:8px;border-top:1px solid var(--border-divider);padding-top:16px;">
+      <form id="budget-limit-form"
+        style="display:flex;flex-direction:column;gap:12px;margin-top:8px;border-top:1px solid var(--border-divider);padding-top:16px;">
         <div class="form-row">
           <div class="form-group">
             <label for="budget-category">カテゴリー</label>
@@ -1406,7 +1439,7 @@
       <form id="persona-modal-form" style="display: flex; flex-direction: column; gap: 16px;">
         <div class="form-group">
           <label for="persona-modal-textarea">ペルソナ定義（システムプロンプト指示）</label>
-          <textarea id="persona-modal-textarea" placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。" 
+          <textarea id="persona-modal-textarea" placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。"
             style="min-height: 350px; font-family: inherit; font-size: 0.9rem; line-height: 1.5; width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
           <span class="field-sub">※キャラクター設定、口調、応答スタイル、行動制限ルールなどを詳細に記述できます。</span>
         </div>
