@@ -1,17 +1,22 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Seminar Accounting - 早瀬ユウカの管理室</title>
+  <title>Personal Assistant - パーソナルアシスタント管理室</title>
   <!-- Google Fonts for Modern & Matte Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
   <!-- Google Material Symbols (Outlined version matches shadcn/ui aesthetic perfectly) -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
 
   <!-- ==========================================
@@ -24,9 +29,9 @@
           <span class="material-symbols-outlined icon-display-large">calculate</span>
         </div>
         <h1>SEMINAR ACCOUNTING</h1>
-        <p>ミレニアムサイエンススクール 生徒会セミナー会計室</p>
+        <p>AIアシスタントと連携したパーソナル管理システム</p>
       </div>
-      
+
       <div class="login-tabs">
         <button class="login-tab-btn active" id="btn-tab-login" type="button">ログイン</button>
         <button class="login-tab-btn" id="btn-tab-register" type="button">アカウント作成</button>
@@ -41,7 +46,8 @@
           </div>
           <div class="form-group">
             <label for="login-password">パスワード *</label>
-            <input type="password" id="login-password" required placeholder="••••••••••••" autocomplete="current-password">
+            <input type="password" id="login-password" required placeholder="••••••••••••"
+              autocomplete="current-password">
           </div>
           <button type="submit" class="btn btn-primary btn-block">アクセスを承認する</button>
         </form>
@@ -57,7 +63,7 @@
           </div>
           <div class="form-group">
             <label for="reg-username">ユーザーネーム（表示名） *</label>
-            <input type="text" id="reg-username" required placeholder="例: シャーレの先生">
+            <input type="text" id="reg-username" required placeholder="例: ユーザー名">
           </div>
           <div class="form-group">
             <label for="reg-password">パスワード *</label>
@@ -71,7 +77,108 @@
         </form>
       </div>
 
+      <!-- 初期セットアップ用フォーム (ユーザー数が0の場合のみ表示) -->
+      <div id="setup-tab-content" class="login-tab-pane">
+        <div style="margin-bottom: 16px; border-bottom: 1px solid #27272a; padding-bottom: 12px; text-align: center;">
+          <h2
+            style="font-size: 1.25rem; font-weight: 600; color: #f4f4f5; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="color: #3b82f6;">build</span>
+            初期セットアップ
+          </h2>
+          <p style="font-size: 0.85rem; color: #a1a1aa; margin-top: 4px;">最初のユーザーは自動的にシステム管理者になります。</p>
+        </div>
+        <form id="setup-form">
+          <div class="form-group">
+            <label for="setup-discord-id">管理者 Discord ユーザーID *</label>
+            <input type="text" id="setup-discord-id" required placeholder="例: 123456789012345678">
+            <span class="field-sub">※Discord上で右クリックしてコピーしたID</span>
+          </div>
+          <div class="form-group">
+            <label for="setup-username">管理者ユーザーネーム（表示名） *</label>
+            <input type="text" id="setup-username" required placeholder="例: 管理者ユーザー名">
+          </div>
+          <div class="form-group">
+            <label for="setup-password">管理者パスワード *</label>
+            <input type="password" id="setup-password" required placeholder="••••••••••••" autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">管理者アカウントを登録する</button>
+        </form>
+      </div>
+
+      <!-- デフォルトBotセットアップ用フォーム (管理者登録完了後に表示) -->
+      <div id="bot-setup-tab-content" class="login-tab-pane">
+        <div style="margin-bottom: 16px; border-bottom: 1px solid #27272a; padding-bottom: 12px; text-align: center;">
+          <h2
+            style="font-size: 1.25rem; font-weight: 600; color: #f4f4f5; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="color: #10b981;">robot_2</span>
+            デフォルトBotセットアップ
+          </h2>
+          <p style="font-size: 0.85rem; color: #a1a1aa; margin-top: 4px;">システム共通で動作するデフォルトBotのトークンを登録してください。</p>
+        </div>
+        <form id="bot-setup-form">
+          <div class="form-group">
+            <label for="bot-setup-token">デフォルト Bot トークン *</label>
+            <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力">
+            <span class="field-sub">※Discord Developer Portalから取得したBotのトークン</span>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">デフォルトBotをセットアップする</button>
+        </form>
+      </div>
+
       <div id="login-error" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       BOT SELECTION VIEW (Matte dark overlay)
+       ========================================== -->
+  <div id="bot-selection-overlay" class="overlay">
+    <div class="bot-selection-card">
+      <div class="login-header">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div class="logo-icon-container">
+            <span class="material-symbols-outlined" style="font-size: 2.2rem !important; color: var(--color-primary);">robot_2</span>
+          </div>
+          <div class="logo-text-wrapper">
+            <h1>BOT SELECTION</h1>
+            <p>管理または作成するアシスタントボットを選択してください</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bot List Grid -->
+      <div id="bot-list" class="bot-list-grid">
+        <!-- Dynamically generated bot cards will go here -->
+      </div>
+
+      <!-- Actions -->
+      <div class="bot-selection-actions" style="margin-top: 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+        <button id="btn-bot-logout" class="btn btn-secondary" style="min-width: 120px; padding: 10px 20px;">ログアウト</button>
+        <button id="btn-show-add-bot" class="btn btn-primary" style="min-width: 180px; padding: 10px 20px;">＋ 新しいBotを作成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Bot Modal -->
+  <div id="modal-create-bot" class="modal">
+    <div class="modal-content card">
+      <div class="modal-header">
+        <h3>新規Botの作成</h3>
+        <button class="btn-close" id="btn-close-create-bot">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="create-bot-form">
+        <div class="form-group">
+          <label for="new-bot-name">Botの名前 *</label>
+          <input type="text" id="new-bot-name" required placeholder="例: アシスタント">
+        </div>
+        <div class="form-group">
+          <label for="new-bot-persona">ペルソナ設定 (任意)</label>
+          <textarea id="new-bot-persona" placeholder="キャラクター設定、話し方、行動指針などをご記入ください。空欄の場合は汎用アシスタントのペルソナになります。"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">作成する</button>
+      </form>
     </div>
   </div>
 
@@ -79,45 +186,73 @@
        MAIN APP VIEW
        ========================================== -->
   <div id="app-container" class="hidden">
-    
+
     <!-- Sidebar Navigation (Desktop: Left, Mobile: Bottom Bar) -->
     <aside class="sidebar">
-      <div class="sidebar-brand">
-        <span class="material-symbols-outlined brand-icon-symbol">calculate</span>
-        <span class="brand-text">SEMINAR</span>
+      <div class="sidebar-back-button" id="sidebar-btn-back-bots" title="Bot一覧に戻る">
+        <span class="material-symbols-outlined">chevron_left</span>
+        <span>アプリケーション一覧</span>
+      </div>
+
+      <div class="app-sidebar-header">
+        <div class="app-sidebar-avatar-container">
+          <img id="sidebar-app-avatar"
+            src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png"
+            alt="App Icon">
+        </div>
+        <div class="app-sidebar-meta">
+          <h3 id="sidebar-app-name">ボット名</h3>
+          <span class="app-id-label">APPLICATION ID</span>
+          <span id="sidebar-app-id" class="app-id-value">loading...</span>
+        </div>
       </div>
 
       <nav class="sidebar-menu">
-        <a href="#dashboard" class="menu-item active" data-tab="dashboard">
-          <span class="material-symbols-outlined menu-icon-symbol">dashboard</span> <span class="menu-text">ダッシュボード</span>
+        <a href="/dashboard" class="menu-item active" data-tab="dashboard">
+          <span class="material-symbols-outlined menu-icon-symbol">info</span> <span class="menu-text">一般情報</span>
         </a>
-        <a href="#tasks" class="menu-item" data-tab="tasks">
+        <a href="/tasks" class="menu-item" data-tab="tasks">
           <span class="material-symbols-outlined menu-icon-symbol">checklist</span> <span class="menu-text">タスク管理</span>
         </a>
-        <a href="#schedules" class="menu-item" data-tab="schedules">
-          <span class="material-symbols-outlined menu-icon-symbol">calendar_today</span> <span class="menu-text">予定スケジュール</span>
+        <a href="/schedules" class="menu-item" data-tab="schedules">
+          <span class="material-symbols-outlined menu-icon-symbol">calendar_today</span> <span
+            class="menu-text">予定スケジュール</span>
         </a>
-        <a href="#expenses" class="menu-item" data-tab="expenses">
-          <span class="material-symbols-outlined menu-icon-symbol">payments</span> <span class="menu-text">家計管理</span>
+        <a href="/expenses" class="menu-item" data-tab="expenses">
+          <span class="material-symbols-outlined menu-icon-symbol">payments</span> <span
+            class="menu-text">経費・収支管理</span>
         </a>
-        <a href="#config" class="menu-item" data-tab="config">
-          <span class="material-symbols-outlined menu-icon-symbol">settings</span> <span class="menu-text">システム設定</span>
+        <a href="/playbooks" class="menu-item" data-tab="playbooks">
+          <span class="material-symbols-outlined menu-icon-symbol">description</span> <span
+            class="menu-text">Playbook 管理</span>
+        </a>
+        <a href="/config" class="menu-item" data-tab="config">
+          <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
+            設定</span>
+        </a>
+        <a href="/admin" class="menu-item" data-tab="admin" id="menu-item-admin" style="display: none;">
+          <span class="material-symbols-outlined menu-icon-symbol">admin_panel_settings</span> <span
+            class="menu-text">管理者用設定</span>
         </a>
       </nav>
     </aside>
 
     <!-- Main Content Area -->
     <main class="main-content">
-      
+
       <!-- Top Header (Desktop: Row, Mobile: Stacking Column) -->
       <header class="top-header">
         <div class="header-title">
           <h2 id="current-tab-title">ダッシュボード</h2>
-          <p id="header-subtitle">ミレニアムの計算機、冷徹な算術師が先生をサポートします。</p>
+          <p id="header-subtitle">タスク・スケジュール・家計をスマートに管理します。</p>
         </div>
-        
+
         <!-- Interactive Controls (Switch Profiles & Logout) -->
         <div class="header-controls">
+          <div id="btn-switch-bot" class="bot-context-badge">
+            <span class="material-symbols-outlined icon-small">robot_2</span>
+            <span id="active-bot-display">ボット名</span>
+          </div>
           <div class="user-profile-badge">
             <span class="material-symbols-outlined icon-small">person</span>
             <span id="current-user-display">ロード中...</span>
@@ -135,36 +270,38 @@
              1. DASHBOARD VIEW
              ========================================== -->
         <section id="tab-dashboard" class="tab-view active">
-          
+
           <!-- Welcome Row with Yuuka speech bubble (Matte Card) -->
           <div class="welcome-card card">
             <div class="assistant-avatar-container">
               <svg class="avatar-svg" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="48" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+                <circle cx="50" cy="50" r="48" fill="#18181b" stroke="#3f3f46" stroke-width="1.5" />
                 <!-- Hair (Millennium navy-blue style) -->
-                <path d="M20 50 C20 20, 80 20, 80 50 C80 65, 75 75, 70 85 C65 80, 60 70, 50 70 C40 70, 35 80, 30 85 C25 75, 20 65, 20 50 Z" fill="#27272a"/>
-                <path d="M30 30 Q50 15 70 30 Q50 35 30 30" fill="#18181b"/>
+                <path
+                  d="M20 50 C20 20, 80 20, 80 50 C80 65, 75 75, 70 85 C65 80, 60 70, 50 70 C40 70, 35 80, 30 85 C25 75, 20 65, 20 50 Z"
+                  fill="#27272a" />
+                <path d="M30 30 Q50 15 70 30 Q50 35 30 30" fill="#18181b" />
                 <!-- Face -->
-                <ellipse cx="50" cy="52" rx="25" ry="22" fill="#f4f4f5"/>
+                <ellipse cx="50" cy="52" rx="25" ry="22" fill="#f4f4f5" />
                 <!-- Twin tails -->
-                <path d="M18 35 Q10 40 8 55 Q13 60 20 45" fill="#27272a"/>
-                <path d="M82 35 Q90 40 92 55 Q87 60 80 45" fill="#27272a"/>
+                <path d="M18 35 Q10 40 8 55 Q13 60 20 45" fill="#27272a" />
+                <path d="M82 35 Q90 40 92 55 Q87 60 80 45" fill="#27272a" />
                 <!-- Millennium Hair clips -->
-                <rect x="22" y="32" width="6" height="8" rx="1.5" fill="#a1a1aa"/>
-                <rect x="72" y="32" width="6" height="8" rx="1.5" fill="#a1a1aa"/>
+                <rect x="22" y="32" width="6" height="8" rx="1.5" fill="#a1a1aa" />
+                <rect x="72" y="32" width="6" height="8" rx="1.5" fill="#a1a1aa" />
                 <!-- Eyes -->
-                <ellipse cx="42" cy="50" rx="3" ry="5" fill="#27272a"/>
-                <circle cx="41" cy="48" r="1" fill="#fff"/>
-                <ellipse cx="58" cy="50" rx="3" ry="5" fill="#27272a"/>
-                <circle cx="57" cy="48" r="1" fill="#fff"/>
+                <ellipse cx="42" cy="50" rx="3" ry="5" fill="#27272a" />
+                <circle cx="41" cy="48" r="1" fill="#fff" />
+                <ellipse cx="58" cy="50" rx="3" ry="5" fill="#27272a" />
+                <circle cx="57" cy="48" r="1" fill="#fff" />
                 <!-- Mouth -->
-                <path d="M48 58 Q50 60 52 58" stroke="#27272a" stroke-width="1.5" fill="none"/>
+                <path d="M48 58 Q50 60 52 58" stroke="#27272a" stroke-width="1.5" fill="none" />
               </svg>
-              <div class="avatar-badge">セミナー</div>
+              <div class="avatar-badge">AI</div>
             </div>
-            
+
             <div class="speech-bubble-container">
-              <div class="character-name">早瀬ユウカ</div>
+              <div class="character-name">アシスタント</div>
               <div class="speech-bubble">
                 <p id="yuuka-bubble-text">ロード中...</p>
               </div>
@@ -173,7 +310,7 @@
 
           <!-- Price Ticker Stats Cards Grid (Chic Matte Style) -->
           <div class="stats-grid">
-            
+
             <!-- Card 1: Tasks -->
             <div class="stat-card card">
               <div class="stat-card-badge-trend" id="stat-tasks-badge-trend">ACTIVE</div>
@@ -181,7 +318,8 @@
                 <span class="stat-label">ACTIVE TASKS</span>
               </div>
               <div class="stat-value" id="stat-pending-tasks">0</div>
-              <div class="stat-sparkline" id="tasks-priority-bar-chart" style="display: flex; align-items: flex-end; gap: 8px; height: 28px; margin-bottom: 8px;">
+              <div class="stat-sparkline" id="tasks-priority-bar-chart"
+                style="display: flex; align-items: flex-end; gap: 8px; height: 28px; margin-bottom: 8px;">
                 <!-- Dynamically generated mini bar chart representing priorities -->
               </div>
               <div class="stat-footer-text">後で困らないよう、早めに処理を！</div>
@@ -196,7 +334,7 @@
               <div class="stat-value" id="stat-upcoming-schedules">0</div>
               <div class="stat-sparkline">
                 <svg class="sparkline-svg" viewBox="0 0 100 20">
-                  <path id="schedules-sparkline-path" d="" fill="none" stroke="#e4e4e7" stroke-width="1.5"/>
+                  <path id="schedules-sparkline-path" d="" fill="none" stroke="#e4e4e7" stroke-width="1.5" />
                 </svg>
               </div>
               <div class="stat-footer-text">時間は有限です。計画的な予定を。</div>
@@ -211,7 +349,7 @@
               <div class="stat-value" id="stat-expenses-total">¥0</div>
               <div class="stat-sparkline">
                 <svg class="sparkline-svg" viewBox="0 0 100 20">
-                  <path id="expenses-sparkline-path" d="" fill="none" stroke="#fafafa" stroke-width="1.5"/>
+                  <path id="expenses-sparkline-path" d="" fill="none" stroke="#fafafa" stroke-width="1.5" />
                 </svg>
               </div>
               <div class="stat-footer-text">計算の狂いは、即ち家計の乱れです！</div>
@@ -221,7 +359,7 @@
 
           <!-- Dashboard Charts / High-tech Analytical Columns -->
           <div class="dashboard-columns">
-            
+
             <!-- Cryptographic Price Chart Style Line Chart (Matte Style) -->
             <div class="dashboard-column card">
               <div class="column-header">
@@ -238,20 +376,24 @@
                 <div class="chart-body">
                   <svg id="dashboard-trend-chart" class="trend-chart-svg" viewBox="0 0 400 150">
                     <!-- Grid Lines -->
-                    <line x1="0" y1="20" x2="400" y2="20" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
-                    <line x1="0" y1="60" x2="400" y2="60" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
-                    <line x1="0" y1="100" x2="400" y2="100" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
-                    <line x1="0" y1="130" x2="400" y2="130" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3"/>
-                    
+                    <line x1="0" y1="20" x2="400" y2="20" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3" />
+                    <line x1="0" y1="60" x2="400" y2="60" stroke="#27272a" stroke-width="0.7" stroke-dasharray="3,3" />
+                    <line x1="0" y1="100" x2="400" y2="100" stroke="#27272a" stroke-width="0.7"
+                      stroke-dasharray="3,3" />
+                    <line x1="0" y1="130" x2="400" y2="130" stroke="#27272a" stroke-width="0.7"
+                      stroke-dasharray="3,3" />
+
                     <!-- Matte solid lines with no gradient area -->
-                    <path id="trend-area-path" d="M0,130 L80,120 L160,110 L240,90 L320,60 L400,120 L400,130 Z" fill="transparent"/>
-                    <path id="trend-line-path" d="M0,130 L80,120 L160,110 L240,90 L320,60 L400,120" fill="none" stroke="#fafafa" stroke-width="2.2" stroke-linecap="round"/>
-                    
+                    <path id="trend-area-path" d="M0,130 L80,120 L160,110 L240,90 L320,60 L400,120 L400,130 Z"
+                      fill="transparent" />
+                    <path id="trend-line-path" d="M0,130 L80,120 L160,110 L240,90 L320,60 L400,120" fill="none"
+                      stroke="#fafafa" stroke-width="2.2" stroke-linecap="round" />
+
                     <!-- Solid white dots with dark outline -->
-                    <circle cx="80" cy="120" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
-                    <circle cx="160" cy="110" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
-                    <circle cx="240" cy="90" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
-                    <circle cx="320" cy="60" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5"/>
+                    <circle cx="80" cy="120" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5" />
+                    <circle cx="160" cy="110" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5" />
+                    <circle cx="240" cy="90" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5" />
+                    <circle cx="320" cy="60" r="4.5" fill="#fafafa" stroke="#18181b" stroke-width="1.5" />
                   </svg>
                   <div class="chart-x-axis">
                     <span>5日前</span>
@@ -279,13 +421,14 @@
             <!-- Category Breakdown with Matte Rings -->
             <div class="dashboard-column card">
               <div class="column-header">
-                <h3><span class="material-symbols-outlined header-icon-symbol">pie_chart</span>財務カテゴリ別監査</h3>
+                <h3><span class="material-symbols-outlined header-icon-symbol">pie_chart</span>カテゴリ別</h3>
               </div>
               <div class="chart-container-flex">
                 <div class="pie-chart-wrapper">
                   <svg id="dashboard-donut-chart" class="donut-chart" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#27272a" stroke-width="9"/>
-                    <circle id="donut-segment" cx="50" cy="50" r="40" fill="transparent" stroke="#fafafa" stroke-width="9" stroke-dasharray="0 251.2" stroke-dashoffset="0" stroke-linecap="round"/>
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#27272a" stroke-width="9" />
+                    <circle id="donut-segment" cx="50" cy="50" r="40" fill="transparent" stroke="#fafafa"
+                      stroke-width="9" stroke-dasharray="0 251.2" stroke-dashoffset="0" stroke-linecap="round" />
                   </svg>
                   <div class="chart-center-label">
                     <div id="chart-center-percentage">0%</div>
@@ -325,7 +468,7 @@
             </div>
             <button id="btn-new-task" class="btn btn-primary">＋ タスク追加</button>
           </div>
-          
+
           <div class="list-container" id="tasks-list">
             <!-- Generated dynamically -->
           </div>
@@ -375,15 +518,15 @@
 
           <!-- Actions: receipt dropzone & manual add -->
           <div class="expense-actions-columns">
-            
+
             <!-- Receipt Scanning Card -->
             <div class="action-column card">
               <div class="column-header">
                 <h3><span class="material-symbols-outlined header-icon-symbol">document_scanner</span>AIレシートスキャナー</h3>
                 <span class="badge badge-accent">Gemini連携</span>
               </div>
-              <p class="description-text">レシート画像をドラッグ＆ドロップするか、ファイルを選択してください。ユウカが自動的に分類・登録を行います。</p>
-              
+              <p class="description-text">レシート画像をドラッグ＆ドロップするか、ファイルを選択してください。AIが自動的に分類・登録を行います。</p>
+
               <!-- Drag and drop zone -->
               <div id="receipt-dropzone" class="dropzone">
                 <div class="dropzone-content">
@@ -468,6 +611,67 @@
         </section>
 
         <!-- ==========================================
+             Playbook VIEW
+             ========================================== -->
+        <section id="tab-playbooks" class="tab-view">
+          <div class="expense-actions-columns">
+            <!-- Playbook Form Card -->
+            <div class="action-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">edit_note</span>Playbook の登録・編集</h3>
+              </div>
+              <p class="description-text">AIエージェントに実行させたい操作手順（ブラウザ操作など）のプレイブックを登録・更新します。</p>
+              <form id="playbook-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 8px;">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="playbook-name">プレイブック名 (英数字・ハイフン) *</label>
+                    <input type="text" id="playbook-name" required placeholder="例: daily-sales-check" pattern="[a-zA-Z0-9\-_\/]+">
+                  </div>
+                  <div class="form-group">
+                    <label for="playbook-title">表示タイトル *</label>
+                    <input type="text" id="playbook-title" required placeholder="例: 毎日売上データ収集">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="playbook-keywords">キーワード (カンマ区切り)</label>
+                  <input type="text" id="playbook-keywords" placeholder="例: 売上, スプレッドシート, 集計">
+                </div>
+                <div class="form-group">
+                  <label for="playbook-description">概要説明</label>
+                  <input type="text" id="playbook-description" placeholder="例: 特定サイトから前日の売上を自動転記する">
+                </div>
+                <div class="form-group">
+                  <label for="playbook-steps">操作手順ステップ (Markdown形式等) *</label>
+                  <textarea id="playbook-steps" required placeholder="例:
+1. http://example.com/login にアクセスする
+2. 資格情報を使ってログインする
+3. レポートをダウンロードする" style="min-height: 150px; font-family: var(--font-family-mono); font-size: 0.8rem;"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">プレイブックを保存</button>
+              </form>
+            </div>
+
+            <!-- Playbooks List Card -->
+            <div class="action-column card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">list_alt</span>登録済み Playbook 一覧</h3>
+              </div>
+              <p class="description-text">現在このBotに登録されている自動化手順書です。</p>
+              
+              <!-- Search query input -->
+              <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <input type="text" id="playbook-search-input" placeholder="キーワード・タイトルで検索..." style="flex-grow: 1;">
+                <button type="button" id="btn-playbook-search" class="btn btn-secondary">検索</button>
+              </div>
+
+              <div id="playbooks-list-container" style="display: flex; flex-direction: column; gap: 12px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+                <!-- Generated dynamically -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
              5. CONFIG VIEW
              ========================================== -->
         <section id="tab-config" class="tab-view">
@@ -476,9 +680,10 @@
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">person</span>プロフィール設定</h3>
             </div>
-            <p class="description-text">先生ご自身の表示名を設定できます。</p>
+            <p class="description-text">ご自身の表示名を設定できます。</p>
             <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
-              <input type="text" id="config-profile-username" required placeholder="表示名 (例: シャーレの先生)" style="flex-grow: 1;">
+              <input type="text" id="config-profile-username" required placeholder="表示名 (例: ユーザー名)"
+                style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
             </form>
           </div>
@@ -488,7 +693,7 @@
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">psychology</span>Gemini AI 個別設定</h3>
             </div>
-            <p class="description-text">先生ご自身の Gemini API Key と使用するモデルを設定してください。</p>
+            <p class="description-text">Gemini API Key と使用するモデルを設定してください。</p>
             <form id="gemini-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="gemini-api-key">Gemini API Key</label>
@@ -509,21 +714,24 @@
           </div>
 
           <!-- Discord Bot & Persona Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
+          <div id="config-discord-card" class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot ＆ ペルソナ設定</h3>
               <span class="badge badge-accent">任意設定</span>
             </div>
-            <p class="description-text">先生独自の Discord Bot Token や、AIのペルソナ（システム指示）をカスタマイズできます。未設定の場合は、システムデフォルトのボットおよび「早瀬ユウカ」のペルソナが適用されます。</p>
+            <p class="description-text">独自の Discord Bot Token
+              や、AIのペルソナ（システム指示）をカスタマイズできます。未設定の場合は、システムデフォルトのボットおよび汎用アシスタントのペルソナが適用されます。</p>
             <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="discord-token">Discord Bot Token (任意)</label>
-                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)" autocomplete="off">
+                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
+                  autocomplete="off">
                 <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
               </div>
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="discord-persona">AI ペルソナ設定 (任意)</label>
-                <textarea id="discord-persona" placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。など。空欄の場合は「早瀬ユウカ」のペルソナが適用されます。"></textarea>
+                <textarea id="discord-persona"
+                  placeholder="例: あなたは優秀なAIアシスタントです。常に丁寧な関西弁で答えてください。など。空欄の場合は汎用アシスタントのペルソナが適用されます。"></textarea>
                 <span class="field-sub">※キャラクター設定、話し方、行動指針などを自由に記述できます。</span>
               </div>
               <button type="submit" class="btn btn-primary">Discord ＆ ペルソナ設定を保存</button>
@@ -533,27 +741,25 @@
           <!-- Google OAuth settings -->
           <div class="config-card card" style="margin-top: 24px;">
             <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">google</span>Google アカウント連携 (OAuth2)</h3>
+              <h3><svg class="header-icon-symbol"
+                  style="width: 1.35rem; height: 1.35rem; fill: currentColor; vertical-align: middle; margin-right: 8px; display: inline-block;"
+                  viewBox="0 0 24 24">
+                  <path
+                    d="M12.24 10.285V13.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.866-3.577-7.866-8s3.536-8 7.866-8c2.46 0 4.105 1.025 5.047 1.926l2.427-2.334C17.955 2.192 15.34 1 12.24 1 5.48 1 0 6.48 0 13s5.48 12 12.24 12c7.06 0 11.75-4.97 11.75-11.96 0-.81-.08-1.42-.18-1.755H12.24z" />
+                </svg>Google アカウント連携 (OAuth2)</h3>
             </div>
-            <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google アカウントとの連携を行います。</p>
-            
+            <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google
+              アカウントとの連携を行います。</p>
+
             <div style="margin-top: 18px; display: flex; justify-content: center;">
-              <button type="button" id="btn-google-auth" class="btn btn-primary" style="width: 100%; max-width: 320px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px;">
+              <button type="button" id="btn-google-auth" class="btn btn-primary"
+                style="width: 100%; max-width: 320px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px;">
                 <span class="material-symbols-outlined">link</span> Google 連携認証を開始する
               </button>
             </div>
           </div>
 
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3>システム構成ステータス (`config.yaml`)</h3>
-            </div>
-            <p class="description-text">現在ロードされているサーバー設定です。機密情報は自動的に安全にマスクされています。</p>
-            
-            <div class="config-items-grid" id="config-settings-grid">
-              <!-- Generated dynamically -->
-            </div>
-          </div>
+
 
           <!-- Google Drive Backup Settings Card -->
           <div class="config-card card" style="margin-top: 24px;">
@@ -562,7 +768,7 @@
               <span class="badge badge-accent">Beta</span>
             </div>
             <p class="description-text">データベースや設定ファイル、プレイブックのデータをGoogle Driveへ安全にバックアップします。</p>
-            
+
             <form id="backup-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                 <input type="checkbox" id="backup-enable" style="width: 20px; height: 20px;">
@@ -578,7 +784,8 @@
               </div>
               <div style="display: flex; gap: 10px; margin-top: 8px;">
                 <button type="submit" class="btn btn-primary" style="flex: 1;">設定を保存</button>
-                <button type="button" id="btn-trigger-backup" class="btn btn-secondary" style="flex: 1;">今すぐバックアップ実行</button>
+                <button type="button" id="btn-trigger-backup" class="btn btn-secondary"
+                  style="flex: 1;">今すぐバックアップ実行</button>
               </div>
             </form>
           </div>
@@ -587,16 +794,17 @@
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">calendar_today</span>Google連携カレンダー管理</h3>
             </div>
-            <p class="description-text">同期対象のGoogleカレンダーIDを追加または削除できます。変更内容は `config.yaml` に即時反映されます。</p>
-            
+
             <!-- Calendar IDs List -->
-            <div id="config-calendars-list" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; margin-bottom: 20px;">
+            <div id="config-calendars-list"
+              style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; margin-bottom: 20px;">
               <!-- Generated dynamically -->
             </div>
-            
+
             <!-- Add Calendar Form -->
             <form id="config-calendar-form" style="display: flex; gap: 12px; margin-top: 16px;">
-              <input type="text" id="config-new-calendar-id" required placeholder="example@group.calendar.google.com" style="flex-grow: 1;">
+              <input type="text" id="config-new-calendar-id" required placeholder="example@group.calendar.google.com"
+                style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">追加</button>
             </form>
           </div>
@@ -607,18 +815,26 @@
               <h3><span class="material-symbols-outlined header-icon-symbol">lock</span>AI認証情報管理 (AI Credentials)</h3>
               <span class="badge badge-accent">セキュア暗号化</span>
             </div>
-            <p class="description-text">AIエージェント（ユウカ）が自動ブラウジング等でログインするために使用するユーザー名とパスワードを安全に登録します。パスワードはAES-256-GCMにより強固に暗号化され、必要な時にのみオンデマンドで復号されます。</p>
-            
+            <p class="description-text">
+              AIエージェントが自動ブラウジング等でログインするために使用するユーザー名とパスワードを安全に登録します。パスワードはAES-256-GCMにより強固に暗号化され、必要な時にのみオンデマンドで復号されます。
+            </p>
+
             <!-- Credentials List Table -->
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%; border-collapse: collapse;">
                 <thead>
                   <tr style="border-bottom: 1px solid #27272a;">
-                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">対象サービス名</th>
-                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">ユーザー名 (ID)</th>
-                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">パスワード</th>
-                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">最終更新</th>
-                    <th style="text-align: right; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa; width: 80px;">操作</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">
+                      対象サービス名</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">
+                      ユーザー名 (ID)</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">
+                      パスワード</th>
+                    <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">
+                      最終更新</th>
+                    <th
+                      style="text-align: right; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa; width: 80px;">
+                      操作</th>
                   </tr>
                 </thead>
                 <tbody id="config-credentials-list">
@@ -632,14 +848,145 @@
               <button id="btn-new-credential" class="btn btn-primary">＋ 認証情報を追加</button>
             </div>
           </div>
+        </section>
 
-          <div class="config-card card alert-box">
-            <div class="alert-header">
-              <span class="material-symbols-outlined alert-icon-symbol">warning</span>
-              <h4>会計管理人よりお知らせ</h4>
+        <!-- ==========================================
+             6. ADMIN VIEW (Admin ロールのみ表示)
+             ========================================== -->
+        <section id="tab-admin" class="tab-view">
+
+          <!-- Admin System Stats Cards -->
+          <div class="admin-stats-grid">
+            <div class="admin-stat-card card">
+              <div class="admin-stat-icon"><span class="material-symbols-outlined">group</span></div>
+              <div class="admin-stat-info">
+                <span class="admin-stat-label">総ユーザー数</span>
+                <span class="admin-stat-value" id="admin-stat-users">0</span>
+              </div>
             </div>
-            <p>設定ファイルを直接編集する場合は、ボットプロセスを再起動する必要があります。設定内容はMillennium生徒会セミナー局の監査対象となりますので、計画的かつ慎重に変更を行ってください。</p>
+            <div class="admin-stat-card card">
+              <div class="admin-stat-icon"><span class="material-symbols-outlined">robot_2</span></div>
+              <div class="admin-stat-info">
+                <span class="admin-stat-label">総Bot数</span>
+                <span class="admin-stat-value" id="admin-stat-bots">0</span>
+              </div>
+            </div>
+            <div class="admin-stat-card card">
+              <div class="admin-stat-icon"><span class="material-symbols-outlined">block</span></div>
+              <div class="admin-stat-info">
+                <span class="admin-stat-label">差し押さえ中</span>
+                <span class="admin-stat-value" id="admin-stat-suspended">0</span>
+              </div>
+            </div>
+            <div class="admin-stat-card card">
+              <div class="admin-stat-icon"><span class="material-symbols-outlined">confirmation_number</span></div>
+              <div class="admin-stat-info">
+                <span class="admin-stat-label">招待コード残数</span>
+                <span class="admin-stat-value" id="admin-stat-invites">0</span>
+              </div>
+            </div>
           </div>
+
+          <!-- Admin Default Bot Settings -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">smart_toy</span>システムデフォルト Bot 設定</h3>
+              <span class="hud-tag" style="background-color: #3b82f6;">SYSTEM</span>
+            </div>
+            <p class="description-text">システム共通で動作するデフォルトBotのDiscordトークンを更新します。トークンは安全に暗号化されて保存されます。</p>
+            <form id="admin-default-bot-form" style="margin-top: 16px;">
+              <div class="form-group">
+                <label for="admin-default-bot-token">デフォルト Bot トークン *</label>
+                <div style="display: flex; gap: 12px; margin-top: 8px;">
+                  <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力"
+                    style="flex-grow: 1;">
+                  <button type="submit" class="btn btn-primary" style="white-space: nowrap;">設定を更新</button>
+                </div>
+                <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
+              </div>
+            </form>
+          </div>
+
+          <!-- Admin User Management -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">manage_accounts</span>ユーザー管理</h3>
+              <span class="hud-tag">ADMIN</span>
+            </div>
+            <p class="description-text">登録済みユーザーの一覧とロール管理を行います。個人情報（パスワード等）は表示されません。</p>
+            <div class="table-responsive" style="margin-top: 16px;">
+              <table class="expense-table" style="width: 100%;">
+                <thead>
+                  <tr style="border-bottom: 1px solid #27272a;">
+                    <th class="admin-table-th">ユーザー名</th>
+                    <th class="admin-table-th">Discord ID</th>
+                    <th class="admin-table-th">ロール</th>
+                    <th class="admin-table-th">登録日</th>
+                    <th class="admin-table-th" style="text-align: right; width: 120px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-tbody">
+                  <!-- Generated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Admin Bot Moderation -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">security</span>Bot モデレーション</h3>
+              <span class="hud-tag">MODERATION</span>
+            </div>
+            <p class="description-text">システム上の全Botの管理・差し押さえを行います。差し押さえるとBotのDiscordクライアントが停止され、所有者は再起動できなくなります。</p>
+            <div class="table-responsive" style="margin-top: 16px;">
+              <table class="expense-table" style="width: 100%;">
+                <thead>
+                  <tr style="border-bottom: 1px solid #27272a;">
+                    <th class="admin-table-th">Bot名</th>
+                    <th class="admin-table-th">所有者</th>
+                    <th class="admin-table-th">ステータス</th>
+                    <th class="admin-table-th">作成日</th>
+                    <th class="admin-table-th" style="text-align: right; width: 140px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-bots-tbody">
+                  <!-- Generated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Admin Invite Codes Management -->
+          <div class="config-card card" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">confirmation_number</span>招待コード管理</h3>
+            </div>
+            <p class="description-text">新規ユーザー登録に必要な招待コードの管理を行います。</p>
+
+            <!-- Add Invite Code Form -->
+            <form id="admin-invite-form" style="display: flex; gap: 12px; margin-top: 16px; margin-bottom: 20px;">
+              <input type="text" id="admin-invite-code-input" required placeholder="新しい招待コードを入力" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">コード作成</button>
+            </form>
+
+            <div class="table-responsive">
+              <table class="expense-table" style="width: 100%;">
+                <thead>
+                  <tr style="border-bottom: 1px solid #27272a;">
+                    <th class="admin-table-th">コード</th>
+                    <th class="admin-table-th">ステータス</th>
+                    <th class="admin-table-th">使用者</th>
+                    <th class="admin-table-th">作成日</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-invites-tbody">
+                  <!-- Generated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </section>
 
       </div>
@@ -662,7 +1009,8 @@
       <form id="credential-form">
         <div class="form-group">
           <label for="cred-service-name">対象サービス名 (小文字英数字・ハイフン) *</label>
-          <input type="text" id="cred-service-name" required placeholder="例: github, millennium-portal" pattern="[a-z0-9\-]+">
+          <input type="text" id="cred-service-name" required placeholder="例: github, millennium-portal"
+            pattern="[a-z0-9\-]+">
           <span class="field-sub">※AIに指示する際の名前になります。</span>
         </div>
         <div class="form-group">
@@ -766,7 +1114,7 @@
         <div class="receipt-result-icon-container">
           <span class="material-symbols-outlined icon-display-large">analytics</span>
         </div>
-        <h4>早瀬ユウカの監査結果：</h4>
+        <h4>AI解析結果：</h4>
         <div class="receipt-ai-comment" id="receipt-ai-response">
           <!-- Text response from Gemini -->
         </div>
@@ -779,4 +1127,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

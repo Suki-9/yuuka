@@ -9,15 +9,15 @@ export interface ChatHistoryEntry {
 /**
  * チャット履歴に新しいメッセージを追加する
  */
-export async function addChatMessage(userId: string, role: "user" | "model", text: string): Promise<void> {
+export async function addChatMessage(botId: string, role: "user" | "model", text: string): Promise<void> {
   // 1. SQLite に永続化保存
   try {
     const db = getDb();
     const stmt = db.prepare(`
-      INSERT INTO chat_history (user_id, role, text)
+      INSERT INTO chat_history (bot_id, role, text)
       VALUES (?, ?, ?)
     `);
-    stmt.run(userId, role, text);
+    stmt.run(botId, role, text);
   } catch (err) {
     console.error("❌ SQLite へのメッセージ保存に失敗しました:", err);
     throw err;
@@ -26,7 +26,7 @@ export async function addChatMessage(userId: string, role: "user" | "model", tex
   // 2. Redis キャッシュへ保存
   const redis = getRedisClient();
   if (redis) {
-    const key = `yuuka:chat_history:${userId}`;
+    const key = `yuuka:chat_history:${botId}`;
     const entry = JSON.stringify({ role, text });
     try {
       // リストの末尾に追加
@@ -42,8 +42,8 @@ export async function addChatMessage(userId: string, role: "user" | "model", tex
 /**
  * 直近のチャット履歴を取得する（古い順）
  */
-export async function getRecentChatHistory(userId: string, limit: number = 20): Promise<ChatHistoryEntry[]> {
-  const key = `yuuka:chat_history:${userId}`;
+export async function getRecentChatHistory(botId: string, limit: number = 20): Promise<ChatHistoryEntry[]> {
+  const key = `yuuka:chat_history:${botId}`;
   const redis = getRedisClient();
 
   // 1. Redis キャッシュからの読み出しを試みる
@@ -65,14 +65,14 @@ export async function getRecentChatHistory(userId: string, limit: number = 20): 
   const stmt = db.prepare(`
     SELECT role, text FROM (
       SELECT role, text, id FROM chat_history
-      WHERE user_id = ?
+      WHERE bot_id = ?
       ORDER BY id DESC
       LIMIT ?
     )
     ORDER BY id ASC
   `);
   
-  const rows = stmt.all(userId, limit) as { role: string; text: string }[];
+  const rows = stmt.all(botId, limit) as { role: string; text: string }[];
   const history = rows.map((row) => ({
     role: row.role as "user" | "model",
     text: row.text,
@@ -97,14 +97,14 @@ export async function getRecentChatHistory(userId: string, limit: number = 20): 
 /**
  * 特定のユーザーのチャット履歴をクリアする
  */
-export async function clearChatHistory(userId: string): Promise<void> {
+export async function clearChatHistory(botId: string): Promise<void> {
   // 1. SQLite から削除
   try {
     const db = getDb();
     const stmt = db.prepare(`
-      DELETE FROM chat_history WHERE user_id = ?
+      DELETE FROM chat_history WHERE bot_id = ?
     `);
-    stmt.run(userId);
+    stmt.run(botId);
   } catch (err) {
     console.error("❌ SQLite の履歴削除に失敗しました:", err);
     throw err;
@@ -113,7 +113,7 @@ export async function clearChatHistory(userId: string): Promise<void> {
   // 2. Redis キャッシュを削除
   const redis = getRedisClient();
   if (redis) {
-    const key = `yuuka:chat_history:${userId}`;
+    const key = `yuuka:chat_history:${botId}`;
     try {
       await redis.del(key);
     } catch (err) {

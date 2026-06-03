@@ -2,7 +2,7 @@ import { getDb } from "./database.js";
 
 export interface Task {
   id: number;
-  user_id: string;
+  bot_id: string;
   title: string;
   description: string | null;
   status: string;
@@ -13,7 +13,7 @@ export interface Task {
 }
 
 export function addTask(
-  userId: string,
+  botId: string,
   title: string,
   description?: string,
   dueDate?: string,
@@ -21,23 +21,23 @@ export function addTask(
 ): Task {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO tasks (user_id, title, description, due_date, priority)
+    INSERT INTO tasks (bot_id, title, description, due_date, priority)
     VALUES (?, ?, ?, ?, ?)
   `);
-  const result = stmt.run(userId, title, description ?? null, dueDate ?? null, priority ?? 0);
+  const result = stmt.run(botId, title, description ?? null, dueDate ?? null, priority ?? 0);
   return getTaskById(result.lastInsertRowid as number)!;
 }
 
-export function listTasks(userId: string, status?: string): Task[] {
+export function listTasks(botId: string, status?: string): Task[] {
   const db = getDb();
   if (status && status !== "all") {
     return db
-      .prepare("SELECT * FROM tasks WHERE user_id = ? AND status = ? ORDER BY priority DESC, created_at DESC")
-      .all(userId, status) as Task[];
+      .prepare("SELECT * FROM tasks WHERE bot_id = ? AND status = ? ORDER BY priority DESC, created_at DESC")
+      .all(botId, status) as Task[];
   }
   return db
-    .prepare("SELECT * FROM tasks WHERE user_id = ? ORDER BY status ASC, priority DESC, created_at DESC")
-    .all(userId) as Task[];
+    .prepare("SELECT * FROM tasks WHERE bot_id = ? ORDER BY status ASC, priority DESC, created_at DESC")
+    .all(botId) as Task[];
 }
 
 export function getTaskById(id: number): Task | undefined {
@@ -45,16 +45,16 @@ export function getTaskById(id: number): Task | undefined {
   return db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Task | undefined;
 }
 
-export function completeTask(id: number, userId: string): Task | undefined {
+export function completeTask(id: number, botId: string): Task | undefined {
   const db = getDb();
   db.prepare(
-    "UPDATE tasks SET status = 'done', updated_at = datetime('now', 'localtime') WHERE id = ? AND user_id = ?"
-  ).run(id, userId);
+    "UPDATE tasks SET status = 'done', updated_at = datetime('now', 'localtime') WHERE id = ? AND bot_id = ?"
+  ).run(id, botId);
   return getTaskById(id);
 }
 
-export function deleteTask(id: number, userId: string): boolean {
+export function deleteTask(id: number, botId: string): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM tasks WHERE id = ? AND user_id = ?").run(id, userId);
+  const result = db.prepare("DELETE FROM tasks WHERE id = ? AND bot_id = ?").run(id, botId);
   return result.changes > 0;
 }

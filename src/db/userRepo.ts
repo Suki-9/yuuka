@@ -5,46 +5,9 @@ export interface UserRecord {
   discord_id: string;
   username: string;
   password_hash: string;
-  gemini_api_key_encrypted: string | null;
-  gemini_api_key_iv: string | null;
-  gemini_api_key_tag: string | null;
-  gemini_model: string;
-  google_client_id: string | null;
-  google_client_secret: string | null;
-  google_refresh_token: string | null;
-  google_calendar_id: string | null;
-  google_calendars: string | null;
-  google_drive_backup_enabled: number;
-  google_drive_backup_folder_id: string | null;
-  backup_cron: string;
-  discord_token_encrypted: string | null;
-  discord_token_iv: string | null;
-  discord_token_tag: string | null;
-  persona: string | null;
+  role: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface GeminiConfig {
-  apiKeyEncrypted: string | null;
-  apiKeyIv: string | null;
-  apiKeyTag: string | null;
-  model: string;
-}
-
-export interface DiscordBotConfig {
-  tokenEncrypted: string | null;
-  tokenIv: string | null;
-  tokenTag: string | null;
-  persona: string | null;
-}
-
-export interface GoogleConfig {
-  clientId: string | null;
-  clientSecret: string | null;
-  refreshToken: string | null;
-  calendarId: string | null;
-  calendars: string[];
 }
 
 // --- パスワードハッシュ (scrypt: memory-hard, Node.js built-in) ---
@@ -86,14 +49,36 @@ export function verifyPassword(password: string, storedHash: string): boolean {
 /**
  * ユーザーを新規登録する
  */
-export function createUser(discordId: string, username: string, password: string): UserRecord {
+export function createUser(
+  discordId: string,
+  username: string,
+  password: string,
+  geminiApiKeyEncrypted: string,
+  geminiApiKeyIv: string,
+  geminiApiKeyTag: string,
+  geminiModel: string = "gemini-3.1-flash-lite"
+): UserRecord {
   const db = getDb();
   const passwordHash = hashPassword(password);
-  const stmt = db.prepare(`
-    INSERT INTO users (discord_id, username, password_hash)
-    VALUES (?, ?, ?)
-  `);
-  stmt.run(discordId, username, passwordHash);
+  
+  const runTx = db.transaction(() => {
+    const countRow = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
+    const isFirstUser = countRow.count === 0;
+    const role = isFirstUser ? "admin" : "user";
+
+    db.prepare(`
+      INSERT INTO users (
+        discord_id, username, password_hash, role,
+        gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag, gemini_model
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      discordId, username, passwordHash, role,
+      geminiApiKeyEncrypted, geminiApiKeyIv, geminiApiKeyTag, geminiModel
+    );
+  });
+  
+  runTx();
   return getUserByDiscordId(discordId)!;
 }
 
@@ -127,137 +112,6 @@ export function updateUsername(discordId: string, newUsername: string): boolean 
 }
 
 /**
- * ユーザーのGemini設定を更新する
- */
-export function updateGeminiSettings(
-  discordId: string,
-  apiKeyEncrypted: string | null,
-  apiKeyIv: string | null,
-  apiKeyTag: string | null,
-  model: string
-): boolean {
-  const db = getDb();
-  const result = db.prepare(`
-    UPDATE users SET
-      gemini_api_key_encrypted = ?,
-      gemini_api_key_iv = ?,
-      gemini_api_key_tag = ?,
-      gemini_model = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE discord_id = ?
-  `).run(apiKeyEncrypted, apiKeyIv, apiKeyTag, model, discordId);
-  return result.changes > 0;
-}
-
-/**
- * ユーザーのGoogle OAuth設定を更新する
- */
-export function updateGoogleSettings(
-  discordId: string,
-  clientId: string | null,
-  clientSecret: string | null,
-  refreshToken: string | null,
-  calendarId: string | null,
-  calendars: string[]
-): boolean {
-  const db = getDb();
-  const calendarsJson = calendars.length > 0 ? JSON.stringify(calendars) : null;
-  const result = db.prepare(`
-    UPDATE users SET
-      google_client_id = ?,
-      google_client_secret = ?,
-      google_refresh_token = ?,
-      google_calendar_id = ?,
-      google_calendars = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE discord_id = ?
-  `).run(clientId, clientSecret, refreshToken, calendarId, calendarsJson, discordId);
-  return result.changes > 0;
-}
-
-/**
- * ユーザーのバックアップ設定を更新する
- */
-export function updateBackupSettings(
-  discordId: string,
-  enabled: boolean,
-  folderId: string | null,
-  cron: string
-): boolean {
-  const db = getDb();
-  const result = db.prepare(`
-    UPDATE users SET
-      google_drive_backup_enabled = ?,
-      google_drive_backup_folder_id = ?,
-      backup_cron = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE discord_id = ?
-  `).run(enabled ? 1 : 0, folderId, cron, discordId);
-  return result.changes > 0;
-}
-
-/**
- * ユーザーのGemini設定のみ取得する
- */
-export function getUserGeminiConfig(discordId: string): GeminiConfig | null {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag, gemini_model
-    FROM users WHERE discord_id = ?
-  `).get(discordId) as {
-    gemini_api_key_encrypted: string | null;
-    gemini_api_key_iv: string | null;
-    gemini_api_key_tag: string | null;
-    gemini_model: string;
-  } | undefined;
-
-  if (!row) return null;
-  return {
-    apiKeyEncrypted: row.gemini_api_key_encrypted,
-    apiKeyIv: row.gemini_api_key_iv,
-    apiKeyTag: row.gemini_api_key_tag,
-    model: row.gemini_model,
-  };
-}
-
-/**
- * ユーザーのGoogle OAuth設定のみ取得する
- */
-export function getUserGoogleConfig(discordId: string): GoogleConfig | null {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT google_client_id, google_client_secret, google_refresh_token,
-           google_calendar_id, google_calendars
-    FROM users WHERE discord_id = ?
-  `).get(discordId) as {
-    google_client_id: string | null;
-    google_client_secret: string | null;
-    google_refresh_token: string | null;
-    google_calendar_id: string | null;
-    google_calendars: string | null;
-  } | undefined;
-
-  if (!row) return null;
-
-  let calendars: string[] = [];
-  if (row.google_calendars) {
-    try {
-      calendars = JSON.parse(row.google_calendars);
-    } catch {
-      calendars = [];
-    }
-  }
-
-  return {
-    clientId: row.google_client_id,
-    clientSecret: row.google_client_secret,
-    refreshToken: row.google_refresh_token,
-    calendarId: row.google_calendar_id,
-    calendars,
-  };
-}
-
-/**
  * 登録済みユーザーID一覧を取得する
  */
 export function listAllUserIds(): string[] {
@@ -275,61 +129,102 @@ export function deleteUser(discordId: string): boolean {
   return result.changes > 0;
 }
 
+// --- Admin RBAC ---
+
 /**
- * Google Refresh Tokenのみ更新する（OAuthコールバック用）
+ * Admin用ユーザー情報（パスワードハッシュを除外）
  */
-export function updateGoogleRefreshToken(discordId: string, refreshToken: string): boolean {
+export interface AdminUserView {
+  discord_id: string;
+  username: string;
+  role: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 全ユーザー一覧を取得する（Admin用、パスワードハッシュ除外）
+ */
+export function listAllUsers(): AdminUserView[] {
   const db = getDb();
-  const result = db.prepare(`
-    UPDATE users SET google_refresh_token = ?, updated_at = datetime('now', 'localtime')
-    WHERE discord_id = ?
-  `).run(refreshToken, discordId);
+  return db.prepare(
+    "SELECT discord_id, username, role, created_at, updated_at FROM users ORDER BY created_at ASC"
+  ).all() as AdminUserView[];
+}
+
+/**
+ * ユーザーのロールを変更する
+ */
+export function updateUserRole(discordId: string, role: string): boolean {
+  if (role !== "user" && role !== "admin") return false;
+  const db = getDb();
+  const result = db.prepare(
+    "UPDATE users SET role = ?, updated_at = datetime('now', 'localtime') WHERE discord_id = ?"
+  ).run(role, discordId);
   return result.changes > 0;
 }
 
 /**
- * ユーザーの独自Discord Botおよびペルソナ設定を更新する
+ * ユーザーが Admin かどうか判定する
  */
-export function updateDiscordBotSettings(
-  discordId: string,
-  tokenEncrypted: string | null,
-  tokenIv: string | null,
-  tokenTag: string | null,
-  persona: string | null
-): boolean {
+export function isAdmin(discordId: string): boolean {
   const db = getDb();
-  const result = db.prepare(`
-    UPDATE users SET
-      discord_token_encrypted = ?,
-      discord_token_iv = ?,
-      discord_token_tag = ?,
-      persona = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE discord_id = ?
-  `).run(tokenEncrypted, tokenIv, tokenTag, persona, discordId);
-  return result.changes > 0;
+  const row = db.prepare(
+    "SELECT 1 FROM users WHERE discord_id = ? AND role = 'admin' LIMIT 1"
+  ).get(discordId);
+  return !!row;
+}
+
+export interface UserGeminiConfig {
+  apiKeyEncrypted: string | null;
+  apiKeyIv: string | null;
+  apiKeyTag: string | null;
+  model: string;
 }
 
 /**
- * ユーザーの独自Discord Botおよびペルソナ設定を取得する
+ * ユーザーのGemini設定を取得する
  */
-export function getUserDiscordBotConfig(discordId: string): DiscordBotConfig | null {
+export function getUserGeminiConfig(discordId: string): UserGeminiConfig | null {
   const db = getDb();
   const row = db.prepare(`
-    SELECT discord_token_encrypted, discord_token_iv, discord_token_tag, persona
+    SELECT gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag, gemini_model
     FROM users WHERE discord_id = ?
   `).get(discordId) as {
-    discord_token_encrypted: string | null;
-    discord_token_iv: string | null;
-    discord_token_tag: string | null;
-    persona: string | null;
+    gemini_api_key_encrypted: string | null;
+    gemini_api_key_iv: string | null;
+    gemini_api_key_tag: string | null;
+    gemini_model: string;
   } | undefined;
 
   if (!row) return null;
   return {
-    tokenEncrypted: row.discord_token_encrypted,
-    tokenIv: row.discord_token_iv,
-    tokenTag: row.discord_token_tag,
-    persona: row.persona,
+    apiKeyEncrypted: row.gemini_api_key_encrypted,
+    apiKeyIv: row.gemini_api_key_iv,
+    apiKeyTag: row.gemini_api_key_tag,
+    model: row.gemini_model || "gemini-3.1-flash-lite",
   };
+}
+
+/**
+ * ユーザーのGemini設定を更新する
+ */
+export function updateUserGeminiSettings(
+  discordId: string,
+  apiKeyEncrypted: string | null,
+  apiKeyIv: string | null,
+  apiKeyTag: string | null,
+  model: string
+): boolean {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE users SET
+      gemini_api_key_encrypted = ?,
+      gemini_api_key_iv = ?,
+      gemini_api_key_tag = ?,
+      gemini_model = ?,
+      updated_at = datetime('now', 'localtime')
+    WHERE discord_id = ?
+  `).run(apiKeyEncrypted, apiKeyIv, apiKeyTag, model, discordId);
+  return result.changes > 0;
 }

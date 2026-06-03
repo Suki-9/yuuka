@@ -2,11 +2,12 @@ import { getDb } from "./database.js";
 
 export interface Expense {
   id: number;
-  user_id: string;
+  bot_id: string;
   amount: number;
   category: string;
   description: string | null;
   date: string;
+  time: string | null;
   source: string;
   created_at: string;
 }
@@ -32,20 +33,27 @@ export const CATEGORIES = [
 export type Category = (typeof CATEGORIES)[number];
 
 export function addExpense(
-  userId: string,
+  botId: string,
   amount: number,
   category: string,
   description?: string,
   date?: string,
+  time?: string,
   source: string = "manual"
 ): Expense {
   const db = getDb();
-  const expenseDate = date ?? new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const expenseDate = date ?? now.toISOString().slice(0, 10);
+  
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const expenseTime = time ?? defaultTime;
+
   const stmt = db.prepare(`
-    INSERT INTO expenses (user_id, amount, category, description, date, source)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO expenses (bot_id, amount, category, description, date, time, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  const result = stmt.run(userId, amount, category, description ?? null, expenseDate, source);
+  const result = stmt.run(botId, amount, category, description ?? null, expenseDate, expenseTime, source);
   return getExpenseById(result.lastInsertRowid as number)!;
 }
 
@@ -54,7 +62,7 @@ export function getExpenseById(id: number): Expense | undefined {
   return db.prepare("SELECT * FROM expenses WHERE id = ?").get(id) as Expense | undefined;
 }
 
-export function getMonthlyTotal(userId: string, year?: number, month?: number): number {
+export function getMonthlyTotal(botId: string, year?: number, month?: number): number {
   const db = getDb();
   const now = new Date();
   const y = year ?? now.getFullYear();
@@ -62,13 +70,13 @@ export function getMonthlyTotal(userId: string, year?: number, month?: number): 
   const prefix = `${y}-${String(m).padStart(2, "0")}`;
 
   const row = db
-    .prepare("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE user_id = ? AND date LIKE ?")
-    .get(userId, `${prefix}%`) as { total: number };
+    .prepare("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE bot_id = ? AND date LIKE ?")
+    .get(botId, `${prefix}%`) as { total: number };
   return row.total;
 }
 
 export function getMonthlyCategoryBreakdown(
-  userId: string,
+  botId: string,
   year?: number,
   month?: number
 ): CategoryTotal[] {
@@ -79,19 +87,20 @@ export function getMonthlyCategoryBreakdown(
   const prefix = `${y}-${String(m).padStart(2, "0")}`;
 
   return db
-    .prepare(
+    .prepare
+    (
       `SELECT category, SUM(amount) as total, COUNT(*) as count 
        FROM expenses 
-       WHERE user_id = ? AND date LIKE ?
+       WHERE bot_id = ? AND date LIKE ?
        GROUP BY category 
        ORDER BY total DESC`
     )
-    .all(userId, `${prefix}%`) as CategoryTotal[];
+    .all(botId, `${prefix}%`) as CategoryTotal[];
 }
 
-export function listRecentExpenses(userId: string, count: number = 10): Expense[] {
+export function listRecentExpenses(botId: string, count: number = 10): Expense[] {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC, created_at DESC LIMIT ?")
-    .all(userId, count) as Expense[];
+    .prepare("SELECT * FROM expenses WHERE bot_id = ? ORDER BY date DESC, created_at DESC LIMIT ?")
+    .all(botId, count) as Expense[];
 }

@@ -8,7 +8,7 @@ import {
 } from "../services/googleCalendarService.js";
 
 export async function addSchedule(
-  userId: string,
+  botId: string,
   args: {
     title: string;
     start_at: string;
@@ -22,10 +22,10 @@ export async function addSchedule(
   let googleEventId: string | undefined = undefined;
   let googleCalendarId: string | undefined = undefined;
 
-  if (isCalendarEnabled(userId) && !args.local_only) {
+  if (isCalendarEnabled(botId) && !args.local_only) {
     try {
       const eventResult = await createCalendarEvent(
-        userId,
+        botId,
         args.title,
         args.start_at,
         args.end_at,
@@ -42,7 +42,7 @@ export async function addSchedule(
   }
 
   const schedule = scheduleRepo.addSchedule(
-    userId,
+    botId,
     args.title,
     args.start_at,
     args.end_at,
@@ -59,7 +59,7 @@ export async function addSchedule(
 
   const syncMessage = googleEventId
     ? "（Googleカレンダーにも同期しました📅）"
-    : (isCalendarEnabled(userId) ? "（ローカルリマインダーとして登録しました🔔）" : "");
+    : (isCalendarEnabled(botId) ? "（ローカルリマインダーとして登録しました🔔）" : "");
 
   return JSON.stringify({
     success: true,
@@ -69,23 +69,23 @@ export async function addSchedule(
 }
 
 export async function listSchedules(
-  userId: string,
+  botId: string,
   args: { days?: number }
 ): Promise<string> {
   const days = args.days ?? 7;
 
   // Googleカレンダー同期を実行して最新情報をマージ
-  if (isCalendarEnabled(userId)) {
+  if (isCalendarEnabled(botId)) {
     try {
       // 7日表示の場合は、余裕を持って30日間を取得同期する
       const syncDays = Math.max(days, 30);
-      await syncGoogleCalendarToLocal(userId, syncDays);
+      await syncGoogleCalendarToLocal(botId, syncDays);
     } catch (err) {
       console.error("予定取得前のGoogleカレンダー同期に失敗しました:", err);
     }
   }
 
-  const schedules = scheduleRepo.listUpcomingSchedules(userId, days);
+  const schedules = scheduleRepo.listUpcomingSchedules(botId, days);
   if (schedules.length === 0) {
     return JSON.stringify({
       success: true,
@@ -109,11 +109,11 @@ export async function listSchedules(
 }
 
 export async function deleteSchedule(
-  userId: string,
+  botId: string,
   args: { schedule_id: number }
 ): Promise<string> {
   const schedule = scheduleRepo.getScheduleById(args.schedule_id);
-  if (!schedule || schedule.user_id !== userId) {
+  if (!schedule || schedule.bot_id !== botId) {
     return JSON.stringify({
       success: false,
       message: `予定 #${args.schedule_id} が見つかりません。`,
@@ -121,15 +121,15 @@ export async function deleteSchedule(
   }
 
   // Googleカレンダーからも削除
-  if (isCalendarEnabled(userId) && schedule.google_event_id) {
+  if (isCalendarEnabled(botId) && schedule.google_event_id) {
     try {
-      await deleteCalendarEvent(userId, schedule.google_event_id, schedule.google_calendar_id || undefined);
+      await deleteCalendarEvent(botId, schedule.google_event_id, schedule.google_calendar_id || undefined);
     } catch (err) {
       console.error(`予定削除時のGoogleカレンダー同期に失敗しました (EventID: ${schedule.google_event_id}):`, err);
     }
   }
 
-  const deleted = scheduleRepo.deleteSchedule(args.schedule_id, userId);
+  const deleted = scheduleRepo.deleteSchedule(args.schedule_id, botId);
   if (!deleted) {
     return JSON.stringify({
       success: false,

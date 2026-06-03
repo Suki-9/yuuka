@@ -10,7 +10,7 @@ async function main() {
   console.log("🚀 Yuuka 起動中...");
 
   // データベース初期化
-  runMigrations();
+  await runMigrations();
 
   // 招待コードの初期投入（config.yamlから）
   if (config.inviteCodes.length > 0) {

@@ -12,7 +12,7 @@ export interface Playbook {
  * 手順書（Playbook）をデータベースに保存する（INSERT または REPLACE）
  */
 export function savePlaybook(
-  userId: string,
+  botId: string,
   name: string,
   title: string,
   keywords: string[],
@@ -24,16 +24,16 @@ export function savePlaybook(
   const keywordsJson = JSON.stringify(keywords);
 
   const stmt = db.prepare(`
-    INSERT INTO playbooks (user_id, name, title, keywords, description, steps)
+    INSERT INTO playbooks (bot_id, name, title, keywords, description, steps)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id, name) DO UPDATE SET
+    ON CONFLICT(bot_id, name) DO UPDATE SET
       title = excluded.title,
       keywords = excluded.keywords,
       description = excluded.description,
       steps = excluded.steps,
       updated_at = datetime('now', 'localtime')
   `);
-  stmt.run(userId, safeName, title, keywordsJson, description, steps);
+  stmt.run(botId, safeName, title, keywordsJson, description, steps);
 
   return {
     success: true,
@@ -44,7 +44,7 @@ export function savePlaybook(
 /**
  * キーワードや部分一致で手順書（Playbook）を検索し、その中身を返す
  */
-export function findPlaybooks(userId: string, query?: string): Playbook[] {
+export function findPlaybooks(botId: string, query?: string): Playbook[] {
   const db = getDb();
 
   let rows: any[];
@@ -53,18 +53,18 @@ export function findPlaybooks(userId: string, query?: string): Playbook[] {
     rows = db.prepare(`
       SELECT name, title, keywords, description, steps
       FROM playbooks
-      WHERE user_id = ? AND (
+      WHERE bot_id = ? AND (
         title LIKE ? OR description LIKE ? OR steps LIKE ? OR keywords LIKE ?
       )
       ORDER BY updated_at DESC
-    `).all(userId, likePattern, likePattern, likePattern, likePattern);
+    `).all(botId, likePattern, likePattern, likePattern, likePattern);
   } else {
     rows = db.prepare(`
       SELECT name, title, keywords, description, steps
       FROM playbooks
-      WHERE user_id = ?
+      WHERE bot_id = ?
       ORDER BY updated_at DESC
-    `).all(userId);
+    `).all(botId);
   }
 
   return rows.map((row: any) => {
@@ -83,3 +83,14 @@ export function findPlaybooks(userId: string, query?: string): Playbook[] {
     };
   });
 }
+
+/**
+ * 手順書（Playbook）を削除する
+ */
+export function deletePlaybook(botId: string, name: string): boolean {
+  const db = getDb();
+  const stmt = db.prepare("DELETE FROM playbooks WHERE bot_id = ? AND name = ?");
+  const result = stmt.run(botId, name);
+  return result.changes > 0;
+}
+

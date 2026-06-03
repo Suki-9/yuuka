@@ -3,13 +3,14 @@ import {
   GatewayIntentBits,
   Partials,
   ActivityType,
+  Events,
   type Message,
 } from "discord.js";
-import { config } from "./config.js";
 import { processMessage, type ChatMessage } from "./gemini.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import { startReminderService, stopReminderService } from "./services/reminderService.js";
-import { isRegisteredUser, getUserDiscordBotConfig, listAllUserIds } from "./db/userRepo.js";
+import { isRegisteredUser } from "./db/userRepo.js";
+import { getBotById, getBotDiscordConfig, listAllBotIds, listBotsForUser } from "./db/botRepo.js";
 import { decryptText } from "./utils/crypto.js";
 
 // デフォルト（共有）クライアント
@@ -23,15 +24,15 @@ export const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
-// ユーザーごとのカスタムクライアント: Map<userId, Client>
+// Botごとのカスタムクライアント: Map<botId, Client>
 export const customClients = new Map<string, Client>();
 
 /**
- * ユーザーIDに応じた適切なBotクライアントを取得する
+ * Bot IDに応じた適切なBotクライアントを取得する
  * ユーザーが独自のDiscord Tokenを設定している場合はそれを優先し、無ければデフォルトクライアントを返す
  */
-export function getBotClientForUser(userId: string): Client {
-  const custom = customClients.get(userId);
+export function getBotClientForUser(botId: string): Client {
+  const custom = customClients.get(botId);
   if (custom && custom.readyAt) {
     return custom;
   }
@@ -70,14 +71,7 @@ export function setBotStatus(botClient: Client, status: "thinking" | "writing" |
   }
 }
 
-client.once("ready", (c) => {
-  console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました`);
-  setBotStatus(client, "idle");
-  // リマインダーサービスを開始
-  startReminderService();
-});
-
-client.once("clientReady", (c) => {
+client.once(Events.ClientReady, (c) => {
   console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
   setBotStatus(client, "idle");
   // リマインダーサービスを開始
@@ -87,27 +81,35 @@ client.once("clientReady", (c) => {
 /**
  * 指定したBotクライアントにメッセージハンドラーを設定する
  */
-export function setupMessageListener(botClient: Client, ownerId?: string) {
+export function setupMessageListener(botClient: Client, botId?: string) {
   botClient.on("messageCreate", async (message: Message) => {
     // Bot自身のメッセージは無視
     if (message.author.bot) return;
 
-    // 特定ユーザー専用のカスタムクライアントの場合、送信者がそのオーナーでなければ完全に無視する
-    if (ownerId && message.author.id !== ownerId) return;
+    // 特定Bot専用のカスタムクライアントの場合、送信者がそのオーナーでなければ完全に無視する
+    if (botId) {
+      const botRecord = getBotById(botId);
+      if (!botRecord || message.author.id !== botRecord.user_id) return;
+    }
 
     // デフォルトクライアントの場合、登録ユーザーからのメッセージのみ応答
-    if (!ownerId && !isRegisteredUser(message.author.id)) return;
+    if (!botId && !isRegisteredUser(message.author.id)) return;
 
     // 登録ユーザーが独自のBotを有効に起動している場合は、デフォルトクライアントは応答をスキップする
-    if (!ownerId && customClients.has(message.author.id)) {
-      const customClient = customClients.get(message.author.id);
-      if (customClient && customClient.readyAt) {
+    if (!botId) {
+      const authorBots = listBotsForUser(message.author.id);
+      const hasActiveCustomBot = authorBots.some(b => {
+        if (b.id === "system_default") return false;
+        const custom = customClients.get(b.id);
+        return custom && custom.readyAt;
+      });
+      if (hasActiveCustomBot) {
         return;
       }
     }
 
-    // 処理対象のユーザーID（カスタムの場合はオーナー、デフォルトの場合はメッセージの送信者）
-    const userId = ownerId || message.author.id;
+    // 処理対象のBot ID（カスタムの場合は botId、デフォルトの場合は system_default）
+    const resolvedBotId = botId || "system_default";
 
     let isReplyToBot = false;
     let referencedMsg: Message | null = null;
@@ -184,10 +186,10 @@ export function setupMessageListener(botClient: Client, ownerId?: string) {
         const imageBase64 = imageBuffer.toString("base64");
         const mimeType = imageAttachment.contentType || "image/jpeg";
 
-        response = await parseReceipt(userId, imageBase64, mimeType, text || undefined, statusCallback);
+        response = await parseReceipt(resolvedBotId, imageBase64, mimeType, text || undefined, statusCallback);
       } else if (fullText.trim()) {
         const chatMessage: ChatMessage = { text: fullText };
-        response = await processMessage(userId, chatMessage, statusCallback);
+        response = await processMessage(resolvedBotId, chatMessage, statusCallback);
       } else {
         response = "何かお手伝いできることはありますか？ 📋\n\nタスク管理、予定管理、家計管理ができますよ！";
       }
@@ -248,35 +250,35 @@ function splitMessage(text: string, maxLength: number): string[] {
 }
 
 /**
- * ユーザー別のデクリプトされたDiscordトークンを取得する
+ * BotのデクリプトされたDiscordトークンを取得する
  */
-function getDecryptedDiscordToken(userId: string): string | null {
-  const config = getUserDiscordBotConfig(userId);
+function getDecryptedDiscordToken(botId: string): string | null {
+  const config = getBotDiscordConfig(botId);
   if (!config || !config.tokenEncrypted || !config.tokenIv || !config.tokenTag) {
     return null;
   }
   try {
     return decryptText(config.tokenEncrypted, config.tokenIv, config.tokenTag);
   } catch (err) {
-    console.error(`[Discord Bot] [User: ${userId}] トークンの復号に失敗しました:`, err);
+    console.error(`[Discord Bot] [Bot: ${botId}] トークンの復号に失敗しました:`, err);
     return null;
   }
 }
 
 /**
- * ユーザーIDに紐づく独自のDiscord Botクライアントを起動する
+ * Bot IDに紐づく独自のDiscord Botクライアントを起動する
  */
-export async function startCustomBotForUser(userId: string): Promise<boolean> {
-  const token = getDecryptedDiscordToken(userId);
+export async function startCustomBot(botId: string): Promise<boolean> {
+  const token = getDecryptedDiscordToken(botId);
   if (!token) return false;
 
   // 既存の接続があれば一度破棄
-  const existing = customClients.get(userId);
+  const existing = customClients.get(botId);
   if (existing) {
     try {
       existing.destroy();
     } catch {}
-    customClients.delete(userId);
+    customClients.delete(botId);
   }
 
   const customClient = new Client({
@@ -290,17 +292,17 @@ export async function startCustomBotForUser(userId: string): Promise<boolean> {
   });
 
   try {
-    customClient.once("ready", (c) => {
-      console.log(`✅ 独自Bot (ユーザー: ${userId}): ${c.user.tag} としてログインしました`);
+    customClient.once(Events.ClientReady, (c) => {
+      console.log(`✅ 独自Bot (Bot: ${botId}): ${c.user.tag} としてログインしました`);
       setBotStatus(customClient, "idle");
     });
 
-    setupMessageListener(customClient, userId);
+    setupMessageListener(customClient, botId);
     await customClient.login(token);
-    customClients.set(userId, customClient);
+    customClients.set(botId, customClient);
     return true;
   } catch (err) {
-    console.error(`[Discord Bot] [User: ${userId}] 独自Botの起動に失敗しました:`, err);
+    console.error(`[Discord Bot] [Bot: ${botId}] 独自Botの起動に失敗しました:`, err);
     try {
       customClient.destroy();
     } catch {}
@@ -309,32 +311,60 @@ export async function startCustomBotForUser(userId: string): Promise<boolean> {
 }
 
 /**
- * ユーザーIDに紐づく独自のDiscord Botクライアントを停止・クローズする
+ * Bot IDに紐づく独自のDiscord Botクライアントを停止・クローズする
  */
-export function stopCustomBotForUser(userId: string): void {
-  const customClient = customClients.get(userId);
+export function stopCustomBot(botId: string): void {
+  const customClient = customClients.get(botId);
   if (customClient) {
     try {
       customClient.destroy();
-      console.log(`🔌 独自Bot (ユーザー: ${userId}) を停止しました。`);
+      console.log(`🔌 独自Bot (Bot: ${botId}) を停止しました。`);
     } catch (err) {
-      console.error(`[Discord Bot] [User: ${userId}] 独自Botの停止中にエラーが発生しました:`, err);
+      console.error(`[Discord Bot] [Bot: ${botId}] 独自Botの停止中にエラーが発生しました:`, err);
     }
-    customClients.delete(userId);
+    customClients.delete(botId);
   }
 }
 
 
+export async function restartDefaultBot(token: string): Promise<boolean> {
+  try {
+    client.destroy();
+    console.log("🔌 デフォルトBotを一旦停止しました。再起動します...");
+  } catch {}
+
+  try {
+    // 新しいトークンでログイン
+    setupMessageListener(client);
+    await client.login(token);
+    console.log("✅ デフォルトBotが新しいトークンでログイン成功しました。");
+    return true;
+  } catch (err) {
+    console.error("❌ デフォルトBotのログインに失敗しました:", err);
+    return false;
+  }
+}
+
 export async function startBot(): Promise<void> {
   // 1. デフォルトBotをログイン
   setupMessageListener(client);
-  await client.login(config.discordToken);
+  const token = getDecryptedDiscordToken("system_default");
+  if (token) {
+    try {
+      await client.login(token);
+    } catch (err) {
+      console.error("❌ デフォルトBot (system_default) のログインに失敗しました:", err);
+    }
+  } else {
+    console.log("ℹ️ デフォルトBot (system_default) のトークンが登録されていません。初期セットアップを完了してください。");
+  }
 
-  // 2. 登録済み全ユーザーをチェックし、独自Discord Tokenが設定されている場合はそれぞれBotを起動
-  const userIds = listAllUserIds();
-  for (const userId of userIds) {
-    await startCustomBotForUser(userId).catch((err) => {
-      console.error(`[Discord Bot] ユーザー ${userId} の独自Bot起動中に例外発生:`, err);
+  // 2. 登録済み全Botをチェックし、独自Discord Tokenが設定されている場合はそれぞれBotを起動
+  const botIds = listAllBotIds();
+  for (const botId of botIds) {
+    if (botId === "system_default") continue;
+    await startCustomBot(botId).catch((err) => {
+      console.error(`[Discord Bot] Bot ${botId} の独自Bot起動中に例外発生:`, err);
     });
   }
 }
@@ -346,10 +376,10 @@ export function stopBot(): void {
   client.destroy();
 
   // 独自Bot群の停止
-  for (const [userId, customClient] of customClients.entries()) {
+  for (const [botId, customClient] of customClients.entries()) {
     try {
       customClient.destroy();
-      console.log(`🔌 独自Bot (ユーザー: ${userId}) を停止しました。`);
+      console.log(`🔌 独自Bot (Bot: ${botId}) を停止しました。`);
     } catch {}
   }
   customClients.clear();

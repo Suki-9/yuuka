@@ -1,13 +1,10 @@
 # ==============================================================================
-# Yuuka Hayase - Discord Gemini Secretary Bot Configuration Template
+# Yuuka - Discord Gemini Secretary Bot Configuration
 # ==============================================================================
-# このファイルを "config.yaml" にコピーし、必要に応じて設定を変更してください。
-# config.yaml はセキュリティ上、絶対に公開リポジトリ等にコミットしないでください。
+# システム全体設定（全ユーザー共有）
+# ユーザー別の設定（Gemini API Key/Model、Google OAuth等）は管理画面から設定します。
 # ==============================================================================
 
-# Discord Bot Token
-# Discord Developer Portal (https://discord.com/developers/applications) で取得
-DISCORD_TOKEN: "YOUR_DISCORD_BOT_TOKEN"
 
 # データベースファイルの保存パス
 DB_PATH: "./data/yuuka.db"
@@ -35,8 +32,9 @@ HOST: "0.0.0.0"
 # ユーザー登録に必須の招待コード。起動時にDBに投入されます（既存のものは重複投入されません）。
 # 管理者が自由に追加・削除できます。各コードは1回限り使用可能です。
 INVITE_CODES:
-  - "yuuka-seminar-2026-alpha"
-  - "yuuka-seminar-2026-beta"
+  - code1
+  - code2
+  - ...
 
 # ==============================================================================
 # Google OAuth2 システム共通設定 (System-wide Google OAuth)
@@ -44,13 +42,12 @@ INVITE_CODES:
 # カレンダーやドライブの同期に使用する、システム共通のデフォルト Google OAuth2 設定です。
 # Google Cloud Console (https://console.cloud.google.com/) でOAuth クライアントIDを作成し、設定してください。
 # ※ ユーザー自身が管理画面の個別設定で独自のクライアント情報（Client ID/Secret）を設定した場合は、そちらが最優先されます。
-GOOGLE_CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID"
-GOOGLE_CLIENT_SECRET: "YOUR_GOOGLE_CLIENT_SECRET"
+GOOGLE_CLIENT_ID: ""
+GOOGLE_CLIENT_SECRET: ""
 
 # ==============================================================================
 # 外部公開ベースURL設定 (External Public Base URL)
 # ==============================================================================
 # Google OAuth 認証時のリダイレクト先となる、外部公開用のHTTPSベースURLです。
 # Cloudflare Tunnels などのリバースプロキシで公開するドメインを指定します。
-# 例: BASE_URL: "https://yuuka.yourdomain.com"
-BASE_URL: ""
+BASE_URL: "https://example.com"

@@ -1,14 +1,48 @@
 /* ==============================================================================
-   Seminar Accounting Dashboard -早瀬ユウカの管理室- Core Frontend JS Engine
+   Personal Assistant Dashboard - パーソナルアシスタント管理室 - Core Frontend JS Engine
    Secure Vanilla Javascript, Zero-Dependency, Pure DOM elements & SSE/REST
    Upgraded UI Logic: Custom Interactive Crypto Sparklines and Line Charts
    ============================================================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
-  
+
+  // Override native fetch to auto-inject currentBotId
+  const originalFetch = window.fetch;
+  window.fetch = async function (resource, options) {
+    if (typeof resource === "string" && resource.startsWith("/api/") && window.currentBotId) {
+      if (
+        !resource.startsWith("/api/login") &&
+        !resource.startsWith("/api/register") &&
+        !resource.startsWith("/api/logout") &&
+        !resource.startsWith("/api/bots") &&
+        !resource.startsWith("/api/me")
+      ) {
+        const url = new URL(resource, window.location.origin);
+        if (!url.searchParams.has("botId")) {
+          url.searchParams.set("botId", window.currentBotId);
+        }
+        resource = url.pathname + url.search;
+
+        if (options && options.body && typeof options.body === "string" && !options.body.startsWith("-----")) {
+          try {
+            const bodyObj = JSON.parse(options.body);
+            if (!bodyObj.botId) {
+              bodyObj.botId = window.currentBotId;
+              options.body = JSON.stringify(bodyObj);
+            }
+          } catch (e) {
+            // Ignore parsing errors for non-JSON bodies
+          }
+        }
+      }
+    }
+    return originalFetch(resource, options);
+  };
+
   // State management
   let activeTab = "dashboard";
   let activeUserId = "";
+  let activeUserRole = "user";
   let pendingTasksCount = 0;
   let totalExpensesVal = 0;
 
@@ -17,7 +51,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginForm = document.getElementById("login-form");
   const loginError = document.getElementById("login-error");
   const appContainer = document.getElementById("app-container");
-  
+
+  // Bot Selection Overlay DOM elements
+  const botSelectionOverlay = document.getElementById("bot-selection-overlay");
+  const botList = document.getElementById("bot-list");
+  const btnShowAddBot = document.getElementById("btn-show-add-bot");
+  const btnBotLogout = document.getElementById("btn-bot-logout");
+  const modalCreateBot = document.getElementById("modal-create-bot");
+  const createBotForm = document.getElementById("create-bot-form");
+  const btnCloseCreateBot = document.getElementById("btn-close-create-bot");
+  const btnSwitchBot = document.getElementById("btn-switch-bot");
+  const activeBotDisplay = document.getElementById("active-bot-display");
+
   // Login / Register Tabs
   const btnTabLogin = document.getElementById("btn-tab-login");
   const btnTabRegister = document.getElementById("btn-tab-register");
@@ -26,10 +71,35 @@ document.addEventListener("DOMContentLoaded", () => {
   const registerForm = document.getElementById("register-form");
 
   const btnLogout = document.getElementById("btn-logout");
-  
+
   const currentTabTitle = document.getElementById("current-tab-title");
   const menuItems = document.querySelectorAll(".menu-item");
   const tabViews = document.querySelectorAll(".tab-view");
+
+  function updateSidebarBotBranding() {
+    const sidebarAppAvatar = document.getElementById("sidebar-app-avatar");
+    const sidebarAppName = document.getElementById("sidebar-app-name");
+    const sidebarAppId = document.getElementById("sidebar-app-id");
+    
+    if (!sidebarAppName || !sidebarAppId) return;
+
+    const botName = localStorage.getItem("currentBotName") || "システムデフォルト";
+    const botId = localStorage.getItem("currentBotId") || "system_default";
+    const botAvatar = localStorage.getItem("currentBotAvatar") || "";
+
+    sidebarAppName.textContent = botName;
+    sidebarAppId.textContent = botId.startsWith("bot_") ? botId.substring(4) : botId;
+
+    if (sidebarAppAvatar) {
+      if (botAvatar) {
+        sidebarAppAvatar.src = botAvatar;
+        sidebarAppAvatar.style.display = "block";
+      } else {
+        sidebarAppAvatar.src = "https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png";
+        sidebarAppAvatar.style.display = "block";
+      }
+    }
+  }
 
   // Dashboard DOM
   const yuukaBubbleText = document.getElementById("yuuka-bubble-text");
@@ -88,14 +158,12 @@ document.addEventListener("DOMContentLoaded", () => {
     window.history.replaceState({}, document.title, window.location.pathname);
   }
 
-
-
   // ==========================================
-  // VIEW ROUTER (Tab Switching Logic)
+  // VIEW ROUTER (HTML5 History Path-based Routing)
   // ==========================================
   function switchTab(tabId) {
     activeTab = tabId;
-    
+
     // Update menu buttons active state
     menuItems.forEach(item => {
       if (item.getAttribute("data-tab") === tabId) {
@@ -117,22 +185,107 @@ document.addEventListener("DOMContentLoaded", () => {
     // Update Header text
     const titles = {
       dashboard: "ダッシュボード",
-      tasks: "タスク管理（ToDo）",
-      schedules: "予定スケジュール（Googleカレンダー同期）",
-      expenses: "家計管理（レシートAI解析＆経費簿）",
-      config: "システム設定情報"
+      tasks: "タスク管理",
+      schedules: "予定スケジュール",
+      expenses: "家計管理",
+      playbooks: "Playbook 設定",
+      config: "システム設定情報",
+      admin: "管理者パネル"
     };
-    currentTabTitle.textContent = titles[tabId] || "ユウカの管理室";
-    
+    currentTabTitle.textContent = titles[tabId] || "ダッシュボード";
+
     // Trigger data load
     loadDataForActiveTab();
+  }
+
+  function navigateTo(path, pushState = true) {
+    if (pushState) {
+      window.history.pushState({}, "", path);
+    }
+    applyRoute(path);
+  }
+
+  function applyRoute(path) {
+    const cleanPath = path.split("?")[0].split("#")[0].replace(/\/$/, "") || "/";
+
+    if (cleanPath === "/login") {
+      appContainer.classList.add("hidden");
+      botSelectionOverlay.classList.remove("active");
+      loginOverlay.classList.add("active");
+      const botSetupTabContent = document.getElementById("bot-setup-tab-content");
+      if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+      return;
+    }
+
+    if (cleanPath === "/bots") {
+      if (!activeUserId) {
+        initAppSession();
+        return;
+      }
+      loginOverlay.classList.remove("active");
+      appContainer.classList.add("hidden");
+      botSelectionOverlay.classList.add("active");
+      fetchBotList();
+      return;
+    }
+
+    const tabMap = {
+      "/dashboard": "dashboard",
+      "/tasks": "tasks",
+      "/schedules": "schedules",
+      "/expenses": "expenses",
+      "/playbooks": "playbooks",
+      "/config": "config",
+      "/admin": "admin"
+    };
+
+    const tabId = tabMap[cleanPath];
+    if (tabId) {
+      if (!activeUserId) {
+        initAppSession();
+        return;
+      }
+      const botId = localStorage.getItem("currentBotId");
+      const botName = localStorage.getItem("currentBotName");
+      if (!botId) {
+        navigateTo("/bots", false);
+        return;
+      }
+      window.currentBotId = botId;
+      if (activeBotDisplay) {
+        activeBotDisplay.textContent = botName || "ボット名";
+      }
+      updateSidebarBotBranding();
+
+      loginOverlay.classList.remove("active");
+      botSelectionOverlay.classList.remove("active");
+      appContainer.classList.remove("hidden");
+
+      switchTab(tabId);
+      return;
+    }
+
+    if (cleanPath === "/" || cleanPath === "/index.html") {
+      if (activeUserId) {
+        const botId = localStorage.getItem("currentBotId");
+        if (botId) {
+          navigateTo("/config", false);
+        } else {
+          navigateTo("/bots", false);
+        }
+      } else {
+        initAppSession();
+      }
+    } else {
+      navigateTo("/login", false);
+    }
   }
 
   menuItems.forEach(item => {
     item.addEventListener("click", (e) => {
       e.preventDefault();
       const tabId = item.getAttribute("data-tab");
-      switchTab(tabId);
+      navigateTo(`/${tabId}`);
     });
   });
 
@@ -153,6 +306,7 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalSchedule);
       closeModal(modalReceiptResult);
       closeModal(modalCredential);
+      closeModal(modalCreateBot);
     });
   });
 
@@ -164,7 +318,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================
   // API FETCH & CORE LOGIC
   // ==========================================
-  
+
   // Execute calls based on visible view
   function loadDataForActiveTab() {
     if (activeTab === "dashboard") {
@@ -175,8 +329,12 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchSchedulesList();
     } else if (activeTab === "expenses") {
       fetchExpensesList();
+    } else if (activeTab === "playbooks") {
+      fetchPlaybooksList();
     } else if (activeTab === "config") {
       fetchConfigSettings();
+    } else if (activeTab === "admin") {
+      fetchAdminData();
     }
   }
 
@@ -199,26 +357,324 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Bot selection functions
+  async function fetchBotList() {
+    try {
+      const res = await originalFetch("/api/bots");
+      const data = await res.json();
+      if (data.success) {
+        renderBotList(data.bots);
+      } else {
+        alert("Bot一覧の取得に失敗しました: " + data.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Bot一覧の取得中にエラーが発生しました。");
+    }
+  }
+
+  function renderBotList(bots) {
+    botList.innerHTML = "";
+    bots.forEach(bot => {
+      const item = document.createElement("div");
+      item.className = "bot-item-card";
+      if (bot.id.startsWith("bot_default_") || bot.id === "system_default") {
+        item.classList.add("default-bot");
+      }
+
+      const isCustomToken = !!bot.discord_token_encrypted;
+      const statusText = isCustomToken ? "独自Bot起動中" : "デフォルト共有";
+      const accentColor = isCustomToken ? "#10b981" : "#3b82f6";
+
+      // アバター部分
+      const avatarDiv = document.createElement("div");
+      avatarDiv.className = "bot-avatar";
+      if (bot.discord_avatar_url) {
+        const img = document.createElement("img");
+        img.src = bot.discord_avatar_url;
+        img.alt = bot.discord_username || bot.name;
+        img.onerror = () => {
+          img.remove();
+          avatarDiv.innerHTML = `<span class="material-symbols-outlined" style="font-size: 22px; color: ${accentColor};">robot_2</span>`;
+        };
+        avatarDiv.appendChild(img);
+      } else {
+        avatarDiv.innerHTML = `<span class="material-symbols-outlined" style="font-size: 22px; color: ${accentColor};">robot_2</span>`;
+      }
+
+      // Bot情報部分
+      const infoDiv = document.createElement("div");
+      infoDiv.className = "bot-info";
+      const displayName = bot.discord_username || bot.name;
+      infoDiv.innerHTML = `
+        <div class="bot-name" title="${displayName}">${displayName}</div>
+        <div class="bot-status">${statusText}</div>
+      `;
+
+      // アクションボタン群
+      const actionsDiv = document.createElement("div");
+      actionsDiv.className = "bot-item-actions";
+
+      // Discord同期ボタン
+      const syncBtn = document.createElement("button");
+      syncBtn.className = "btn-sync-discord";
+      syncBtn.title = "Discordから名前・アイコンを同期";
+      syncBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 15px;">sync</span>`;
+      syncBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const icon = syncBtn.querySelector("span");
+        if (icon) icon.style.animation = "spin 0.8s linear infinite";
+        syncBtn.style.pointerEvents = "none";
+        try {
+          const res = await originalFetch("/api/bots/sync-discord", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ botId: bot.id })
+          });
+          const data = await res.json();
+          if (data.success) {
+            // UIをその場で更新
+            bot.discord_username = data.discord_username;
+            bot.discord_avatar_url = data.discord_avatar_url;
+            if (data.discord_avatar_url) {
+              avatarDiv.innerHTML = "";
+              const img = document.createElement("img");
+              img.src = data.discord_avatar_url;
+              img.alt = data.discord_username || bot.name;
+              img.onerror = () => {
+                img.remove();
+                avatarDiv.innerHTML = `<span class="material-symbols-outlined" style="font-size: 22px; color: ${accentColor};">robot_2</span>`;
+              };
+              avatarDiv.appendChild(img);
+            }
+            infoDiv.querySelector(".bot-name").textContent = data.discord_username || bot.name;
+          } else {
+            alert("同期に失敗しました: " + data.message);
+          }
+        } catch (err) {
+          alert("同期中にエラーが発生しました。");
+        } finally {
+          if (icon) icon.style.animation = "";
+          syncBtn.style.pointerEvents = "";
+        }
+      });
+      actionsDiv.appendChild(syncBtn);
+
+      // 削除ボタン（デフォルトBot以外）
+      if (!bot.id.startsWith("bot_default_") && bot.id !== "system_default") {
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-delete-bot-inline";
+        delBtn.title = "Botを削除";
+        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 15px;">delete</span>`;
+        delBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (confirm(`本当にBot「${bot.name}」を削除しますか？\n紐づく経費やタスクデータも全て削除されます。`)) {
+            try {
+              const res = await originalFetch("/api/bots", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ botId: bot.id })
+              });
+              const resData = await res.json();
+              if (resData.success) {
+                fetchBotList();
+              } else {
+                alert("削除に失敗しました: " + resData.message);
+              }
+            } catch (err) {
+              alert("削除中にエラーが発生しました。");
+            }
+          }
+        });
+        actionsDiv.appendChild(delBtn);
+      }
+
+      item.appendChild(avatarDiv);
+      item.appendChild(infoDiv);
+      item.appendChild(actionsDiv);
+
+      item.addEventListener("click", () => {
+        selectBot(bot);
+      });
+
+      botList.appendChild(item);
+    });
+  }
+
+  function selectBot(bot) {
+    window.currentBotId = bot.id;
+    localStorage.setItem("currentBotId", bot.id);
+    localStorage.setItem("currentBotName", bot.discord_username || bot.name);
+    localStorage.setItem("currentBotAvatar", bot.discord_avatar_url || "");
+    if (activeBotDisplay) {
+      activeBotDisplay.textContent = bot.discord_username || bot.name;
+    }
+    updateSidebarBotBranding();
+
+    navigateTo("/config");
+  }
+
+  // Switch Bot handler
+  if (btnSwitchBot) {
+    btnSwitchBot.addEventListener("click", () => {
+      navigateTo("/bots");
+    });
+  }
+  const sidebarBtnBackBots = document.getElementById("sidebar-btn-back-bots");
+  if (sidebarBtnBackBots) {
+    sidebarBtnBackBots.addEventListener("click", () => {
+      navigateTo("/bots");
+    });
+  }
+
+  if (btnShowAddBot) {
+    btnShowAddBot.addEventListener("click", () => {
+      openModal(modalCreateBot);
+    });
+  }
+
+  if (createBotForm) {
+    createBotForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("new-bot-name").value.trim();
+      const persona = document.getElementById("new-bot-persona").value.trim();
+
+      try {
+        const res = await originalFetch("/api/bots", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, persona })
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeModal(modalCreateBot);
+          createBotForm.reset();
+          fetchBotList();
+        } else {
+          alert("Bot作成に失敗しました: " + data.message);
+        }
+      } catch (err) {
+        alert("Bot作成中にエラーが発生しました。");
+      }
+    });
+  }
+
+  if (btnBotLogout) {
+    btnBotLogout.addEventListener("click", async () => {
+      try {
+        await originalFetch("/api/logout", { method: "POST" });
+      } catch (e) { }
+      localStorage.removeItem("currentBotId");
+      localStorage.removeItem("currentBotName");
+      window.currentBotId = null;
+      activeUserId = "";
+      navigateTo("/login");
+    });
+  }
+
+  async function checkSetupStatus() {
+    try {
+      const res = await originalFetch("/api/setup/status");
+      const data = await res.json();
+      
+      const loginTabContent = document.getElementById("login-tab-content");
+      const registerTabContent = document.getElementById("register-tab-content");
+      const setupTabContent = document.getElementById("setup-tab-content");
+      const botSetupTabContent = document.getElementById("bot-setup-tab-content");
+      const loginTabs = document.querySelector(".login-tabs");
+
+      if (data.needSetup) {
+        if (loginTabs) loginTabs.style.display = "none";
+        if (loginTabContent) loginTabContent.classList.remove("active");
+        if (registerTabContent) registerTabContent.classList.remove("active");
+        if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+        if (setupTabContent) setupTabContent.classList.add("active");
+        return true;
+      } else {
+        if (loginTabs) loginTabs.style.display = "";
+        if (setupTabContent) setupTabContent.classList.remove("active");
+        return false;
+      }
+    } catch (err) {
+      console.error("Failed to check setup status:", err);
+      return false;
+    }
+  }
+
+  function showDefaultBotSetupScreen() {
+    loginOverlay.classList.add("active");
+    botSelectionOverlay.classList.remove("active");
+    appContainer.classList.add("hidden");
+
+    const loginTabs = document.querySelector(".login-tabs");
+    if (loginTabs) loginTabs.style.display = "none";
+
+    const loginTabContent = document.getElementById("login-tab-content");
+    const registerTabContent = document.getElementById("register-tab-content");
+    const setupTabContent = document.getElementById("setup-tab-content");
+    const botSetupTabContent = document.getElementById("bot-setup-tab-content");
+
+    if (loginTabContent) loginTabContent.classList.remove("active");
+    if (registerTabContent) registerTabContent.classList.remove("active");
+    if (setupTabContent) setupTabContent.classList.remove("active");
+    if (botSetupTabContent) botSetupTabContent.classList.add("active");
+  }
+
   // App Session Initialization
   async function initAppSession() {
     try {
-      const res = await fetch("/api/status");
+      const res = await originalFetch("/api/me");
       const data = await res.json();
       if (data.success) {
         activeUserId = data.user.discordId;
+        activeUserRole = data.user.role || "user";
         document.getElementById("current-user-display").textContent = `${data.user.username} (${activeUserId})`;
-        
-        loginOverlay.classList.remove("active");
-        appContainer.classList.remove("hidden");
-        
-        switchTab("dashboard");
+
+        // Admin メニューの表示/非表示制御
+        const adminMenuItem = document.getElementById("menu-item-admin");
+        if (adminMenuItem) {
+          adminMenuItem.style.display = activeUserRole === "admin" ? "" : "none";
+        }
+
+        // 管理者の場合、デフォルトBotが設定されているか確認する
+        if (activeUserRole === "admin") {
+          try {
+            const botsRes = await originalFetch("/api/bots");
+            const botsData = await botsRes.json();
+            const systemDefaultBot = botsData.success && botsData.bots.find(b => b.id === "system_default");
+            if (!systemDefaultBot || !systemDefaultBot.discord_token_encrypted) {
+              showDefaultBotSetupScreen();
+              return;
+            }
+          } catch (err) {
+            console.error("Default bot check error:", err);
+          }
+        }
+
+        // If already on a specific deep-link path, navigate there directly
+        const currentPath = window.location.pathname;
+        if (currentPath !== "/" && currentPath !== "/index.html" && currentPath !== "/login") {
+          applyRoute(currentPath);
+        } else {
+          // Root or login page: route to bot selection or main app
+          const botId = localStorage.getItem("currentBotId") || "system_default";
+          navigateTo(botId ? "/config" : "/bots", false);
+        }
       } else {
-        appContainer.classList.add("hidden");
-        loginOverlay.classList.add("active");
+        activeUserId = "";
+        const needSetup = await checkSetupStatus();
+        if (!needSetup) {
+          const btnTabLogin = document.getElementById("btn-tab-login");
+          const loginTabContent = document.getElementById("login-tab-content");
+          if (btnTabLogin) btnTabLogin.classList.add("active");
+          if (loginTabContent) loginTabContent.classList.add("active");
+        }
+        navigateTo("/login", false);
       }
     } catch (err) {
-      appContainer.classList.add("hidden");
-      loginOverlay.classList.add("active");
+      activeUserId = "";
+      await checkSetupStatus();
+      navigateTo("/login", false);
     }
   }
 
@@ -230,13 +686,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const password = document.getElementById("login-password").value;
 
     try {
-      const res = await fetch("/api/login", {
+      const res = await originalFetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ discordId, password })
       });
       const data = await res.json();
-      
+
       if (data.success) {
         await initAppSession();
       } else {
@@ -246,6 +702,71 @@ document.addEventListener("DOMContentLoaded", () => {
       loginError.textContent = "サーバー接続に失敗しました。";
     }
   });
+
+  // INITIAL SETUP FLOW (Step 1: Admin Register)
+  const setupForm = document.getElementById("setup-form");
+  if (setupForm) {
+    setupForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.textContent = "";
+      const discordId = document.getElementById("setup-discord-id").value.trim();
+      const username = document.getElementById("setup-username").value.trim();
+      const password = document.getElementById("setup-password").value;
+
+      try {
+        const res = await originalFetch("/api/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ discordId, username, password })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          alert("管理者アカウントの登録が完了しました。続いてデフォルトBotを設定してください。");
+          await initAppSession();
+        } else {
+          loginError.textContent = data.message;
+        }
+      } catch (err) {
+        loginError.textContent = "サーバー接続に失敗しました。";
+      }
+    });
+  }
+
+  // INITIAL SETUP FLOW (Step 2: Default Bot Token Setup)
+  const botSetupForm = document.getElementById("bot-setup-form");
+  if (botSetupForm) {
+    botSetupForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.textContent = "";
+      const token = document.getElementById("bot-setup-token").value.trim();
+
+      try {
+        const res = await originalFetch("/api/admin/default-bot/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          alert("デフォルトBotのセットアップが完了しました！");
+          window.currentBotId = "system_default";
+          localStorage.setItem("currentBotId", "system_default");
+          localStorage.setItem("currentBotName", "システムデフォルト");
+          localStorage.setItem("currentBotAvatar", "");
+          updateSidebarBotBranding();
+          
+          loginOverlay.classList.remove("active");
+          navigateTo("/dashboard");
+        } else {
+          loginError.textContent = data.message;
+        }
+      } catch (err) {
+        loginError.textContent = "サーバー接続に失敗しました。";
+      }
+    });
+  }
 
   // ACCOUNT REGISTRATION FLOW
   registerForm.addEventListener("submit", async (e) => {
@@ -257,13 +778,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const inviteCode = document.getElementById("reg-invite-code").value.trim();
 
     try {
-      const res = await fetch("/api/register", {
+      const res = await originalFetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ discordId, username, password, inviteCode })
       });
       const data = await res.json();
-      
+
       if (data.success) {
         alert("アカウントが作成されました！ログインを行ってください。");
         btnTabLogin.click();
@@ -279,11 +800,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // B. LOGOUT FLOW
   btnLogout.addEventListener("click", async () => {
     try {
-      await fetch("/api/logout", { method: "POST" });
-    } catch(e) {}
-    
-    appContainer.classList.add("hidden");
-    loginOverlay.classList.add("active");
+      await originalFetch("/api/logout", { method: "POST" });
+    } catch (e) { }
+
+    localStorage.removeItem("currentBotId");
+    localStorage.removeItem("currentBotName");
+    window.currentBotId = null;
+    activeUserId = "";
+    navigateTo("/login");
     loginError.textContent = "ログアウトしました。";
   });
 
@@ -314,8 +838,8 @@ document.addEventListener("DOMContentLoaded", () => {
           priorityChart.replaceChildren();
           const priorities = statusData.stats.pendingPriorities || { 0: 0, 1: 0, 2: 0 };
           const maxPrioCount = Math.max(priorities[0], priorities[1], priorities[2], 1);
-          
-          const colors = ["#71717a", "#e4e4e7", "#fafafa"]; // Low: Slate, Medium: Zinc, High: White
+
+          const colors = ["#4f545c", "#fbbf24", "#da373c"]; // Low: Muted Grey, Medium: Warning Yellow, High: Discord Red
           const labels = ["低", "中", "高"];
 
           [0, 1, 2].forEach(p => {
@@ -354,7 +878,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (schedulesPath) {
           const trend = statusData.stats.scheduleTrend || [0, 0, 0, 0, 0];
           const maxVal = Math.max(...trend, 2);
-          
+
           const points = trend.map((val, idx) => {
             const x = idx * 25;
             const y = 19 - (val / maxVal) * 18;
@@ -369,7 +893,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (expensesPath) {
           const trend = statusData.stats.expenseTrend || [0, 0, 0, 0, 0];
           const maxVal = Math.max(...trend, 5000);
-          
+
           const points = trend.map((val, idx) => {
             const x = idx * 25;
             const y = 19 - (val / maxVal) * 18;
@@ -406,18 +930,18 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (err) {
       console.error("ダッシュボード情報の更新エラー:", err);
-      yuukaBubbleText.textContent = "先生、ダッシュボード情報の取得中にエラーが発生しました。サーバーの接続状況を確認してください！";
+      yuukaBubbleText.textContent = "ダッシュボード情報の取得中にエラーが発生しました。サーバーの接続状況を確認してください。";
     }
   }
 
   function updateYuukaSpeechBubble() {
     let text = "";
     if (totalExpensesVal > 30000) {
-      text = `先生、今月はちょっと出費が多いんじゃないですか？（¥${totalExpensesVal.toLocaleString()}に達しています！）セミナー会計として警告します。本当に必要なものかもう一度よく考えて買いましょう！`;
+      text = `今月の支出が ¥${totalExpensesVal.toLocaleString()} に達しています。予算を確認してみましょう。`;
     } else if (pendingTasksCount > 5) {
-      text = `先生！未完了タスクが ${pendingTasksCount} 件も溜まっていますよ！スケジュールを後回しにすると、結局最後に自分が苦しむことになるんですからね！今から一緒にやっつけましょう！`;
+      text = `未完了タスクが ${pendingTasksCount} 件あります。優先度の高いものから片付けていきましょう。`;
     } else {
-      text = "お疲れ様です、先生。セミナー会計の早瀬ユウカが、今日も完璧にサポートしますよ！タスクや予定、家計の管理なら私に何でもお任せください！";
+      text = "お疲れ様です。タスク・予定・家計の管理をサポートします。何かあればDiscordでお声がけください。";
     }
     yuukaBubbleText.textContent = text;
   }
@@ -428,7 +952,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!breakdown || breakdown.length === 0 || total === 0) {
       donutSegment.setAttribute("stroke-dasharray", "0 251.2");
       chartCenterPercentage.textContent = "0%";
-      
+
       const empty = document.createElement("div");
       empty.className = "legend-item";
       empty.textContent = "今月のデータはありません。";
@@ -438,17 +962,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const entertainment = breakdown.find(c => c.category === "娯楽");
     const entPct = entertainment ? Math.round((entertainment.total / total) * 100) : 0;
-    
+
     const strokeDash = (entPct * 251.2) / 100;
     donutSegment.setAttribute("stroke-dasharray", `${strokeDash} 251.2`);
     chartCenterPercentage.textContent = `${entPct}%`;
 
     const colors = {
-      食費: "#00e676",
-      日用品: "#3b82f6",
-      交通費: "#ef4444",
-      娯楽: "#ff5376",
-      その他: "#8e87ad"
+      食費: "#5865F2", // Discord Blurple
+      日用品: "#248046", // Success green
+      交通費: "#fbbf24", // Warning yellow
+      娯楽: "#f472b6", // Pink
+      その他: "#4f545c" // Grey
     };
 
     breakdown.slice(0, 4).forEach(cat => {
@@ -481,7 +1005,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const dateLabels = [];
     const dateStrings = [];
-    
+
     for (let i = 5; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
@@ -505,7 +1029,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const maxVal = Math.max(...dailyTotals, 10000);
-    
+
     const points = dailyTotals.map((val, idx) => {
       const x = idx * 80;
       const y = 130 - (val / maxVal) * 100;
@@ -523,21 +1047,21 @@ document.addEventListener("DOMContentLoaded", () => {
       circle.setAttribute("cx", p.x);
       circle.setAttribute("cy", p.y);
       circle.setAttribute("r", "4.5");
-      circle.setAttribute("fill", "#fafafa");
-      circle.setAttribute("stroke", "var(--card-matte)");
+      circle.setAttribute("fill", "var(--color-primary)");
+      circle.setAttribute("stroke", "var(--bg-primary)");
       circle.setAttribute("stroke-width", "1.5");
       circle.style.cursor = "pointer";
       circle.style.transition = "r 0.15s ease, fill 0.15s ease";
 
       circle.addEventListener("mouseenter", () => {
         circle.setAttribute("r", "7.5");
-        circle.setAttribute("fill", "var(--color-zinc-muted)");
-        yuukaBubbleText.textContent = `${p.x === 400 ? "今日" : p.x === 320 ? "昨日" : "この日"}の出費額は ¥${p.amount.toLocaleString()} ですよ、先生！`;
+        circle.setAttribute("fill", "var(--color-white)");
+        yuukaBubbleText.textContent = `${p.x === 400 ? "今日" : p.x === 320 ? "昨日" : "この日"}の出費額は ¥${p.amount.toLocaleString()} です。`;
       });
 
       circle.addEventListener("mouseleave", () => {
         circle.setAttribute("r", "4.5");
-        circle.setAttribute("fill", "#fafafa");
+        circle.setAttribute("fill", "var(--discord-blurple)");
         updateYuukaSpeechBubble();
       });
 
@@ -547,11 +1071,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function renderUrgentDashboardList(pendingCount) {
     dashboardUrgentList.replaceChildren();
-    
+
     try {
       const resSched = await fetch("/api/schedules?days=1");
       const dataSched = await resSched.json();
-      
+
       const resTasks = await fetch("/api/tasks?status=pending");
       const dataTasks = await resTasks.json();
 
@@ -561,7 +1085,7 @@ document.addEventListener("DOMContentLoaded", () => {
         dataSched.schedules.slice(0, 2).forEach(sched => {
           const item = document.createElement("div");
           item.className = "urgent-item";
-          
+
           const iconSpan = document.createElement("span");
           iconSpan.className = "material-symbols-outlined icon-small";
           iconSpan.style.marginRight = "6px";
@@ -614,7 +1138,7 @@ document.addEventListener("DOMContentLoaded", () => {
         item.textContent = "今日の急ぎのタスクや予定はありません！素晴らしい計画性ですね！";
         dashboardUrgentList.appendChild(item);
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -622,7 +1146,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // E. TASKS VIEW LOGIC (Fetch & CRUD)
   async function fetchTasksList(filter = "all") {
     tasksList.replaceChildren();
-    
+
     try {
       const res = await fetch(`/api/tasks?status=${filter}`);
       const data = await res.json();
@@ -658,13 +1182,13 @@ document.addEventListener("DOMContentLoaded", () => {
           if (task.due_date) {
             const due = document.createElement("span");
             due.className = "meta-item";
-            
+
             const dueIcon = document.createElement("span");
             dueIcon.className = "material-symbols-outlined meta-icon";
             dueIcon.textContent = "calendar_today";
-            
+
             const dueText = document.createTextNode(` 期限: ${task.due_date}`);
-            
+
             due.appendChild(dueIcon);
             due.appendChild(dueText);
             meta.appendChild(due);
@@ -696,12 +1220,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const btnTrash = document.createElement("button");
           btnTrash.className = "btn-trash";
-          
+
           const trashIcon = document.createElement("span");
           trashIcon.className = "material-symbols-outlined";
           trashIcon.textContent = "delete";
           btnTrash.appendChild(trashIcon);
-          
+
           btnTrash.addEventListener("click", () => handleDeleteTask(task.id));
 
           right.appendChild(btnTrash);
@@ -716,7 +1240,7 @@ document.addEventListener("DOMContentLoaded", () => {
         empty.textContent = "登録されているタスクがありません。";
         tasksList.appendChild(empty);
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -750,7 +1274,7 @@ document.addEventListener("DOMContentLoaded", () => {
         taskForm.reset();
         fetchTasksList();
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   });
@@ -764,7 +1288,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const activeFilter = document.querySelector("[data-filter].active").getAttribute("data-filter");
       fetchTasksList(activeFilter);
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -779,7 +1303,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const activeFilter = document.querySelector("[data-filter].active").getAttribute("data-filter");
       fetchTasksList(activeFilter);
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -821,15 +1345,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const time = document.createElement("span");
           time.className = "meta-item";
-          
+
           const timeIcon = document.createElement("span");
           timeIcon.className = "material-symbols-outlined meta-icon";
           timeIcon.textContent = "schedule";
-          
+
           const startClean = sched.start_at.slice(0, 16);
           const endClean = sched.end_at ? ` 〜 ${sched.end_at.slice(11, 16)}` : "";
           const timeText = document.createTextNode(` ${startClean}${endClean}`);
-          
+
           time.appendChild(timeIcon);
           time.appendChild(timeText);
           meta.appendChild(time);
@@ -837,13 +1361,13 @@ document.addEventListener("DOMContentLoaded", () => {
           if (sched.google_calendar_id) {
             const cal = document.createElement("span");
             cal.className = "meta-item";
-            
+
             const calIcon = document.createElement("span");
             calIcon.className = "material-symbols-outlined meta-icon";
             calIcon.textContent = "sync";
-            
+
             const calText = document.createTextNode(" Google同期済み");
-            
+
             cal.appendChild(calIcon);
             cal.appendChild(calText);
             meta.appendChild(cal);
@@ -861,12 +1385,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const btnTrash = document.createElement("button");
           btnTrash.className = "btn-trash";
-          
+
           const trashIcon = document.createElement("span");
           trashIcon.className = "material-symbols-outlined";
           trashIcon.textContent = "delete";
           btnTrash.appendChild(trashIcon);
-          
+
           btnTrash.addEventListener("click", () => handleDeleteSchedule(sched.id));
 
           right.appendChild(btnTrash);
@@ -881,7 +1405,7 @@ document.addEventListener("DOMContentLoaded", () => {
         empty.textContent = "予定が登録されていません。";
         schedulesList.appendChild(empty);
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -917,7 +1441,7 @@ document.addEventListener("DOMContentLoaded", () => {
         scheduleForm.reset();
         fetchSchedulesList();
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   });
@@ -932,7 +1456,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const activeDays = parseInt(document.querySelector("[data-days].active").getAttribute("data-days"), 10);
       fetchSchedulesList(activeDays);
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -948,7 +1472,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (data.success) {
         // Month stats
         expenseMonthTotal.textContent = `¥${data.total.toLocaleString()}`;
-        
+
         // Progress bar calculation
         const percent = Math.min((data.total / 50000) * 100, 100);
         expenseBudgetBar.style.width = `${percent}%`;
@@ -961,7 +1485,7 @@ document.addEventListener("DOMContentLoaded", () => {
           expenseBudgetBar.style.backgroundColor = "#fbbf24"; // warning orange
           expenseBudgetStatus.textContent = "注意：中程度の支出状況です。計画的な利用を。";
         } else {
-          expenseBudgetBar.style.backgroundColor = "var(--color-white)";
+          expenseBudgetBar.style.backgroundColor = "var(--discord-blurple)";
           expenseBudgetStatus.textContent = "健全：非常に計画的な支出コントロールです！";
         }
 
@@ -971,7 +1495,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const tr = document.createElement("tr");
 
             const tdDate = document.createElement("td");
-            tdDate.textContent = exp.date;
+            tdDate.textContent = exp.time ? `${exp.date} ${exp.time.substring(0, 5)}` : exp.date;
 
             const tdCat = document.createElement("td");
             tdCat.textContent = exp.category;
@@ -982,11 +1506,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const tdSource = document.createElement("td");
             tdSource.style.fontSize = "0.75rem";
             tdSource.style.fontFamily = "var(--font-family-mono)";
-            
+
             const sourceIcon = document.createElement("span");
             sourceIcon.className = "material-symbols-outlined source-icon";
             sourceIcon.textContent = exp.source === "receipt" ? "photo_camera" : "web";
-            
+
             tdSource.appendChild(sourceIcon);
             tdSource.appendChild(document.createTextNode(exp.source === "receipt" ? "レシートAI" : "手動"));
 
@@ -1011,7 +1535,7 @@ document.addEventListener("DOMContentLoaded", () => {
           expensesTableBody.appendChild(tr);
         }
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -1023,11 +1547,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const description = document.getElementById("exp-description").value.trim();
     const date = document.getElementById("exp-date").value;
 
+    const now = new Date();
+    const pad = (n) => n.toString().padStart(2, "0");
+    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
     try {
       const res = await fetch("/api/expenses/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, category, description, date })
+        body: JSON.stringify({ amount, category, description, date, time })
       });
       const data = await res.json();
       if (data.success) {
@@ -1035,7 +1563,7 @@ document.addEventListener("DOMContentLoaded", () => {
         expDateInput.value = new Date().toISOString().slice(0, 10);
         fetchExpensesList();
       }
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   });
@@ -1043,7 +1571,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // AI Receipt Dropzone drag-drop
   if (receiptDropzone) {
     receiptDropzone.addEventListener("click", () => receiptFileInput.click());
-    
+
     receiptDropzone.addEventListener("dragover", (e) => {
       e.preventDefault();
       receiptDropzone.classList.add("dragover");
@@ -1075,7 +1603,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     scanStatus.classList.remove("hidden");
-    scanStatusText.textContent = "レシート画像をアップロードしてユウカに渡しています...";
+    scanStatusText.textContent = "レシート画像をアップロードしてAIに渡しています...";
 
     const reader = new FileReader();
     reader.onload = async () => {
@@ -1112,61 +1640,47 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // H. SYSTEM CONFIG POLL
   async function fetchConfigSettings() {
-    const configSettingsGrid = document.getElementById("config-settings-grid");
-    configSettingsGrid.replaceChildren();
-
     try {
       const res = await fetch("/api/status");
       const data = await res.json();
 
       if (data.success) {
-        // Render system values to mask grid
-        const entries = [
-          { label: "データベースファイルのパス (DB Path)", value: data.config.dbPath },
-          { label: "リマインダーチェック実行Cron (Reminder Cron)", value: data.config.reminderCron },
-          { label: "Googleカレンダー連携状態", value: data.config.googleCalendarId || "未連携" },
-          { label: "Gemini モデル設定", value: data.config.geminiModel },
-          { label: "Gemini API Key 状態", value: data.config.geminiApiKey }
-        ];
-
-        entries.forEach(entry => {
-          const box = document.createElement("div");
-          box.className = "config-item-box";
-
-          const label = document.createElement("div");
-          label.className = "config-item-label";
-          label.textContent = entry.label;
-
-          const val = document.createElement("div");
-          val.className = "config-item-value";
-          val.textContent = entry.value;
-
-          box.appendChild(label);
-          box.appendChild(val);
-          configSettingsGrid.appendChild(box);
-        });
-
         // Fill individual config form values
         document.getElementById("config-profile-username").value = data.user.username;
         document.getElementById("gemini-model-select").value = data.config.geminiModel;
-        
+
         document.getElementById("backup-enable").checked = data.config.backupEnabled;
         document.getElementById("backup-folder-id").value = data.config.backupFolderId === "未設定" ? "" : data.config.backupFolderId;
         document.getElementById("backup-cron").value = data.config.backupCron;
 
+        // UI access control for system_default bot settings
+        const isSystemDefault = window.currentBotId === "system_default";
+        const isAdmin = activeUserRole === "admin";
+        const configDiscordCard = document.getElementById("config-discord-card");
+        
+        if (configDiscordCard) {
+          if (isSystemDefault && !isAdmin) {
+            configDiscordCard.classList.add("hidden");
+          } else {
+            configDiscordCard.classList.remove("hidden");
+          }
+        }
+
         // Fetch and fill Discord / Persona config values
-        try {
-          fetch("/api/settings/discord")
-            .then(res => res.json())
-            .then(discordData => {
-              if (discordData.success) {
-                document.getElementById("discord-token").value = discordData.tokenMasked;
-                document.getElementById("discord-persona").value = discordData.persona;
-              }
-            })
-            .catch(err => console.error("Failed to load Discord settings:", err));
-        } catch (err) {
-          console.error("Failed to load Discord settings:", err);
+        if (!isSystemDefault || isAdmin) {
+          try {
+            fetch("/api/settings/discord")
+              .then(res => res.json())
+              .then(discordData => {
+                if (discordData.success) {
+                  document.getElementById("discord-token").value = discordData.tokenMasked;
+                  document.getElementById("discord-persona").value = discordData.persona;
+                }
+              })
+              .catch(err => console.error("Failed to load Discord settings:", err));
+          } catch (err) {
+            console.error("Failed to load Discord settings:", err);
+          }
         }
 
         // Render Calendars List (Matte Flat Style)
@@ -1186,10 +1700,10 @@ document.addEventListener("DOMContentLoaded", () => {
               row.style.display = "flex";
               row.style.justifyContent = "space-between";
               row.style.alignItems = "center";
-              row.style.padding = "10px 14px";
-              row.style.border = "1px solid var(--border-matte)";
-              row.style.borderRadius = "var(--radius)";
-              row.style.backgroundColor = "var(--card-matte)";
+              row.style.padding = "12px 0";
+              row.style.border = "none";
+              row.style.borderBottom = "1px solid var(--border-divider)";
+              row.style.backgroundColor = "transparent";
 
               const leftInfo = document.createElement("div");
               leftInfo.style.display = "flex";
@@ -1232,10 +1746,10 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
       }
-      
+
       // Load AI Credentials List
       fetchCredentialsSettings();
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   }
@@ -1299,7 +1813,7 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       const token = document.getElementById("discord-token").value.trim();
       const persona = document.getElementById("discord-persona").value.trim();
-      
+
       try {
         const res = await fetch("/api/settings/discord", {
           method: "POST",
@@ -1376,7 +1890,7 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("手動バックアップを実行するには、先にバックアップを有効にして設定を保存してください。");
         return;
       }
-      
+
       const originalText = btnTriggerBackup.textContent;
       btnTriggerBackup.textContent = "バックアップ実行中...";
       btnTriggerBackup.disabled = true;
@@ -1410,7 +1924,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (data.success) {
         const currentList = (data.config.googleCalendars || []).map(c => c.id);
         const newList = currentList.filter(id => id !== calendarId);
-        
+
         const saveRes = await fetch("/api/settings/calendars", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1448,7 +1962,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
           }
           currentList.push(calendarId);
-          
+
           const saveRes = await fetch("/api/settings/calendars", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1520,7 +2034,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const btnDel = document.createElement("button");
           btnDel.className = "btn-credential-delete";
           btnDel.type = "button";
-          
+
           const delIcon = document.createElement("span");
           delIcon.className = "material-symbols-outlined";
           delIcon.style.fontSize = "0.9rem";
@@ -1528,7 +2042,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           btnDel.appendChild(delIcon);
           btnDel.appendChild(document.createTextNode(" 削除"));
-          
+
           btnDel.addEventListener("click", () => handleDeleteCredential(cred.serviceName));
 
           tdActions.appendChild(btnDel);
@@ -1603,6 +2117,602 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("通信エラーが発生しました。");
     }
   }
+
+  // ==========================================
+  // ADMIN PAGE LOGIC
+  // ==========================================
+
+  function maskDiscordId(discordId) {
+    if (!discordId || discordId.length < 6) return discordId || "";
+    return discordId.substring(0, 4) + "****" + discordId.substring(discordId.length - 4);
+  }
+
+  async function fetchAdminData() {
+    if (activeUserRole !== "admin") return;
+    await Promise.all([
+      fetchAdminStats(),
+      fetchAdminUsers(),
+      fetchAdminBots(),
+      fetchAdminInviteCodes()
+    ]);
+  }
+
+  async function fetchAdminStats() {
+    try {
+      const res = await originalFetch("/api/admin/stats");
+      const data = await res.json();
+      if (data.success) {
+        const s = data.stats;
+        document.getElementById("admin-stat-users").textContent = s.totalUsers;
+        document.getElementById("admin-stat-bots").textContent = s.totalBots;
+        document.getElementById("admin-stat-suspended").textContent = s.suspendedBots;
+        document.getElementById("admin-stat-invites").textContent = s.availableInviteCodes;
+      }
+    } catch (err) {
+      console.error("Admin stats fetch error");
+    }
+  }
+
+  async function fetchAdminUsers() {
+    const tbody = document.getElementById("admin-users-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    try {
+      const res = await originalFetch("/api/admin/users");
+      const data = await res.json();
+      if (!data.success || !data.users.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.style.textAlign = "center";
+        td.style.padding = "20px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "登録済みユーザーはいません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      data.users.forEach(user => {
+        const tr = document.createElement("tr");
+
+        // ユーザー名
+        const tdName = document.createElement("td");
+        tdName.className = "admin-table-td";
+        tdName.style.fontWeight = "700";
+        tdName.style.color = "var(--color-white)";
+        tdName.textContent = user.username;
+        tr.appendChild(tdName);
+
+        // Discord ID (マスク表示)
+        const tdId = document.createElement("td");
+        tdId.className = "admin-table-td admin-discord-id";
+        tdId.textContent = maskDiscordId(user.discord_id);
+        tr.appendChild(tdId);
+
+        // ロールバッジ
+        const tdRole = document.createElement("td");
+        tdRole.className = "admin-table-td";
+        const roleBadge = document.createElement("span");
+        roleBadge.className = `admin-role-badge role-${user.role || "user"}`;
+        roleBadge.textContent = (user.role || "user").toUpperCase();
+        tdRole.appendChild(roleBadge);
+        tr.appendChild(tdRole);
+
+        // 登録日
+        const tdDate = document.createElement("td");
+        tdDate.className = "admin-table-td";
+        tdDate.style.fontSize = "0.8rem";
+        tdDate.style.color = "var(--color-zinc-muted)";
+        tdDate.textContent = user.created_at;
+        tr.appendChild(tdDate);
+
+        // 操作
+        const tdAction = document.createElement("td");
+        tdAction.className = "admin-table-td";
+        tdAction.style.textAlign = "right";
+
+        if (user.discord_id !== activeUserId) {
+          const btn = document.createElement("button");
+          btn.className = `admin-btn-action ${user.role === "admin" ? "" : "btn-promote"}`;
+          btn.type = "button";
+          const newRole = user.role === "admin" ? "user" : "admin";
+          btn.textContent = user.role === "admin" ? "降格" : "管理者に";
+          btn.addEventListener("click", async () => {
+            const confirmMsg = newRole === "admin"
+              ? `ユーザー「${user.username}」を Admin に昇格しますか？`
+              : `ユーザー「${user.username}」の Admin 権限を解除しますか？`;
+            if (!confirm(confirmMsg)) return;
+            try {
+              const r = await originalFetch("/api/admin/users/role", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetUserId: user.discord_id, role: newRole })
+              });
+              const d = await r.json();
+              if (d.success) {
+                fetchAdminUsers();
+                fetchAdminStats();
+              } else {
+                // TODO(security): Replace alert with a modal in production
+                alert(d.message);
+              }
+            } catch (e) {
+              console.error("Role change failed");
+            }
+          });
+          tdAction.appendChild(btn);
+        } else {
+          const selfLabel = document.createElement("span");
+          selfLabel.style.fontSize = "0.75rem";
+          selfLabel.style.color = "var(--color-zinc-muted)";
+          selfLabel.textContent = "自分";
+          tdAction.appendChild(selfLabel);
+        }
+        tr.appendChild(tdAction);
+
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Admin users fetch error");
+    }
+  }
+
+  async function fetchAdminBots() {
+    const tbody = document.getElementById("admin-bots-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    try {
+      const res = await originalFetch("/api/admin/bots");
+      const data = await res.json();
+      if (!data.success || !data.bots.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.style.textAlign = "center";
+        td.style.padding = "20px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "Botは登録されていません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      data.bots.forEach(bot => {
+        const tr = document.createElement("tr");
+
+        // Bot名
+        const tdName = document.createElement("td");
+        tdName.className = "admin-table-td";
+        tdName.style.fontWeight = "700";
+        tdName.style.color = "var(--color-white)";
+        tdName.textContent = bot.discord_username || bot.name;
+        tr.appendChild(tdName);
+
+        // 所有者
+        const tdOwner = document.createElement("td");
+        tdOwner.className = "admin-table-td";
+        tdOwner.textContent = bot.owner_username;
+        tr.appendChild(tdOwner);
+
+        // ステータス
+        const tdStatus = document.createElement("td");
+        tdStatus.className = "admin-table-td";
+        const statusBadge = document.createElement("span");
+        if (bot.suspended) {
+          statusBadge.className = "admin-status-badge status-suspended";
+          statusBadge.textContent = "差し押さえ中";
+        } else if (bot.hasCustomToken) {
+          statusBadge.className = "admin-status-badge status-active";
+          statusBadge.textContent = bot.isRunning ? "起動中" : "停止";
+        } else {
+          statusBadge.className = "admin-status-badge status-default";
+          statusBadge.textContent = "デフォルト";
+        }
+        tdStatus.appendChild(statusBadge);
+        tr.appendChild(tdStatus);
+
+        // 作成日
+        const tdDate = document.createElement("td");
+        tdDate.className = "admin-table-td";
+        tdDate.style.fontSize = "0.8rem";
+        tdDate.style.color = "var(--color-zinc-muted)";
+        tdDate.textContent = bot.created_at;
+        tr.appendChild(tdDate);
+
+        // 操作
+        const tdAction = document.createElement("td");
+        tdAction.className = "admin-table-td";
+        tdAction.style.textAlign = "right";
+
+        if (bot.suspended) {
+          const btnUnsuspend = document.createElement("button");
+          btnUnsuspend.className = "admin-btn-action btn-success";
+          btnUnsuspend.type = "button";
+          btnUnsuspend.textContent = "解除";
+          btnUnsuspend.addEventListener("click", async () => {
+            if (!confirm(`Bot「${bot.name}」の差し押さえを解除しますか？`)) return;
+            try {
+              const r = await originalFetch("/api/admin/bots/unsuspend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ botId: bot.id })
+              });
+              const d = await r.json();
+              if (d.success) {
+                fetchAdminBots();
+                fetchAdminStats();
+              }
+            } catch (e) {
+              console.error("Unsuspend failed");
+            }
+          });
+          tdAction.appendChild(btnUnsuspend);
+        } else {
+          const btnSuspend = document.createElement("button");
+          btnSuspend.className = "admin-btn-action btn-danger";
+          btnSuspend.type = "button";
+          btnSuspend.textContent = "差し押さえ";
+          btnSuspend.addEventListener("click", async () => {
+            if (!confirm(`Bot「${bot.name}」を差し押さえますか？\nDiscordクライアントが停止され、所有者は再起動できなくなります。`)) return;
+            try {
+              const r = await originalFetch("/api/admin/bots/suspend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ botId: bot.id })
+              });
+              const d = await r.json();
+              if (d.success) {
+                fetchAdminBots();
+                fetchAdminStats();
+              }
+            } catch (e) {
+              console.error("Suspend failed");
+            }
+          });
+          tdAction.appendChild(btnSuspend);
+        }
+        tr.appendChild(tdAction);
+
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Admin bots fetch error");
+    }
+  }
+
+  async function fetchAdminInviteCodes() {
+    const tbody = document.getElementById("admin-invites-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    try {
+      const res = await originalFetch("/api/admin/invite-codes");
+      const data = await res.json();
+      if (!data.success || !data.codes.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 4;
+        td.style.textAlign = "center";
+        td.style.padding = "20px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "招待コードは登録されていません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      data.codes.forEach(code => {
+        const tr = document.createElement("tr");
+
+        // コード
+        const tdCode = document.createElement("td");
+        tdCode.className = "admin-table-td";
+        tdCode.style.fontFamily = "var(--font-family-mono)";
+        tdCode.style.fontWeight = "600";
+        tdCode.textContent = code.code;
+        tr.appendChild(tdCode);
+
+        // ステータス
+        const tdStatus = document.createElement("td");
+        tdStatus.className = "admin-table-td";
+        const statusSpan = document.createElement("span");
+        if (code.used_by) {
+          statusSpan.className = "invite-status-used";
+          statusSpan.textContent = "使用済み";
+        } else {
+          statusSpan.className = "invite-status-available";
+          statusSpan.textContent = "利用可能";
+        }
+        tdStatus.appendChild(statusSpan);
+        tr.appendChild(tdStatus);
+
+        // 使用者
+        const tdUsedBy = document.createElement("td");
+        tdUsedBy.className = "admin-table-td";
+        tdUsedBy.style.color = "var(--color-zinc-muted)";
+        tdUsedBy.textContent = code.used_by ? maskDiscordId(code.used_by) : "—";
+        tr.appendChild(tdUsedBy);
+
+        // 作成日
+        const tdDate = document.createElement("td");
+        tdDate.className = "admin-table-td";
+        tdDate.style.fontSize = "0.8rem";
+        tdDate.style.color = "var(--color-zinc-muted)";
+        tdDate.textContent = code.created_at;
+        tr.appendChild(tdDate);
+
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Admin invite codes fetch error");
+    }
+  }
+
+  // Admin Invite Code Form
+  const adminInviteForm = document.getElementById("admin-invite-form");
+  if (adminInviteForm) {
+    adminInviteForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("admin-invite-code-input");
+      const code = input.value.trim();
+      if (!code) return;
+
+      try {
+        const res = await originalFetch("/api/admin/invite-codes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (data.success) {
+          input.value = "";
+          fetchAdminInviteCodes();
+          fetchAdminStats();
+        } else {
+          // TODO(security): Replace alert with a modal in production
+          alert(data.message);
+        }
+      } catch (err) {
+        console.error("Invite code creation failed");
+      }
+    });
+  }
+
+  // Admin Default Bot Token Form
+  const adminDefaultBotForm = document.getElementById("admin-default-bot-form");
+  if (adminDefaultBotForm) {
+    adminDefaultBotForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("admin-default-bot-token");
+      const token = input.value.trim();
+      if (!token) return;
+
+      try {
+        const res = await originalFetch("/api/admin/default-bot/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        if (data.success) {
+          input.value = "";
+          alert("システムデフォルト Bot のトークンを更新しました！");
+        } else {
+          alert(`更新失敗: ${data.message}`);
+        }
+      } catch (err) {
+        console.error("Default bot token update failed");
+        alert("更新に失敗しました。");
+      }
+    });
+  }
+
+  // ==========================================
+  // PLAYBOOKS MANAGEMENT
+  // ==========================================
+  async function fetchPlaybooksList() {
+    const container = document.getElementById("playbooks-list-container");
+    if (!container) return;
+
+    container.replaceChildren();
+
+    const searchInput = document.getElementById("playbook-search-input");
+    const query = searchInput ? searchInput.value.trim() : "";
+
+    try {
+      const res = await fetch(`/api/playbooks?query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+
+      if (data.success && data.playbooks.length > 0) {
+        data.playbooks.forEach(pb => {
+          const card = document.createElement("div");
+          card.className = "card-item glass hover-lift";
+          card.style.flexDirection = "column";
+          card.style.alignItems = "stretch";
+          card.style.padding = "16px";
+          card.style.gap = "8px";
+          card.style.cursor = "pointer";
+
+          // Top row: Title and Delete button
+          const topRow = document.createElement("div");
+          topRow.style.display = "flex";
+          topRow.style.justifyContent = "space-between";
+          topRow.style.alignItems = "center";
+
+          const title = document.createElement("div");
+          title.className = "card-title";
+          title.textContent = pb.title;
+          title.style.fontSize = "1.0rem";
+
+          const nameTag = document.createElement("span");
+          nameTag.className = "badge badge-accent";
+          nameTag.style.marginLeft = "8px";
+          nameTag.style.fontSize = "0.7rem";
+          nameTag.textContent = pb.name;
+          title.appendChild(nameTag);
+
+          const btnTrash = document.createElement("button");
+          btnTrash.className = "btn-trash";
+          btnTrash.type = "button";
+          btnTrash.style.width = "28px";
+          btnTrash.style.height = "28px";
+
+          const trashIcon = document.createElement("span");
+          trashIcon.className = "material-symbols-outlined";
+          trashIcon.style.fontSize = "1.1rem";
+          trashIcon.textContent = "delete";
+          btnTrash.appendChild(trashIcon);
+
+          // Stop propagation so clicking delete doesn't load into edit form
+          btnTrash.addEventListener("click", (e) => {
+            e.stopPropagation();
+            handleDeletePlaybook(pb.name);
+          });
+
+          topRow.appendChild(title);
+          topRow.appendChild(btnTrash);
+
+          // Middle row: Description
+          const desc = document.createElement("div");
+          desc.className = "card-desc";
+          desc.textContent = pb.description || "説明なし";
+
+          // Keywords list
+          const keywordsRow = document.createElement("div");
+          keywordsRow.style.display = "flex";
+          keywordsRow.style.flexWrap = "wrap";
+          keywordsRow.style.gap = "6px";
+          keywordsRow.style.marginTop = "4px";
+
+          if (pb.keywords && pb.keywords.length > 0) {
+            pb.keywords.forEach(kw => {
+              const kwBadge = document.createElement("span");
+              kwBadge.className = "badge";
+              kwBadge.style.backgroundColor = "rgba(255,255,255,0.06)";
+              kwBadge.style.border = "1px solid var(--border-matte)";
+              kwBadge.style.color = "var(--color-zinc-muted)";
+              kwBadge.style.fontSize = "0.65rem";
+              kwBadge.textContent = kw;
+              keywordsRow.appendChild(kwBadge);
+            });
+          }
+
+          card.appendChild(topRow);
+          card.appendChild(desc);
+          card.appendChild(keywordsRow);
+
+          // Clicking card loads it into the editor form
+          card.addEventListener("click", () => {
+            document.getElementById("playbook-name").value = pb.name;
+            document.getElementById("playbook-title").value = pb.title;
+            document.getElementById("playbook-keywords").value = (pb.keywords || []).join(", ");
+            document.getElementById("playbook-description").value = pb.description || "";
+            document.getElementById("playbook-steps").value = pb.steps || "";
+            
+            // Highlight name field briefly to show it is loaded
+            const nameInput = document.getElementById("playbook-name");
+            nameInput.style.borderColor = "var(--color-primary)";
+            setTimeout(() => { nameInput.style.borderColor = ""; }, 1000);
+          });
+
+          container.appendChild(card);
+        });
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "glass";
+        empty.style.padding = "20px";
+        empty.style.textAlign = "center";
+        empty.style.color = "var(--color-zinc-muted)";
+        empty.style.fontSize = "0.85rem";
+        empty.textContent = "Playbookが登録されていません。";
+        container.appendChild(empty);
+      }
+    } catch (e) {
+      console.error("Playbook一覧の取得失敗:", e);
+    }
+  }
+
+  // Handle Playbook form submit
+  const playbookForm = document.getElementById("playbook-form");
+  if (playbookForm) {
+    playbookForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("playbook-name").value.trim();
+      const title = document.getElementById("playbook-title").value.trim();
+      const keywordsRaw = document.getElementById("playbook-keywords").value.trim();
+      const description = document.getElementById("playbook-description").value.trim();
+      const steps = document.getElementById("playbook-steps").value.trim();
+
+      const keywords = keywordsRaw
+        ? keywordsRaw.split(",").map(k => k.trim()).filter(k => k.length > 0)
+        : [];
+
+      try {
+        const res = await fetch("/api/playbooks/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, title, keywords, description, steps })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("Playbookを保存しました。");
+          playbookForm.reset();
+          fetchPlaybooksList();
+        } else {
+          alert(`保存に失敗しました: ${data.message}`);
+        }
+      } catch (err) {
+        console.error(err);
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Handle Playbook deletion
+  async function handleDeletePlaybook(name) {
+    if (!confirm(`本当にこのPlaybook [${name}] を削除しますか？`)) return;
+    try {
+      const res = await fetch("/api/playbooks/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchPlaybooksList();
+      } else {
+        alert(`削除に失敗しました: ${data.message}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("通信エラーが発生しました。");
+    }
+  }
+
+  // Handle search triggers
+  const btnPlaybookSearch = document.getElementById("btn-playbook-search");
+  if (btnPlaybookSearch) {
+    btnPlaybookSearch.addEventListener("click", fetchPlaybooksList);
+  }
+  const playbookSearchInput = document.getElementById("playbook-search-input");
+  if (playbookSearchInput) {
+    playbookSearchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        fetchPlaybooksList();
+      }
+    });
+  }
+
+  // Handle popstate event (back/forward browser buttons)
+  window.addEventListener("popstate", () => {
+    applyRoute(window.location.pathname);
+  });
 
   // On page load, try auto-login
   initAppSession();

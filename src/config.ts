@@ -47,8 +47,6 @@ function requireSetting(key: string): string {
  * ユーザー別設定はDBから取得する（userRepo.ts参照）
  */
 export const config = {
-  /** Discord Botトークン（全ユーザー共有） */
-  discordToken: requireSetting("DISCORD_TOKEN"),
 
   /** データベースファイルのパス */
   dbPath: getSetting("DB_PATH", "./data/yuuka.db"),
@@ -76,4 +74,5 @@ export const config = {
 
   /** 外部公開用ベースURL */
   baseUrl: getSetting("BASE_URL", ""),
+
 } as const;

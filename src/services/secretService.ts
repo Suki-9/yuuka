@@ -4,25 +4,25 @@ import { encryptText, decryptText } from "../utils/crypto.js";
 /**
  * 資格情報を安全に登録または更新する
  */
-export function registerCredential(userId: string, serviceName: string, username: string, password: string): void {
+export function registerCredential(botId: string, serviceName: string, username: string, password: string): void {
   const cleanServiceName = serviceName.trim().toLowerCase();
   const cleanUsername = username.trim();
 
   // パスワードを aes-256-gcm で暗号化
   const { encrypted, iv, authTag } = encryptText(password);
 
-  credentialRepo.saveCredential(userId, cleanServiceName, cleanUsername, encrypted, iv, authTag);
+  credentialRepo.saveCredential(botId, cleanServiceName, cleanUsername, encrypted, iv, authTag);
 }
 
 /**
  * 特定のサービスの暗号化された資格情報をオンデマンドで復号して取得する
  */
 export function getDecryptedCredential(
-  userId: string,
+  botId: string,
   serviceName: string
 ): { username: string; password: string } | null {
   const cleanServiceName = serviceName.trim().toLowerCase();
-  const record = credentialRepo.getCredential(userId, cleanServiceName);
+  const record = credentialRepo.getCredential(botId, cleanServiceName);
 
   if (!record) {
     return null;
@@ -43,14 +43,14 @@ export function getDecryptedCredential(
 /**
  * 資格情報を完全に削除する
  */
-export function deleteCredential(userId: string, serviceName: string): boolean {
+export function deleteCredential(botId: string, serviceName: string): boolean {
   const cleanServiceName = serviceName.trim().toLowerCase();
-  return credentialRepo.deleteCredential(userId, cleanServiceName);
+  return credentialRepo.deleteCredential(botId, cleanServiceName);
 }
 
 /**
  * パスワード以外の登録済み資格情報インデックス一覧を取得する
  */
-export function listCredentials(userId: string) {
-  return credentialRepo.listCredentials(userId);
+export function listCredentials(botId: string) {
+  return credentialRepo.listCredentials(botId);
 }

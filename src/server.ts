@@ -29,18 +29,60 @@ import {
   createUser,
   getUserByDiscordId,
   updateUsername,
-  updateGeminiSettings,
-  updateGoogleSettings,
-  updateBackupSettings,
-  getUserGeminiConfig,
-  getUserGoogleConfig,
   verifyPassword,
-  getUserDiscordBotConfig,
-  updateDiscordBotSettings,
+  listAllUsers,
+  updateUserRole,
+  isAdmin,
+  getUserGeminiConfig,
+  updateUserGeminiSettings,
 } from "./db/userRepo.js";
-import { startCustomBotForUser, stopCustomBotForUser } from "./bot.js";
-import { isValidCode, validateAndConsumeCode } from "./db/inviteRepo.js";
+import {
+  createBot,
+  getBotById,
+  listBotsForUser,
+  deleteBot,
+  updateBotSettings,
+  updateBotGeminiSettings,
+  updateBotGoogleSettings,
+  updateBotBackupSettings,
+  getBotGeminiConfig,
+  getBotGoogleConfig,
+  getBotDiscordConfig,
+  updateBotDiscordProfile,
+  listAllBots,
+  suspendBot,
+  unsuspendBot,
+  isBotSuspended,
+} from "./db/botRepo.js";
+import { startCustomBot, stopCustomBot, client as defaultBotClient, customClients, restartDefaultBot } from "./bot.js";
+import { isValidCode, validateAndConsumeCode, listInviteCodes, createInviteCode } from "./db/inviteRepo.js";
 import { encryptText } from "./utils/crypto.js";
+import { findPlaybooks, savePlaybook, deletePlaybook } from "./services/playbookService.js";
+
+
+/**
+ * セッションユーザーが指定された Bot ID にアクセス可能（所有者、または共有権限あり）かチェックする
+ */
+function verifyBotAccess(userId: string, botId: string | null): boolean {
+  if (!botId) return false;
+  if (botId === "system_default") return true; // デフォルトBotには全員アクセス可能
+  
+  // 1. 所有者であるかチェック
+  const bot = getBotById(botId);
+  if (bot && bot.user_id === userId) return true;
+  
+  // 2. 共有権限があるかチェック
+  const db = getDb();
+  const row = db.prepare("SELECT 1 FROM user_bot_access WHERE user_id = ? AND bot_id = ? LIMIT 1").get(userId, botId);
+  return !!row;
+}
+
+/**
+ * セッションユーザーが Admin ロールかどうかチェックする
+ */
+function verifyAdmin(userId: string): boolean {
+  return isAdmin(userId);
+}
 
 // セッション管理
 interface SessionData {
@@ -86,6 +128,19 @@ function getRequestBody(req: http.IncomingMessage, maxBytes: number = 10 * 1024 
       body += chunk.toString();
     });
     req.on("end", () => {
+      try {
+        // 旧フロントエンド互換性：JSONボディに botId がない場合、デフォルトBot IDを補完する
+        if (body.trim().startsWith("{")) {
+          const parsed = JSON.parse(body);
+          if (parsed && typeof parsed === "object" && (!parsed.botId || parsed.botId.trim() === "")) {
+            parsed.botId = "system_default";
+            resolve(JSON.stringify(parsed));
+            return;
+          }
+        }
+      } catch (e) {
+        // パースエラー時はそのまま
+      }
       resolve(body);
     });
     req.on("error", (err) => {
@@ -114,21 +169,41 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 }
 
 /**
+ * リクエストが HTTPS 経由であるかどうかを判別する
+ */
+function checkHttps(req: http.IncomingMessage): boolean {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const isForwardedHttps = typeof forwardedProto === "string" && forwardedProto.toLowerCase() === "https";
+  const isEncrypted = !!(req.socket as any).encrypted;
+
+  return isForwardedHttps || isEncrypted;
+}
+
+/**
  * クッキーのパースからセッションの妥当性をチェックし、ユーザーIDを返す
  */
 function getSessionUser(req: http.IncomingMessage): string | null {
   const cookies = parseCookies(req.headers.cookie);
-  const sessionToken = cookies["__Host-yuuka-session"];
-  if (!sessionToken) return null;
-
-  const session = activeSessions.get(sessionToken);
-  if (!session) return null;
-
-  if (Date.now() - session.createdAt > SESSION_TTL) {
-    activeSessions.delete(sessionToken);
-    return null;
+  
+  // 1. セキュアクッキーを優先して検証
+  const hostToken = cookies["__Host-yuuka-session"];
+  if (hostToken) {
+    const session = activeSessions.get(hostToken);
+    if (session && Date.now() - session.createdAt <= SESSION_TTL) {
+      return session.userId;
+    }
   }
-  return session.userId;
+
+  // 2. フォールバックとして通常のセッションクッキーを検証
+  const standardToken = cookies["yuuka-session"];
+  if (standardToken) {
+    const session = activeSessions.get(standardToken);
+    if (session && Date.now() - session.createdAt <= SESSION_TTL) {
+      return session.userId;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -139,7 +214,7 @@ function sendJson(res: http.ServerResponse, status: number, data: any) {
     "Content-Type": "application/json",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
-    "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'self';",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';",
   });
   res.end(JSON.stringify(data));
 }
@@ -167,23 +242,31 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
   }
 
   fs.stat(resolvedPath, (err, stats) => {
+    let finalPath = resolvedPath;
     if (err || !stats.isFile()) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("404 Not Found");
-      return;
+      const ext = path.extname(resolvedPath);
+      // SPAのパスルーティング（拡張子なしのパス）の場合は、index.htmlを配信する
+      if (!ext) {
+        finalPath = path.join(PUBLIC_DIR, "index.html");
+      } else {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("404 Not Found");
+        return;
+      }
     }
 
-    const ext = path.extname(resolvedPath).toLowerCase();
+    const ext = path.extname(finalPath).toLowerCase();
     const contentType = MIME_TYPES[ext] || "application/octet-stream";
 
     res.writeHead(200, {
       "Content-Type": contentType,
+      "Cache-Control": "no-cache, no-store, must-revalidate",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "SAMEORIGIN",
-      "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'self';",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';",
     });
 
-    const stream = fs.createReadStream(resolvedPath);
+    const stream = fs.createReadStream(finalPath);
     stream.pipe(res);
   });
 }
@@ -196,27 +279,72 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   const parsedUrl = new URL(url || "/", `http://${req.headers.host || "localhost"}`);
   const pathname = parsedUrl.pathname;
 
-  // 1. CORS対応 (ローカル接続に限定)
-  res.setHeader("Access-Control-Allow-Origin", "null");
+  // HTTPからHTTPSへのリダイレクト判定
+  if (config.baseUrl && config.baseUrl.toLowerCase().startsWith("https://")) {
+    const isHttps = checkHttps(req);
+    if (!isHttps) {
+      const baseUrlObj = new URL(config.baseUrl);
+      const reqHost = req.headers.host;
+      if (reqHost) {
+        const reqHostName = reqHost.split(":")[0];
+        if (reqHostName === baseUrlObj.hostname) {
+          // HTTPSのURLに301リダイレクト
+          res.writeHead(301, { Location: `https://${baseUrlObj.hostname}${url || ""}` });
+          res.end();
+          return;
+        }
+      }
+    }
+  }
+
+  // 1. CORS対応 (ローカル接続または信頼されたオリジンに限定)
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin) {
+    let isAllowedOrigin = false;
+    if (requestOrigin.startsWith("http://localhost:") || requestOrigin.startsWith("http://127.0.0.1:")) {
+      isAllowedOrigin = true;
+    } else if (config.baseUrl) {
+      try {
+        const baseUrlObj = new URL(config.baseUrl);
+        const originUrlObj = new URL(requestOrigin);
+        if (originUrlObj.hostname === baseUrlObj.hostname) {
+          isAllowedOrigin = true;
+        }
+      } catch {}
+    }
+
+    if (isAllowedOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+  }
 
   // 2. Google OAuth コールバック (GET /api/settings/google/oauth/callback)
   if (pathname === "/api/settings/google/oauth/callback" && method === "GET") {
     const code = parsedUrl.searchParams.get("code");
+    const state = parsedUrl.searchParams.get("state"); // botId が入っている
     
     // コールバック時点でのセッション確認
     const userId = getSessionUser(req);
     if (!userId) {
-      res.writeHead(302, { Location: "/index.html?oauth=error&msg=unauthorized" });
+      res.writeHead(302, { Location: "/?oauth=error&msg=unauthorized" });
       res.end();
       return;
     }
 
-    const userConfig = getUserGoogleConfig(userId);
+    const botId = state;
+    if (!verifyBotAccess(userId, botId)) {
+      res.writeHead(302, { Location: "/?oauth=error&msg=unauthorized" });
+      res.end();
+      return;
+    }
+
+    const userConfig = getBotGoogleConfig(botId!);
     const clientId = userConfig?.clientId || config.googleClientId;
     const clientSecret = userConfig?.clientSecret || config.googleClientSecret;
 
     if (!clientId || !clientSecret) {
-      res.writeHead(302, { Location: "/index.html?oauth=error&msg=missing_config" });
+      res.writeHead(302, { Location: "/?oauth=error&msg=missing_config" });
       res.end();
       return;
     }
@@ -247,8 +375,8 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       const calendarIdToSave = userConfig?.calendarId || googleEmail || null;
 
       if (refreshTokenToSave) {
-        updateGoogleSettings(
-          userId,
+        updateBotGoogleSettings(
+          botId!,
           userConfig?.clientId || null,
           userConfig?.clientSecret || null,
           refreshTokenToSave,
@@ -256,15 +384,15 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
           userConfig?.calendars || []
         );
         const note = tokens.refresh_token ? "" : "&note=existing_token_used";
-        res.writeHead(302, { Location: `/index.html?oauth=success${note}` });
+        res.writeHead(302, { Location: `/?oauth=success${note}` });
         res.end();
       } else {
-        res.writeHead(302, { Location: "/index.html?oauth=error&msg=no_refresh_token" });
+        res.writeHead(302, { Location: "/?oauth=error&msg=no_refresh_token" });
         res.end();
       }
     } catch (err: any) {
       console.error("Google OAuth Callback Error:", err);
-      res.writeHead(302, { Location: `/index.html?oauth=error&msg=${encodeURIComponent(err.message)}` });
+      res.writeHead(302, { Location: `/?oauth=error&msg=${encodeURIComponent(err.message)}` });
       res.end();
     }
     return;
@@ -280,14 +408,70 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   // A. パブリックAPI (新規登録 / ログイン)
   // ──────────────────────────────────────────
   
+  // セットアップ状態の確認
+  if (pathname === "/api/setup/status" && method === "GET") {
+    try {
+      const users = listAllUsers();
+      sendJson(res, 200, { needSetup: users.length === 0 });
+    } catch (err: any) {
+      console.error("セットアップ状態確認エラー:", err);
+      sendError(res, 500, "システム状態の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // 初期セットアップ実行
+  if (pathname === "/api/setup" && method === "POST") {
+    try {
+      const users = listAllUsers();
+      if (users.length > 0) {
+        return sendError(res, 400, "システムは既にセットアップされています。");
+      }
+
+      const body = await getRequestBody(req);
+      const { discordId, username, password, geminiApiKey } = JSON.parse(body);
+
+      if (!discordId || !username || !password || !geminiApiKey) {
+        return sendError(res, 400, "すべてのフィールド（Discord ID、ユーザーネーム、パスワード、Gemini API Key）を入力してください。");
+      }
+
+      const cleanDiscordId = discordId.trim();
+      const cleanUsername = username.trim();
+
+      const enc = encryptText(geminiApiKey.trim());
+
+      // 1. 管理者ユーザーの登録 (最初の登録なので自動的に admin ロールになる)
+      createUser(cleanDiscordId, cleanUsername, password, enc.encrypted, enc.iv, enc.authTag);
+
+      // 2. セッショントークン生成と自動ログイン
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      activeSessions.set(sessionToken, { userId: cleanDiscordId, createdAt: Date.now() });
+
+      const isHttps = checkHttps(req);
+      const cookieName = isHttps ? "__Host-yuuka-session" : "yuuka-session";
+      const cookieSecure = isHttps ? "; Secure" : "";
+
+      res.setHeader(
+        "Set-Cookie",
+        `${cookieName}=${sessionToken}; Path=/; HttpOnly${cookieSecure}; SameSite=Lax`
+      );
+
+      sendJson(res, 200, { success: true, message: "管理者登録が完了しました。続いてデフォルトBotを設定してください。" });
+    } catch (err: any) {
+      console.error("初期セットアップエラー:", err);
+      sendError(res, 500, "初期セットアップに失敗しました。");
+    }
+    return;
+  }
+
   // 新規登録
   if (pathname === "/api/register" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { discordId, username, password, inviteCode } = JSON.parse(body);
+      const { discordId, username, password, inviteCode, geminiApiKey } = JSON.parse(body);
 
-      if (!discordId || !username || !password || !inviteCode) {
-        return sendError(res, 400, "すべてのフィールド（Discord ID、ユーザーネーム、パスワード、招待コード）を入力してください。");
+      if (!discordId || !username || !password || !inviteCode || !geminiApiKey) {
+        return sendError(res, 400, "すべてのフィールド（Discord ID、ユーザーネーム、パスワード、招待コード、Gemini API Key）を入力してください。");
       }
 
       const cleanDiscordId = discordId.trim();
@@ -301,8 +485,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         return sendError(res, 400, "無効な、または使用済みの招待コードです。");
       }
 
+      const enc = encryptText(geminiApiKey.trim());
+
       // ユーザー作成
-      createUser(cleanDiscordId, cleanUsername, password);
+      createUser(cleanDiscordId, cleanUsername, password, enc.encrypted, enc.iv, enc.authTag);
 
       // 招待コード消費
       validateAndConsumeCode(inviteCode.trim(), cleanDiscordId);
@@ -346,10 +532,15 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         const sessionToken = crypto.randomBytes(32).toString("hex");
         activeSessions.set(sessionToken, { userId: cleanDiscordId, createdAt: Date.now() });
 
-        // セキュアクッキー
+        // セキュアクッキーの設定
+        // TODO(security): 本番環境（HTTPS）では安全なクッキー属性を強制し、非HTTPS環境ではフォールバックする
+        const isHttps = checkHttps(req);
+        const cookieName = isHttps ? "__Host-yuuka-session" : "yuuka-session";
+        const cookieSecure = isHttps ? "; Secure" : "";
+
         res.setHeader(
           "Set-Cookie",
-          `__Host-yuuka-session=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax`
+          `${cookieName}=${sessionToken}; Path=/; HttpOnly${cookieSecure}; SameSite=Lax`
         );
 
         sendJson(res, 200, { success: true, message: "ログインに成功しました！" });
@@ -377,6 +568,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
+  // 旧フロントエンド互換性：クエリパラメータに botId がない場合はデフォルトBot IDを設定
+  if (!parsedUrl.searchParams.get("botId") || parsedUrl.searchParams.get("botId")?.trim() === "") {
+    parsedUrl.searchParams.set("botId", "system_default");
+  }
+
   // ──────────────────────────────────────────
   // C. 認証済みプライベートAPI
   // ──────────────────────────────────────────
@@ -384,13 +580,18 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   // ログアウト
   if (pathname === "/api/logout" && method === "POST") {
     const cookies = parseCookies(req.headers.cookie);
-    const sessionToken = cookies["__Host-yuuka-session"];
+    const sessionToken = cookies["__Host-yuuka-session"] || cookies["yuuka-session"];
     if (sessionToken) {
       activeSessions.delete(sessionToken);
     }
+
+    const isHttps = checkHttps(req);
+    const cookieName = isHttps ? "__Host-yuuka-session" : "yuuka-session";
+    const cookieSecure = isHttps ? "; Secure" : "";
+
     res.setHeader(
       "Set-Cookie",
-      `__Host-yuuka-session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
+      `${cookieName}=; Path=/; HttpOnly${cookieSecure}; SameSite=Lax; Max-Age=0`
     );
     sendJson(res, 200, { success: true, message: "ログアウトしました。" });
     return;
@@ -407,28 +608,177 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       user: {
         discordId: user.discord_id,
         username: user.username,
+        role: user.role || "user",
       }
     });
     return;
   }
 
-  // システムステータス（ユーザー個別）
+  // ── Bot管理API ──
+  if (pathname === "/api/bots") {
+    if (method === "GET") {
+      try {
+        const bots = listBotsForUser(userId);
+        sendJson(res, 200, { success: true, bots });
+      } catch (err: any) {
+        sendError(res, 500, "Bot一覧の取得に失敗しました。");
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await getRequestBody(req);
+        const { name, persona } = JSON.parse(body);
+        if (!name || !name.trim()) {
+          return sendError(res, 400, "Botの名前は必須です。");
+        }
+
+        const botId = `bot_${crypto.randomUUID()}`;
+        const bot = createBot(botId, userId, name.trim(), persona ? persona.trim() : null);
+        sendJson(res, 200, { success: true, bot, message: "Botを作成しました。" });
+      } catch (err: any) {
+        console.error("Bot作成エラー:", err);
+        sendError(res, 500, "Botの作成に失敗しました。");
+      }
+      return;
+    }
+
+    if (method === "DELETE") {
+      try {
+        const body = await getRequestBody(req);
+        const { botId } = JSON.parse(body);
+        if (!botId) return sendError(res, 400, "Bot IDが必要です。");
+
+        if (botId.startsWith("bot_default_") || botId === "system_default") {
+          return sendError(res, 400, "デフォルトのBotは削除できません。");
+        }
+
+        // 所有者チェック
+        const bot = getBotById(botId);
+        if (!bot || bot.user_id !== userId) {
+          return sendError(res, 403, "Botの所有者のみが削除できます。");
+        }
+
+        // 動作中のBotクライアントを停止
+        stopCustomBot(botId);
+
+        const ok = deleteBot(botId);
+        sendJson(res, 200, { success: ok, message: "Botを削除しました。" });
+      } catch (err: any) {
+        console.error("Bot削除エラー:", err);
+        sendError(res, 500, "Botの削除に失敗しました。");
+      }
+      return;
+    }
+  }
+
+  // ── Discord プロフィール同期API ──
+  if (pathname === "/api/bots/sync-discord" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId } = JSON.parse(body);
+      if (!botId) return sendError(res, 400, "botId が必要です。");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+
+      // カスタムクライアントまたはデフォルトクライアントを使用してBot情報を取得
+      const botRecord = getBotById(botId);
+      if (!botRecord) return sendError(res, 404, "Bot が見つかりません。");
+
+      let botUser: { username: string; displayAvatarURL: () => string } | null = null;
+
+      // カスタムBotクライアントが起動している場合
+      const customClient = customClients.get(botId);
+      if (customClient && customClient.user) {
+        botUser = customClient.user;
+      } else if (botRecord.discord_token_encrypted) {
+        // トークンはあるがクライアント未起動の場合はエラー
+        return sendError(res, 400, "Botクライアントが起動していません。先にBotを起動してください。");
+      } else if (defaultBotClient.user) {
+        // デフォルトBotクライアントを使用
+        botUser = defaultBotClient.user;
+      }
+
+      if (!botUser) {
+        return sendError(res, 503, "Discordクライアントが準備できていません。サーバーを確認してください。");
+      }
+
+      const username = botUser.username;
+      const avatarUrl = botUser.displayAvatarURL();
+
+      updateBotDiscordProfile(botId, username, avatarUrl);
+
+      sendJson(res, 200, {
+        success: true,
+        discord_username: username,
+        discord_avatar_url: avatarUrl,
+        message: `Discordプロフィールを同期しました: ${username}`,
+      });
+    } catch (err: any) {
+      console.error("Discord同期エラー:", err);
+      sendError(res, 500, "Discord情報の同期に失敗しました。");
+    }
+    return;
+  }
+
+  // ── Botアクセス制限API ──
+  if (pathname === "/api/bots/access" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, targetUserId, action } = JSON.parse(body);
+
+      if (!botId || !targetUserId || !action) {
+        return sendError(res, 400, "botId, targetUserId, action が必要です。");
+      }
+
+      // 所有者のみが権限を設定できる
+      const bot = getBotById(botId);
+      if (!bot || bot.user_id !== userId) {
+        return sendError(res, 403, "Botの所有者のみがアクセス権限を設定できます。");
+      }
+
+      const db = getDb();
+      if (action === "grant") {
+        db.prepare("INSERT OR IGNORE INTO user_bot_access (user_id, bot_id) VALUES (?, ?)").run(targetUserId, botId);
+        sendJson(res, 200, { success: true, message: `ユーザー ${targetUserId} にアクセス権限を付与しました。` });
+      } else if (action === "revoke") {
+        if (targetUserId === userId) {
+          return sendError(res, 400, "自分自身の所有権は剥奪できません。");
+        }
+        db.prepare("DELETE FROM user_bot_access WHERE user_id = ? AND bot_id = ?").run(targetUserId, botId);
+        sendJson(res, 200, { success: true, message: `ユーザー ${targetUserId} のアクセス権限を削除しました。` });
+      } else {
+        sendError(res, 400, "無効なアクションです。");
+      }
+    } catch (err: any) {
+      console.error("Botアクセス設定エラー:", err);
+      sendError(res, 500, "アクセス権限の設定に失敗しました。");
+    }
+    return;
+  }
+
+  // システムステータス（ボット個別）
   if (pathname === "/api/status" && method === "GET") {
     try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) {
+        return sendError(res, 403, "アクセス権限がありません。");
+      }
+
       const db = getDb();
       
-      const taskCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE user_id = ?").get(userId) as { count: number };
-      const pendingTaskCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE user_id = ? AND status = 'pending'").get(userId) as { count: number };
-      const scheduleCount = db.prepare("SELECT COUNT(*) as count FROM schedules WHERE user_id = ?").get(userId) as { count: number };
-      const expenseCount = db.prepare("SELECT COUNT(*) as count FROM expenses WHERE user_id = ?").get(userId) as { count: number };
+      const taskCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE bot_id = ?").get(botId) as { count: number };
+      const pendingTaskCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE bot_id = ? AND status = 'pending'").get(botId) as { count: number };
+      const scheduleCount = db.prepare("SELECT COUNT(*) as count FROM schedules WHERE bot_id = ?").get(botId) as { count: number };
+      const expenseCount = db.prepare("SELECT COUNT(*) as count FROM expenses WHERE bot_id = ?").get(botId) as { count: number };
 
       // 優先度別の未完了タスク数
       const priorityRows = db.prepare(`
         SELECT priority, COUNT(*) as count 
         FROM tasks 
-        WHERE user_id = ? AND status = 'pending' 
+        WHERE bot_id = ? AND status = 'pending' 
         GROUP BY priority
-      `).all(userId) as { priority: number; count: number }[];
+      `).all(botId) as { priority: number; count: number }[];
 
       const priorityMap: Record<number, number> = { 0: 0, 1: 0, 2: 0 };
       for (const row of priorityRows) {
@@ -442,8 +792,8 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         const countRow = db.prepare(`
           SELECT COUNT(*) as count 
           FROM schedules 
-          WHERE user_id = ? AND date(start_at) = date(?)
-        `).get(userId, dateStr) as { count: number };
+          WHERE bot_id = ? AND date(start_at) = date(?)
+        `).get(botId, dateStr) as { count: number };
         scheduleTrend.push(countRow ? countRow.count : 0);
       }
 
@@ -454,18 +804,20 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         const sumRow = db.prepare(`
           SELECT SUM(amount) as total 
           FROM expenses 
-          WHERE user_id = ? AND date = ?
-        `).get(userId, dateStr) as { total: number | null };
+          WHERE bot_id = ? AND date = ?
+        `).get(botId, dateStr) as { total: number | null };
         expenseTrend.push(sumRow && sumRow.total ? sumRow.total : 0);
       }
 
-      const googleConfig = getUserGoogleConfig(userId);
-      const geminiConfig = getUserGeminiConfig(userId);
-      const user = getUserByDiscordId(userId);
+      const googleConfig = getBotGoogleConfig(botId!);
+      const geminiConfig = botId === "system_default"
+        ? getUserGeminiConfig(userId)
+        : getBotGeminiConfig(botId!);
+      const botRecord = getBotById(botId!);
 
       // 利用可能なカレンダー一覧をフェッチ (OAuth設定済みの場合のみ)
       const calendars = googleConfig?.clientId && googleConfig?.clientSecret && googleConfig?.refreshToken
-        ? await getCachedCalendars(userId)
+        ? await getCachedCalendars(botId!)
         : [];
 
       // クレデンシャルの安全なマスキング
@@ -479,7 +831,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         success: true,
         user: {
           discordId: userId,
-          username: user?.username || userId,
+          username: botRecord?.name || userId,
         },
         stats: {
           tasks: taskCount.count,
@@ -497,9 +849,9 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
           googleCalendars: calendars,
           geminiModel: geminiConfig?.model || "gemini-3.1-flash-lite",
           geminiApiKey: mask(geminiConfig?.apiKeyEncrypted ? "configured" : null),
-          backupEnabled: user?.google_drive_backup_enabled === 1,
-          backupFolderId: mask(user?.google_drive_backup_folder_id ?? null),
-          backupCron: user?.backup_cron || "0 3 * * *",
+          backupEnabled: botRecord?.google_drive_backup_enabled === 1,
+          backupFolderId: mask(botRecord?.google_drive_backup_folder_id ?? null),
+          backupCron: botRecord?.backup_cron || "0 3 * * *",
         }
       });
     } catch (err: any) {
@@ -536,10 +888,13 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/settings/gemini" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { apiKey, model } = JSON.parse(body);
+      const { botId, apiKey, model } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!model) return sendError(res, 400, "モデル名は必須項目です。");
 
-      const current = getUserGeminiConfig(userId);
+      const current = botId === "system_default"
+        ? getUserGeminiConfig(userId)
+        : getBotGeminiConfig(botId);
       let encrypted: string | null = null;
       let iv: string | null = null;
       let tag: string | null = null;
@@ -555,7 +910,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         tag = current?.apiKeyTag ?? null;
       }
 
-      updateGeminiSettings(userId, encrypted, iv, tag, model.trim());
+      if (botId === "system_default") {
+        updateUserGeminiSettings(userId, encrypted, iv, tag, model.trim());
+      } else {
+        updateBotGeminiSettings(botId, encrypted, iv, tag, model.trim());
+      }
       sendJson(res, 200, { success: true, message: "Gemini 設定を更新しました。" });
     } catch (err: any) {
       console.error("Gemini 設定更新エラー:", err);
@@ -567,7 +926,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   // Discord 独自Bot & ペルソナ設定取得
   if (pathname === "/api/settings/discord" && method === "GET") {
     try {
-      const current = getUserDiscordBotConfig(userId);
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+
+      const current = getBotDiscordConfig(botId!);
       const hasToken = !!(current?.tokenEncrypted && current?.tokenIv && current?.tokenTag);
       const tokenMasked = hasToken ? "••••••••••••" : "";
       
@@ -588,9 +950,14 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/settings/discord" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { token, persona } = JSON.parse(body);
+      const { botId, token, persona } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
 
-      const current = getUserDiscordBotConfig(userId);
+      if (botId === "system_default" && !verifyAdmin(userId)) {
+        return sendError(res, 403, "システムBotのDiscord設定は管理者のみ変更可能です。");
+      }
+
+      const current = getBotDiscordConfig(botId);
       let encrypted: string | null = null;
       let iv: string | null = null;
       let tag: string | null = null;
@@ -607,7 +974,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
           tokenChanged = true;
           tokenCleared = true;
         }
-      } else if (token.startsWith("••••")) {
+      } else if (token.startsWith("••••") || token.startsWith("••••••••••••")) {
         // マスクの場合は変更なし
         encrypted = current?.tokenEncrypted ?? null;
         iv = current?.tokenIv ?? null;
@@ -624,21 +991,27 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
       // ペルソナの処理 (空欄の場合は null にする)
       const personaVal = (persona && persona.trim() !== "") ? persona.trim() : null;
 
+      const botRecord = getBotById(botId)!;
       // データベースを更新
-      updateDiscordBotSettings(userId, encrypted, iv, tag, personaVal);
+      updateBotSettings(botId, botRecord.name, encrypted, iv, tag, personaVal);
 
       // トークンがクリアされた場合、動作中の独自Botを完全にクローズする
       if (tokenCleared) {
-        stopCustomBotForUser(userId);
+        stopCustomBot(botId);
       }
 
       // トークンが変更された場合、新しいBotを非同期でログイン・動的起動する
       let botStartupMessage = "";
       if (tokenChanged && encrypted !== null) {
-        console.log(`[Discord Bot] ユーザー ${userId} の独自Botの再起動を試みます...`);
-        const startupSuccess = await startCustomBotForUser(userId);
-        if (!startupSuccess) {
-          botStartupMessage = " 設定は保存されましたが、独自Botの起動に失敗しました。トークンが有効か再度ご確認ください。";
+        // 差し押さえ中のBotは起動できない
+        if (isBotSuspended(botId)) {
+          botStartupMessage = " このBotは管理者により差し押さえられているため、起動できません。";
+        } else {
+          console.log(`[Discord Bot] Bot ${botId} の独自Botの再起動を試みます...`);
+          const startupSuccess = await startCustomBot(botId);
+          if (!startupSuccess) {
+            botStartupMessage = " 設定は保存されましたが、独自Botの起動に失敗しました。トークンが有効か再度ご確認ください。";
+          }
         }
       }
 
@@ -653,11 +1026,12 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-
-
   // Google OAuth URL 生成
   if (pathname === "/api/settings/google/oauth/url" && method === "GET") {
-    const userConfig = getUserGoogleConfig(userId);
+    const botId = parsedUrl.searchParams.get("botId");
+    if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+
+    const userConfig = getBotGoogleConfig(botId!);
     const clientId = userConfig?.clientId || config.googleClientId;
     const clientSecret = userConfig?.clientSecret || config.googleClientSecret;
 
@@ -687,6 +1061,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
         access_type: "offline",
         scope: scopes,
         prompt: "consent",
+        state: botId!,
       });
 
       sendJson(res, 200, { success: true, url });
@@ -701,14 +1076,15 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/settings/calendars" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { calendars } = JSON.parse(body);
+      const { botId, calendars } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!Array.isArray(calendars)) {
         return sendError(res, 400, "カレンダーリストは配列形式で指定してください。");
       }
 
-      const current = getUserGoogleConfig(userId);
-      updateGoogleSettings(
-        userId,
+      const current = getBotGoogleConfig(botId);
+      updateBotGoogleSettings(
+        botId,
         current?.clientId || null,
         current?.clientSecret || null,
         current?.refreshToken || null,
@@ -728,12 +1104,13 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/settings/backup" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { enabled, folderId, cron } = JSON.parse(body);
+      const { botId, enabled, folderId, cron } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
 
-      updateBackupSettings(userId, enabled, folderId || null, cron || "0 3 * * *");
+      updateBotBackupSettings(botId, enabled, folderId || null, cron || "0 3 * * *");
 
-      const { initUserBackupSchedule } = await import("./services/backupService.js");
-      initUserBackupSchedule(userId);
+      const { initBotBackupSchedule } = await import("./services/backupService.js");
+      initBotBackupSchedule(botId);
 
       sendJson(res, 200, { success: true, message: "バックアップ設定を保存しました。" });
     } catch (err: any) {
@@ -746,13 +1123,17 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   // 手動バックアップトリガー
   if (pathname === "/api/settings/backup/trigger" && method === "POST") {
     try {
-      const user = getUserByDiscordId(userId);
-      if (!user || !user.google_drive_backup_enabled) {
+      const body = await getRequestBody(req);
+      const { botId } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+
+      const bot = getBotById(botId);
+      if (!bot || !bot.google_drive_backup_enabled) {
         return sendError(res, 400, "バックアップ設定が無効になっています。");
       }
 
       const { runBackup } = await import("./services/backupService.js");
-      const url = await runBackup(userId);
+      const url = await runBackup(botId);
 
       sendJson(res, 200, { success: true, url, message: "手動バックアップが完了しました。" });
     } catch (err: any) {
@@ -773,7 +1154,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   // ── 資格情報API ──
   if (pathname === "/api/credentials" && method === "GET") {
     try {
-      const list = secretService.listCredentials(userId);
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+
+      const list = secretService.listCredentials(botId!);
       sendJson(res, 200, { success: true, credentials: list });
     } catch (err: any) {
       sendError(res, 500, "資格情報一覧の取得に失敗しました。");
@@ -784,13 +1168,14 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/credentials/register" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { serviceName, username, password } = JSON.parse(body);
+      const { botId, serviceName, username, password } = JSON.parse(body);
 
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!serviceName || !username || !password) {
         return sendError(res, 400, "サービス名、ユーザー名、およびパスワードは必須です。");
       }
 
-      secretService.registerCredential(userId, serviceName, username, password);
+      secretService.registerCredential(botId, serviceName, username, password);
       sendJson(res, 200, { success: true, message: "資格情報を正常に登録しました。" });
     } catch (err: any) {
       sendError(res, 500, "資格情報の登録に失敗しました。");
@@ -801,13 +1186,14 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/credentials/delete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { serviceName } = JSON.parse(body);
+      const { botId, serviceName } = JSON.parse(body);
 
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!serviceName) {
         return sendError(res, 400, "サービス名は必須です。");
       }
 
-      const success = secretService.deleteCredential(userId, serviceName);
+      const success = secretService.deleteCredential(botId, serviceName);
       sendJson(res, 200, { success });
     } catch (err: any) {
       sendError(res, 500, "資格情報の削除に失敗しました。");
@@ -815,12 +1201,66 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
+  // ── プレイブックAPI ──
+  if (pathname === "/api/playbooks" && method === "GET") {
+    try {
+      const botId = parsedUrl.searchParams.get("botId");
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      const query = parsedUrl.searchParams.get("query") || undefined;
+      const list = findPlaybooks(botId!, query);
+      sendJson(res, 200, { success: true, playbooks: list });
+    } catch (err: any) {
+      sendError(res, 500, "手順書一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/playbooks/save" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, name, title, keywords, description, steps } = JSON.parse(body);
+
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
+      if (!name || !title || !steps) {
+        return sendError(res, 400, "手順書名、タイトル、および手順ステップは必須です。");
+      }
+
+      const keywordsList = Array.isArray(keywords) ? keywords : [];
+      const result = savePlaybook(botId, name, title, keywordsList, description || "", steps);
+      sendJson(res, 200, result);
+    } catch (err: any) {
+      sendError(res, 500, "手順書の保存に失敗しました。");
+    }
+    return;
+  }
+
+  if (pathname === "/api/playbooks/delete" && method === "POST") {
+    try {
+      const body = await getRequestBody(req);
+      const { botId, name } = JSON.parse(body);
+
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません. ");
+      if (!name) {
+        return sendError(res, 400, "手順書名は必須です。");
+      }
+
+      const success = deletePlaybook(botId, name);
+      sendJson(res, 200, { success, message: success ? "手順書を削除しました。" : "削除に失敗しました。" });
+    } catch (err: any) {
+      sendError(res, 500, "手順書の削除に失敗しました。");
+    }
+    return;
+  }
+
+
   // ── タスクAPI ──
   if (pathname === "/api/tasks") {
     if (method === "GET") {
       try {
+        const botId = parsedUrl.searchParams.get("botId");
+        if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
         const status = parsedUrl.searchParams.get("status") || "all";
-        const tasks = listTasks(userId, status);
+        const tasks = listTasks(botId!, status);
         sendJson(res, 200, { success: true, tasks });
       } catch (err: any) {
         sendError(res, 500, "タスク一覧の取得に失敗しました。");
@@ -832,10 +1272,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/tasks/add" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { title, description, dueDate, priority } = JSON.parse(body);
+      const { botId, title, description, dueDate, priority } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!title) return sendError(res, 400, "タイトルは必須です。");
 
-      const task = addTask(userId, title, description, dueDate, priority);
+      const task = addTask(botId, title, description, dueDate, priority);
       sendJson(res, 200, { success: true, task });
     } catch (err: any) {
       sendError(res, 500, "タスクの追加に失敗しました。");
@@ -846,10 +1287,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/tasks/complete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { id } = JSON.parse(body);
+      const { botId, id } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!id) return sendError(res, 400, "IDが必要です。");
 
-      const task = completeTask(id, userId);
+      const task = completeTask(id, botId);
       sendJson(res, 200, { success: true, task });
     } catch (err: any) {
       sendError(res, 500, "タスクの完了処理に失敗しました。");
@@ -860,10 +1302,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/tasks/delete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { id } = JSON.parse(body);
+      const { botId, id } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!id) return sendError(res, 400, "IDが必要です。");
 
-      const ok = deleteTask(id, userId);
+      const ok = deleteTask(id, botId);
       sendJson(res, 200, { success: ok });
     } catch (err: any) {
       sendError(res, 500, "タスクの削除に失敗しました。");
@@ -875,8 +1318,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/schedules") {
     if (method === "GET") {
       try {
+        const botId = parsedUrl.searchParams.get("botId");
+        if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
         const days = parseInt(parsedUrl.searchParams.get("days") || "7", 10);
-        const schedules = listUpcomingSchedules(userId, days);
+        const schedules = listUpcomingSchedules(botId!, days);
         sendJson(res, 200, { success: true, schedules });
       } catch (err: any) {
         sendError(res, 500, "スケジュールの取得に失敗しました。");
@@ -888,11 +1333,12 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/schedules/add" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { title, startAt, endAt, remindBeforeMinutes, description } = JSON.parse(body);
+      const { botId, title, startAt, endAt, remindBeforeMinutes, description } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!title || !startAt) return sendError(res, 400, "タイトルと開始日時は必須です。");
 
       const schedule = addSchedule(
-        userId,
+        botId,
         title,
         startAt,
         endAt,
@@ -909,10 +1355,11 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/schedules/delete" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { id } = JSON.parse(body);
+      const { botId, id } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!id) return sendError(res, 400, "IDが必要です。");
 
-      const ok = deleteSchedule(id, userId);
+      const ok = deleteSchedule(id, botId);
       sendJson(res, 200, { success: ok });
     } catch (err: any) {
       sendError(res, 500, "予定の削除に失敗しました。");
@@ -924,13 +1371,15 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/expenses") {
     if (method === "GET") {
       try {
+        const botId = parsedUrl.searchParams.get("botId");
+        if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
         const now = new Date();
         const year = parseInt(parsedUrl.searchParams.get("year") || String(now.getFullYear()), 10);
         const month = parseInt(parsedUrl.searchParams.get("month") || String(now.getMonth() + 1), 10);
         
-        const recent = listRecentExpenses(userId, 30);
-        const total = getMonthlyTotal(userId, year, month);
-        const breakdown = getMonthlyCategoryBreakdown(userId, year, month);
+        const recent = listRecentExpenses(botId!, 30);
+        const total = getMonthlyTotal(botId!, year, month);
+        const breakdown = getMonthlyCategoryBreakdown(botId!, year, month);
 
         sendJson(res, 200, {
           success: true,
@@ -948,15 +1397,17 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/expenses/add" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { amount, category, description, date } = JSON.parse(body);
+      const { botId, amount, category, description, date, time } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!amount || !category) return sendError(res, 400, "金額とカテゴリは必須です。");
 
       const expense = addExpense(
-        userId,
+        botId,
         amount,
         category,
         description,
         date,
+        time,
         "web"
       );
       sendJson(res, 200, { success: true, expense });
@@ -970,17 +1421,254 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   if (pathname === "/api/expenses/upload-receipt" && method === "POST") {
     try {
       const body = await getRequestBody(req);
-      const { imageBase64, mimeType, additionalText } = JSON.parse(body);
+      const { botId, imageBase64, mimeType, additionalText } = JSON.parse(body);
+      if (!verifyBotAccess(userId, botId)) return sendError(res, 403, "アクセス権限がありません。");
       if (!imageBase64 || !mimeType) {
         return sendError(res, 400, "画像データ(base64)とMIMEタイプが必要です。");
       }
 
-      console.log(`📸 [User: ${userId}] WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
-      const response = await parseReceipt(userId, imageBase64, mimeType, additionalText);
+      console.log(`📸 [Bot: ${botId}] WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
+      const response = await parseReceipt(botId, imageBase64, mimeType, additionalText, undefined, userId);
       sendJson(res, 200, { success: true, response });
     } catch (err: any) {
       console.error("WEBレシート解析エラー:", err);
       sendError(res, 500, "レシート解析中にエラーが発生しました。");
+    }
+    return;
+  }
+
+  // ──────────────────────────────────────────
+  // D. Admin 管理API (Admin ロール必須)
+  // ──────────────────────────────────────────
+
+  // Admin API: デフォルトBotのトークン更新
+  if (pathname === "/api/admin/default-bot/token" && method === "POST") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const body = await getRequestBody(req);
+      const { token } = JSON.parse(body);
+
+      if (!token) {
+        return sendError(res, 400, "トークンを入力してください。");
+      }
+
+      const cleanToken = token.trim();
+
+      // 1. システムデフォルトBotトークンの暗号化と保存
+      const enc = encryptText(cleanToken);
+      const db = getDb();
+      db.prepare(`
+        INSERT OR REPLACE INTO bots (
+          id, user_id, name, discord_token_encrypted, discord_token_iv, discord_token_tag, suspended
+        ) VALUES ('system_default', ?, 'システムデフォルト', ?, ?, ?, 0)
+      `).run(userId, enc.encrypted, enc.iv, enc.authTag);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO user_bot_access (user_id, bot_id)
+        VALUES (?, 'system_default')
+      `).run(userId);
+
+      // 2. システムデフォルトBotの再起動
+      await restartDefaultBot(cleanToken);
+
+      sendJson(res, 200, { success: true, message: "デフォルトBotのトークンを更新しました。" });
+    } catch (err: any) {
+      console.error("デフォルトBotトークン更新エラー:", err);
+      sendError(res, 500, "デフォルトBotトークンの更新に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: システム全体の統計
+  if (pathname === "/api/admin/stats" && method === "GET") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const db = getDb();
+      const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
+      const botCount = db.prepare("SELECT COUNT(*) as count FROM bots").get() as { count: number };
+      const suspendedBotCount = db.prepare("SELECT COUNT(*) as count FROM bots WHERE suspended = 1").get() as { count: number };
+      const inviteTotal = db.prepare("SELECT COUNT(*) as count FROM invite_codes").get() as { count: number };
+      const inviteUsed = db.prepare("SELECT COUNT(*) as count FROM invite_codes WHERE used_by IS NOT NULL").get() as { count: number };
+
+      sendJson(res, 200, {
+        success: true,
+        stats: {
+          totalUsers: userCount.count,
+          totalBots: botCount.count,
+          suspendedBots: suspendedBotCount.count,
+          totalInviteCodes: inviteTotal.count,
+          usedInviteCodes: inviteUsed.count,
+          availableInviteCodes: inviteTotal.count - inviteUsed.count,
+        }
+      });
+    } catch (err: any) {
+      console.error("Admin 統計取得エラー:", err);
+      sendError(res, 500, "統計情報の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: 全ユーザー一覧
+  if (pathname === "/api/admin/users" && method === "GET") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const users = listAllUsers();
+      sendJson(res, 200, { success: true, users });
+    } catch (err: any) {
+      console.error("Admin ユーザー一覧取得エラー:", err);
+      sendError(res, 500, "ユーザー一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: ユーザーロール変更
+  if (pathname === "/api/admin/users/role" && method === "POST") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const body = await getRequestBody(req);
+      const { targetUserId, role } = JSON.parse(body);
+
+      if (!targetUserId || !role) {
+        return sendError(res, 400, "targetUserId と role が必要です。");
+      }
+
+      if (role !== "user" && role !== "admin") {
+        return sendError(res, 400, "role は 'user' または 'admin' のみ指定可能です。");
+      }
+
+      // 自己降格防止
+      if (targetUserId === userId && role === "user") {
+        return sendError(res, 400, "自分自身の Admin 権限を解除することはできません。");
+      }
+
+      const success = updateUserRole(targetUserId, role);
+      if (success) {
+        sendJson(res, 200, { success: true, message: `ユーザー ${targetUserId} のロールを ${role} に変更しました。` });
+      } else {
+        sendError(res, 400, "ロールの変更に失敗しました。ユーザーが存在しない可能性があります。");
+      }
+    } catch (err: any) {
+      console.error("Admin ロール変更エラー:", err);
+      sendError(res, 500, "ロールの変更に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: 全Bot一覧
+  if (pathname === "/api/admin/bots" && method === "GET") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const bots = listAllBots();
+      // 所有者名を取得して付与（機密情報は除外）
+      const botsWithOwner = bots.map(bot => {
+        const owner = getUserByDiscordId(bot.user_id);
+        return {
+          id: bot.id,
+          name: bot.name,
+          user_id: bot.user_id,
+          owner_username: owner?.username || "不明",
+          discord_username: bot.discord_username,
+          discord_avatar_url: bot.discord_avatar_url,
+          suspended: bot.suspended,
+          hasCustomToken: !!(bot.discord_token_encrypted),
+          isRunning: customClients.has(bot.id),
+          created_at: bot.created_at,
+          updated_at: bot.updated_at,
+        };
+      });
+      sendJson(res, 200, { success: true, bots: botsWithOwner });
+    } catch (err: any) {
+      console.error("Admin Bot一覧取得エラー:", err);
+      sendError(res, 500, "Bot一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: Bot差し押さえ
+  if (pathname === "/api/admin/bots/suspend" && method === "POST") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const body = await getRequestBody(req);
+      const { botId } = JSON.parse(body);
+      if (!botId) return sendError(res, 400, "botId が必要です。");
+
+      // 動作中のBotクライアントを停止
+      stopCustomBot(botId);
+
+      const success = suspendBot(botId);
+      if (success) {
+        console.log(`🚫 [Admin: ${userId}] Bot ${botId} を差し押さえました`);
+        sendJson(res, 200, { success: true, message: `Bot ${botId} を差し押さえました。Discordクライアントは停止されました。` });
+      } else {
+        sendError(res, 400, "Botの差し押さえに失敗しました。");
+      }
+    } catch (err: any) {
+      console.error("Admin Bot差し押さえエラー:", err);
+      sendError(res, 500, "Botの差し押さえに失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: Bot差し押さえ解除
+  if (pathname === "/api/admin/bots/unsuspend" && method === "POST") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const body = await getRequestBody(req);
+      const { botId } = JSON.parse(body);
+      if (!botId) return sendError(res, 400, "botId が必要です。");
+
+      const success = unsuspendBot(botId);
+      if (success) {
+        console.log(`✅ [Admin: ${userId}] Bot ${botId} の差し押さえを解除しました`);
+        sendJson(res, 200, { success: true, message: `Bot ${botId} の差し押さえを解除しました。所有者が再起動できるようになりました。` });
+      } else {
+        sendError(res, 400, "差し押さえ解除に失敗しました。");
+      }
+    } catch (err: any) {
+      console.error("Admin Bot差し押さえ解除エラー:", err);
+      sendError(res, 500, "差し押さえ解除に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: 招待コード一覧
+  if (pathname === "/api/admin/invite-codes" && method === "GET") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const codes = listInviteCodes();
+      sendJson(res, 200, { success: true, codes });
+    } catch (err: any) {
+      console.error("Admin 招待コード一覧取得エラー:", err);
+      sendError(res, 500, "招待コード一覧の取得に失敗しました。");
+    }
+    return;
+  }
+
+  // Admin API: 招待コード新規作成
+  if (pathname === "/api/admin/invite-codes" && method === "POST") {
+    if (!verifyAdmin(userId)) return sendError(res, 403, "管理者権限が必要です。");
+
+    try {
+      const body = await getRequestBody(req);
+      const { code } = JSON.parse(body);
+      if (!code || !code.trim()) {
+        return sendError(res, 400, "招待コードを入力してください。");
+      }
+
+      const cleanCode = code.trim();
+      createInviteCode(cleanCode, userId);
+      sendJson(res, 200, { success: true, message: `招待コード「${cleanCode}」を作成しました。` });
+    } catch (err: any) {
+      console.error("Admin 招待コード作成エラー:", err);
+      sendError(res, 500, "招待コードの作成に失敗しました。");
     }
     return;
   }
@@ -1003,9 +1691,9 @@ export function startWebServer(): Promise<void> {
       
       // バックアップスケジュールの初期化
       import("./services/backupService.js").then((mod) => {
-        import("./db/userRepo.js").then((userMod) => {
-          const userIds = userMod.listAllUserIds();
-          mod.initAllBackupSchedules(userIds);
+        import("./db/botRepo.js").then((botMod) => {
+          const botIds = botMod.listAllBotIds();
+          mod.initAllBackupSchedules(botIds);
         });
       }).catch(err => {
         console.error("バックアップスケジュールの初期化に失敗しました:", err);

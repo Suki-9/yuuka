@@ -352,82 +352,82 @@ type FunctionArgs = Record<string, unknown>;
 export async function dispatchFunction(
   functionName: string,
   args: FunctionArgs,
-  userId: string
+  botId: string
 ): Promise<string> {
   switch (functionName) {
     // タスク
     case "addTask":
-      return taskFn.addTask(userId, args as Parameters<typeof taskFn.addTask>[1]);
+      return taskFn.addTask(botId, args as Parameters<typeof taskFn.addTask>[1]);
     case "listTasks":
-      return taskFn.listTasks(userId, args as Parameters<typeof taskFn.listTasks>[1]);
+      return taskFn.listTasks(botId, args as Parameters<typeof taskFn.listTasks>[1]);
     case "completeTask":
-      return taskFn.completeTask(userId, args as Parameters<typeof taskFn.completeTask>[1]);
+      return taskFn.completeTask(botId, args as Parameters<typeof taskFn.completeTask>[1]);
     case "deleteTask":
-      return taskFn.deleteTask(userId, args as Parameters<typeof taskFn.deleteTask>[1]);
+      return taskFn.deleteTask(botId, args as Parameters<typeof taskFn.deleteTask>[1]);
 
     // 予定
     case "addSchedule":
-      return await scheduleFn.addSchedule(userId, args as Parameters<typeof scheduleFn.addSchedule>[1]);
+      return await scheduleFn.addSchedule(botId, args as Parameters<typeof scheduleFn.addSchedule>[1]);
     case "listSchedules":
-      return await scheduleFn.listSchedules(userId, args as Parameters<typeof scheduleFn.listSchedules>[1]);
+      return await scheduleFn.listSchedules(botId, args as Parameters<typeof scheduleFn.listSchedules>[1]);
     case "deleteSchedule":
       return await scheduleFn.deleteSchedule(
-        userId,
+        botId,
         args as Parameters<typeof scheduleFn.deleteSchedule>[1]
       );
 
     // 家計
     case "addExpense":
-      return expenseFn.addExpense(userId, args as Parameters<typeof expenseFn.addExpense>[1]);
+      return expenseFn.addExpense(botId, args as Parameters<typeof expenseFn.addExpense>[1]);
     case "getMonthlySummary":
       return expenseFn.getMonthlySummary(
-        userId,
+        botId,
         args as Parameters<typeof expenseFn.getMonthlySummary>[1]
       );
     case "getCategoryBreakdown":
       return expenseFn.getCategoryBreakdown(
-        userId,
+        botId,
         args as Parameters<typeof expenseFn.getCategoryBreakdown>[1]
       );
     case "listRecentExpenses":
       return expenseFn.listRecentExpenses(
-        userId,
+        botId,
         args as Parameters<typeof expenseFn.listRecentExpenses>[1]
       );
 
     // ヘッドレスブラウザ操作
     case "fetchDynamicPage":
-      return await browserFn.fetchDynamicPage(userId, args as Parameters<typeof browserFn.fetchDynamicPage>[1]);
+      return await browserFn.fetchDynamicPage(botId, args as Parameters<typeof browserFn.fetchDynamicPage>[1]);
     case "takePageScreenshot":
-      return await browserFn.takePageScreenshot(userId, args as Parameters<typeof browserFn.takePageScreenshot>[1]);
+      return await browserFn.takePageScreenshot(botId, args as Parameters<typeof browserFn.takePageScreenshot>[1]);
     case "searchWeb":
-      return await browserFn.searchWeb(userId, args as Parameters<typeof browserFn.searchWeb>[1]);
+      return await browserFn.searchWeb(botId, args as Parameters<typeof browserFn.searchWeb>[1]);
     
     // 永続インタラクティブブラウザ操作
     case "browserInteractiveOpen":
-      return await browserFn.browserInteractiveOpen(userId, args as Parameters<typeof browserFn.browserInteractiveOpen>[1]);
+      return await browserFn.browserInteractiveOpen(botId, args as Parameters<typeof browserFn.browserInteractiveOpen>[1]);
     case "browserInteractiveClick":
-      return await browserFn.browserInteractiveClick(userId, args as Parameters<typeof browserFn.browserInteractiveClick>[1]);
+      return await browserFn.browserInteractiveClick(botId, args as Parameters<typeof browserFn.browserInteractiveClick>[1]);
     case "browserInteractiveType":
-      return await browserFn.browserInteractiveType(userId, args as Parameters<typeof browserFn.browserInteractiveType>[1]);
+      return await browserFn.browserInteractiveType(botId, args as Parameters<typeof browserFn.browserInteractiveType>[1]);
     case "browserInteractiveWait":
-      return await browserFn.browserInteractiveWait(userId, args as Parameters<typeof browserFn.browserInteractiveWait>[1]);
+      return await browserFn.browserInteractiveWait(botId, args as Parameters<typeof browserFn.browserInteractiveWait>[1]);
     case "browserInteractiveStatus":
-      return await browserFn.browserInteractiveStatus(userId);
+      return await browserFn.browserInteractiveStatus(botId);
     case "browserInteractiveClose":
-      return await browserFn.browserInteractiveClose(userId);
+      return await browserFn.browserInteractiveClose(botId);
 
     // 資格情報
     case "getCredential":
-      return await credentialFn.getCredential(userId, args as Parameters<typeof credentialFn.getCredential>[1]);
+      return await credentialFn.getCredential(botId, args as Parameters<typeof credentialFn.getCredential>[1]);
     case "listCredentials":
-      return await credentialFn.listCredentials(userId, args as Parameters<typeof credentialFn.listCredentials>[1]);
+      return await credentialFn.listCredentials(botId, args as Parameters<typeof credentialFn.listCredentials>[1]);
 
     // 手順書（Playbook）自動化
     case "savePlaybook":
-      return await playbookFn.savePlaybook(userId, args as Parameters<typeof playbookFn.savePlaybook>[1]);
+      return await playbookFn.savePlaybook(botId, args as Parameters<typeof playbookFn.savePlaybook>[1]);
     case "findPlaybooks":
-      return await playbookFn.findPlaybooks(userId, args as Parameters<typeof playbookFn.findPlaybooks>[1]);
+      return await playbookFn.findPlaybooks(botId, args as Parameters<typeof playbookFn.findPlaybooks>[1]);
 
     default:
       return JSON.stringify({ success: false, message: `不明な関数: ${functionName}` });

@@ -1,0 +1,19 @@
+# UI Design Guidelines for this Workspace
+
+This project has strict styling constraints to maintain a clean, consistent, and premium Material Design 2 desaturated dark theme.
+
+## ⚠️ CRITICAL DESIGN CONSTRAINT: NO CARD COMPONENTS / NO NESTED CARDS
+
+1. **Card Components Avoidance**:
+   - Completely avoid using boxed "card" components in the UI (e.g., elements with a solid background, complete outer borders on all 4 sides, drop shadows, and border-radius that stand out as independent containers).
+   - Never nest containers inside other card-like containers (e.g., nesting cards/boxes).
+
+2. **Alternative Layout Patterns**:
+   - **Flat Lists**: Use clean, full-width vertical list rows separated by a simple horizontal bottom border (`border-bottom: 1px solid var(--border-divider)`).
+   - **Surfaces**: Use solid matte dark surfaces for elevations (using Material 2 Dark elevation colors: `--surface-1dp`, `--surface-2dp`, etc.), rather than distinct boxed frames.
+   - **Hover Interactions**: Apply subtle background shifts on hover (e.g., `background-color: var(--card-matte-hover)`) and border-bottom color transitions, without vertical translating translation or elevated box shadows.
+
+## General Design Language
+- **Typography**: Modern typography utilizing sans-serif fonts (e.g. Inter/Roboto) and clean monospaced styling for data tables/values.
+- **Colors**: Matte desaturated colors. Avoid highly saturated primaries. Utilize the desaturated purple (`--color-primary`: `#BB86FC`) and desaturated teal (`--color-secondary`: `#03DAC6`).
+- **Icons**: Utilize lightweight, outline-style lightweight Google Material Symbols.

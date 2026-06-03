@@ -1,13 +1,13 @@
 import { google, drive_v3 } from "googleapis";
-import { getUserGoogleConfig } from "../db/userRepo.js";
+import { getBotGoogleConfig } from "../db/botRepo.js";
 import { config } from "../config.js";
 import fs from "node:fs";
 
 /**
- * ユーザー別の Google Drive API クライアントを取得
+ * Bot別の Google Drive API クライアントを取得
  */
-function getDriveClient(userId: string): drive_v3.Drive | null {
-  const googleConfig = getUserGoogleConfig(userId);
+function getDriveClient(botId: string): drive_v3.Drive | null {
+  const googleConfig = getBotGoogleConfig(botId);
   if (!googleConfig) return null;
 
   const clientId = googleConfig.clientId || config.googleClientId;
@@ -38,13 +38,13 @@ function getDriveClient(userId: string): drive_v3.Drive | null {
  * Google Driveにファイルをアップロード（同名ファイルがあれば上書き）
  */
 export async function uploadToGoogleDrive(
-  userId: string,
+  botId: string,
   filePath: string,
   fileName: string,
   mimeType: string = "application/zip",
   folderId?: string
 ): Promise<{ fileId: string; url: string } | null> {
-  const drive = getDriveClient(userId);
+  const drive = getDriveClient(botId);
   if (!drive) {
     throw new Error("Google Driveクライアントが初期化されていません。Google OAuth設定を確認してください。");
   }

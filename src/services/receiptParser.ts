@@ -5,14 +5,14 @@ import type { ChatMessage } from "../gemini.js";
  * レシート画像を解析して支出を記録する。
  * Geminiに画像を送信し、Function Callingを通じてaddExpenseを呼び出させる。
  *
- * @param userId - Discord ユーザーID
+ * @param botId - Bot ID
  * @param imageBase64 - レシート画像のbase64データ
  * @param mimeType - 画像のMIMEタイプ
  * @param additionalText - ユーザーからの追加テキスト
  * @returns Geminiの応答テキスト
  */
 export async function parseReceipt(
-  userId: string,
+  botId: string,
   imageBase64: string,
   mimeType: string,
   additionalText?: string,
@@ -28,5 +28,5 @@ export async function parseReceipt(
     },
   };
 
-  return processMessage(userId, message, onStatusChange);
+  return processMessage(botId, message, onStatusChange);
 }

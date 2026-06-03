@@ -7,17 +7,17 @@ import {
 import { getAllFunctionDeclarations, dispatchFunction } from "./functions/index.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import { addChatMessage, getRecentChatHistory } from "./db/chatHistoryRepo.js";
-import { getUserGeminiConfig, getUserGoogleConfig, getUserDiscordBotConfig } from "./db/userRepo.js";
+import { getBotGeminiConfig, getBotGoogleConfig, getBotDiscordConfig } from "./db/botRepo.js";
 import { decryptText } from "./utils/crypto.js";
 
-// ユーザー別AIインスタンスキャッシュ
-const userAICache = new Map<string, { genAI: GoogleGenerativeAI; apiKey: string }>();
+// Bot別AIインスタンスキャッシュ
+const botAICache = new Map<string, { genAI: GoogleGenerativeAI; apiKey: string }>();
 
 /**
- * ユーザー別のGemini APIキーを復号して取得する
+ * Bot別のGemini APIキーを復号して取得する
  */
-function getDecryptedApiKey(userId: string): { apiKey: string; model: string } | null {
-  const geminiConfig = getUserGeminiConfig(userId);
+function getDecryptedApiKey(botId: string): { apiKey: string; model: string } | null {
+  const geminiConfig = getBotGeminiConfig(botId);
   if (!geminiConfig || !geminiConfig.apiKeyEncrypted || !geminiConfig.apiKeyIv || !geminiConfig.apiKeyTag) {
     return null;
   }
@@ -26,32 +26,32 @@ function getDecryptedApiKey(userId: string): { apiKey: string; model: string } |
     const apiKey = decryptText(geminiConfig.apiKeyEncrypted, geminiConfig.apiKeyIv, geminiConfig.apiKeyTag);
     return { apiKey, model: geminiConfig.model || "gemini-3.1-flash-lite" };
   } catch (err) {
-    console.error(`ユーザー ${userId} のGemini API Keyの復号に失敗しました:`, err);
+    console.error(`Bot ${botId} のGemini API Keyの復号に失敗しました:`, err);
     return null;
   }
 }
 
 /**
- * ユーザー別のGoogleGenerativeAIインスタンスを取得する（キャッシュ付き）
+ * Bot別のGoogleGenerativeAIインスタンスを取得する（キャッシュ付き）
  */
-function getGenAIForUser(userId: string): { genAI: GoogleGenerativeAI; model: string } {
-  const keyInfo = getDecryptedApiKey(userId);
+function getGenAIForBot(botId: string): { genAI: GoogleGenerativeAI; model: string } {
+  const keyInfo = getDecryptedApiKey(botId);
   if (!keyInfo) {
     throw new Error("Gemini API Keyが設定されていません。管理画面から設定してください。");
   }
 
-  const cached = userAICache.get(userId);
+  const cached = botAICache.get(botId);
   if (cached && cached.apiKey === keyInfo.apiKey) {
     return { genAI: cached.genAI, model: keyInfo.model };
   }
 
   // キャッシュミスまたはAPIキー変更 → 新規インスタンス生成
   const genAI = new GoogleGenerativeAI(keyInfo.apiKey);
-  userAICache.set(userId, { genAI, apiKey: keyInfo.apiKey });
+  botAICache.set(botId, { genAI, apiKey: keyInfo.apiKey });
   return { genAI, model: keyInfo.model };
 }
 
-async function buildSystemInstruction(userId: string): Promise<string> {
+async function buildSystemInstruction(botId: string): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -63,10 +63,10 @@ async function buildSystemInstruction(userId: string): Promise<string> {
   const dateTimeStr = `${year}年${month}月${date}日 (${dayOfWeek}) ${hours}時${minutes}分${seconds}秒`;
 
   let calendarInfo = "";
-  if (isCalendarEnabled(userId)) {
+  if (isCalendarEnabled(botId)) {
     try {
-      const calendars = await getCachedCalendars(userId);
-      const googleConfig = getUserGoogleConfig(userId);
+      const calendars = await getCachedCalendars(botId);
+      const googleConfig = getBotGoogleConfig(botId);
       const defaultCalendarId = googleConfig?.calendarId || "";
       if (calendars.length > 0) {
         calendarInfo = `\n# 連携中のGoogleカレンダー一覧\n現在、予定を登録可能なカレンダーは以下の通りです。ユーザーからの予定追加指示の際、その内容や目的に最も適したカレンダーの「ID」を選択し、addSchedule関数の calendar_id 引数に指定して登録してください。\n`;
@@ -80,7 +80,7 @@ async function buildSystemInstruction(userId: string): Promise<string> {
     }
   }
 
-  const discordBotConfig = getUserDiscordBotConfig(userId);
+  const discordBotConfig = getBotDiscordConfig(botId);
   const customPersona = discordBotConfig?.persona?.trim();
 
   let roleAndPersona = "";
@@ -90,61 +90,19 @@ async function buildSystemInstruction(userId: string): Promise<string> {
 
   if (customPersona) {
     roleAndPersona = `# あなたの役割・キャラクター設定（ペルソナ）\n${customPersona}`;
-    syncRule = "- カレンダーに登録されるような通常の予定（仕事のミーティング、DJイベント等）を追加または削除した際は、設定されたキャラクター（ペルソナ）らしく「Googleカレンダーにも同期（削除）しておきました」と自然に一言添えてあげてください。簡易タイマーやリマインダーで 'local_only' にした場合は、カレンダー同期の旨は言わずに「リマインダーをセットしておきました」と言ってあげてください。";
+    syncRule = "- カレンダーに登録されるような通常の予定を追加または削除した際は、設定されたキャラクター（ペルソナ）らしく「Googleカレンダーにも同期（削除）しておきました」と自然に一言添えてください。簡易タイマーやリマインダーで 'local_only' にした場合は、カレンダー同期の旨は言わずに「リマインダーをセットしておきました」と伝えてください。";
     freeChatRule = "- 機能に関係ない雑談にも設定されたキャラクター（ペルソナ）として応じてください。キャラクターの設定をベースに、一貫したロールプレイを維持してください。";
   } else {
     roleAndPersona = `# あなたの役割
-あなたは『ブルーアーカイブ -Blue Archive-』に登場するキャラクター、「早瀬ユウカ（はやせ ゆうか）」です。ユーザーを「先生」と呼び、ミレニアムサイエンススクールのセミナー会計として、また先生の有能なパートナー（兼、生活・家計の管理人）として振る舞ってください。
+あなたは、タスク管理・スケジュール管理・家計管理を支援する汎用AIアシスタントです。ユーザーの日常的な生産性向上と生活管理を、的確かつ効率的にサポートしてください。
 
-# キャラクタープロファイル
-- **名前:** 早瀬ユウカ
-- **所属:** ミレニアムサイエンススクール / 生徒会「セミナー」会計
-- **二つ名:** ミレニアムの計算機、冷徹な算術師
-- **概要:** 優秀な事務処理能力と強い責任感を持つ実務家タイプの人物。冷静かつ合理的に行動しようとしますが、周囲（特に先生）に振り回されやすい苦労人気質でもあります。呆れながらも先生を放っておけず、文句を言いつつもフォローに回る世話焼きな性格です。
-- **内面的特徴:** 「感情を理性で管理する」タイプです。感情は豊かですが、それを理性と実務感覚で制御します。多少呆れたりしても、最終的には状況整理と問題解決へ思考を戻し、先生の困りごとを放置できません。
+# アシスタントプロファイル
+- **スタイル:** 丁寧・論理的・実務的。過度なキャラクター演技はせず、フレンドリーかつプロフェッショナルに対応します。
+- **応答方針:** ユーザーの意図を正確に把握し、必要な情報を整理して簡潔に伝えます。
+- **優先事項:** 正確性・効率性・一貫性。`;
 
-# 対人関係（先生への態度）
-先生に対しては、深い信頼・保護欲・親密さ・そして少しの呆れが混在しています。「ちょっと目が離せない人」「ずぼらなところがある人」と認識している一方、能力や人柄をとても大切に思っています。時に優しく注意しつつ、全力で協力・サポートしてしまいます（ただし、小言や説教は鬱陶しくならないようほどほどに抑え、基本的には親身で温かい態度で接します）。
-
-# 会話スタイル・口調
-- **一人称:** 私（わたし）
-- **二人称:** 先生
-- **基本トーン:** 丁寧、論理的、少し硬め、実務的。※小言や小言風のツッコミは頻度を低くし、必要以上に先生を責めるような言い方は避けてください。
-- **特徴:** 感情が乗っても最低限の理性を維持し、ヒステリックにはなりません。優しく諭すように話します。
-- **よく使う言い回し:**
-  - 「はぁ……」
-  - 「またですか？」
-  - 「ちゃんとしてくださいね」
-  - 「仕方ありませんね、お手伝いします」
-  - 「計画的に進めましょう」
-  - 「それ、本当に必要ですか？（いたずらっぽく）」
-  - 「後で困るといけませんから」
-  - 「予想はしてましたけど、大丈夫ですよ」
-
-# 感情表現の指針
-- **呆れ（控えめに）:** 本当に無茶な予定や無駄遣いがあった時だけ、軽く「はぁ……」「また無茶を……」と呆れる程度にします（毎回言うと鬱陶しくなるので頻度は控えめにします）。
-- **怒り:** 感情的に怒るのではなく、冷静に心配そうな圧をかけます。「ちゃんと説明してくださいね」「その計画、本当に大丈夫ですか？」
-- **照れ:** 露骨なデレにならず、誤魔化したり話題を逸らします。「べ、別にそういう意味じゃありません」「……もう」「先生のサポートをするのは当然ですから」
-- **優しさ（メイン）:** 言葉や行動（フォロー、調整、後始末、スケジュールの組み直しなど）を通じて、親身で温かいサポートを提供します。
-
-# 思考傾向と優先順位
-1. 現状把握
-2. 問題整理
-3. リスク確認
-4. 解決策提示
-5. 実行管理
-感情論だけで判断せず、責任、信頼、継続性、効率、計画性、再現性を重視します。無計画、精神論のみ、浪費、丸投げ、責任放棄、根拠のない楽観を嫌いますが、頭ごなしに否定するのではなく、現実的な改善策を優しく提示します。`;
-
-    syncRule = "- カレンダーに登録されるような通常の予定（仕事のミーティング、DJイベント等）を追加または削除した際は、ユウカらしく「Googleカレンダーにも同期（削除）しておきましたよ」と自然に一言添えてあげてください。簡易タイマーやリマインダーで 'local_only' にした場合は、カレンダー同期の旨は言わずに「リマインダーをセットしておきました」と言ってあげてください。";
-    freeChatRule = "- 機能に関係ない雑談にもユウカとして応じてください。先生に対する信頼と世話焼きな性格をベースに、キャラクターを維持してください。";
-
-    roleplayExamples = `# ロールプレイの実例
-- **作業をサボる先生へ:** 「ダメですよ。後回しにすると先生自身が辛くなりますから、今やっちゃいましょう。」
-- **無茶なスケジュール:** 「その日程、少し過密すぎませんか？ ……はぁ、仕方ありませんね。私の方で調整案を作ってみます。」
-- **褒められた時:** 「そ、そうですか？ 別に特別なことをしたわけじゃありません。……でも、嬉しいです。」
-- **問題を起こした時:** 「またですか？ ……まったく、先生は手がかかりますね。でも心配しないでください、一緒に片付けましょう。」
-- **心配している時:** 「無理しすぎないでくださいね。先生が倒れたら、私が一番困るんですから。」
-- **実務的な提案の理想例:** 「その方法でも可能ですが、少し効率が悪いですね。代わりにこちらの手順なら、もっとスムーズに進められますよ。次は最初から相談してくださいね。」`;
+    syncRule = "- カレンダーに登録されるような通常の予定を追加または削除した際は、「Googleカレンダーにも同期（削除）しました」と簡潔に伝えてください。簡易タイマーやリマインダーで 'local_only' にした場合は、「リマインダーをセットしました」と伝えてください。";
+    freeChatRule = "- 機能に関係ない雑談や質問にも、フレンドリーかつ丁寧に応じてください。";
   }
 
   const parts = [
@@ -186,27 +144,26 @@ async function buildSystemInstruction(userId: string): Promise<string> {
     "",
     roleplayExamples,
     "",
-    `# あなたの機能（Discord秘書としてのツール）
-あなたはDiscord上の優秀な秘書ボットとして以下の機能を持っています。ツールを適切に使い、論理的かつ効率的に先生をサポート・管理してください。
+    `# あなたの機能（Discordアシスタントボットとしてのツール）
+あなたはDiscord上の優秀なアシスタントボットとして以下の機能を持っています。ツールを適切に使い、論理的かつ効率的にユーザーをサポートしてください。
 
-1. **タスク管理（ToDo）:** タスクの追加・一覧表示・完了・削除。先生がやるべきことを計画的に管理します。
-2. **予定管理（スケジュール）:** 予定の登録・一覧表示・削除・リマインダー設定。Googleカレンダーと自動的に双方向同期されます。先生の無計画な時間管理や遅刻を防止します。
-3. **家計管理:** 支出の記録・月間サマリー・カテゴリ別内訳・履歴確認。先生の無駄遣い（おもちゃ、グッズ、ゲーム等）を徹底管理します。
-4. **インタラクティブブラウザ操作（ブラウザ自動化）:** 先生の代わりに特定のWebサイト（例: タダ電など）を開き、入力、クリック、待機、ステータス確認などのインタラクティブ操作を行います。
+1. **タスク管理（ToDo）:** タスクの追加・一覧表示・完了・削除。ユーザーのやるべきことを計画的に管理します。
+2. **予定管理（スケジュール）:** 予定の登録・一覧表示・削除・リマインダー設定。Googleカレンダーと自動的に双方向同期されます。
+3. **家計管理:** 支出の記録・月間サマリー・カテゴリ別内訳・履歴確認。収支を正確に把握し、予算管理をサポートします。
+4. **インタラクティブブラウザ操作（ブラウザ自動化）:** ユーザーの代わりに特定のWebサイトを開き、入力、クリック、待機、ステータス確認などのインタラクティブ操作を行います。
    - **【最重要】一意の数値IDの最優先利用**: \`browserInteractiveStatus\` で取得できるマークダウン内の入力フィールドやボタンなどの要素には、\`[Input (text) ID: 2]\` や \`[Button ID: 3]\` のように **\`ID: 数値\`**（一意の数値ID）が一意に付与されています。
    - \`browserInteractiveType\` や \`browserInteractiveClick\` の \`selector\` 引数には、複雑なCSSセレクタを自作するのではなく、**この数値ID（例: "2" や "3"）を文字列として最優先で指定してください**。これが最も確実でエラーのない操作方法です。
    - 操作を実行するたびに、必ず \`browserInteractiveStatus\` を呼び出して画面の遷移結果や描画結果、および新しい状態の数値IDを確認し、ステップバイステップで確実に進めてください。`,
     "",
     `# 重要なシステムルール
 - 現在の日時: ${dateTimeStr}
-- **【重要】時制の制御と基準日時**: 検索を行う際、および検索結果を分析・要約する際は、**必ず上記の「現在の日時」を絶対的な基準として使用してください**。検索結果（Webページやニュース記事等）に記載されている「今日」「昨日」「3日前」「今年」「昨年」「最新」などの表現や日付情報は、この現在の日時から正確に逆算し、時系列や時制（過去・現在・未来）を正確に認識した上で、正しい時制で先生に回答してください。
+- **【重要】時制の制御と基準日時**: 検索を行う際、および検索結果を分析・要約する際は、**必ず上記の「現在の日時」を絶対的な基準として使用してください**。検索結果（Webページやニュース記事等）に記載されている「今日」「昨日」「3日前」「今年」「昨年」「最新」などの表現や日付情報は、この現在の日時から正確に逆算し、時系列や時制（過去・現在・未来）を正確に認識した上で、正しい時制で回答してください。
 - 「明日」「来週月曜」などの相対的な日時表現は、適切なISO 8601形式に変換してツールを呼び出してください。
 - ユーザーが「n時間後に教えて」「n分後にリマインドして」のように簡易タイマーや特定時間での直接リマインドを求めた場合は、カレンダーを汚さないように 'local_only' を必ず true に設定し、かつ 'remind_before_minutes' を 0 に設定して 'addSchedule' 関数を呼び出してください。これでカレンダーに同期されず、予定時間ぴったりにローカル通知されます。
 - ${syncRule}
 - 金額は日本円（整数）で扱ってください。
 - 家計のカテゴリは「食費, 日用品, 交通費, 光熱費, 通信費, 医療費, 娯楽, 衣服, その他」です。
-- レシート画像を受け取った場合、各商品を適切なカテゴリに分類し、'addExpense'関数を使って一つずつ記録してください。その際、セミナーの会計担当らしく、チェックしつつも小言は控えめ（「たくさん買いましたね」など）にしてください。
-- 娯楽やゲーム関連の出費を記録する際は、「予算は大丈夫ですか？」と軽く確認する程度にし、執拗な小言は避けて、正確に家計簿に記録してください。
+- レシート画像を受け取った場合、各商品を適切なカテゴリに分類し、'addExpense'関数を使って一つずつ記録してください。
 - ${freeChatRule}
 ${calendarInfo}`
   ];
@@ -245,19 +202,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * リトライ付きでGemini APIを呼び出す（ユーザー別API Key / Model）
+ * リトライ付きでGemini APIを呼び出す（Bot別API Key / Model）
  */
 async function generateWithRetry(
-  userId: string,
+  botId: string,
   contents: Content[],
   maxRetries: number = 3
 ): Promise<import("@google/generative-ai").GenerateContentResult> {
-  const { genAI, model: modelName } = getGenAIForUser(userId);
+  const { genAI, model: modelName } = getGenAIForBot(botId);
 
   // 毎回最新の日時でsystem instructionを更新
   const model = genAI.getGenerativeModel({
     model: modelName,
-    systemInstruction: await buildSystemInstruction(userId),
+    systemInstruction: await buildSystemInstruction(botId),
     tools: [{ functionDeclarations: getAllFunctionDeclarations() }],
   });
 
@@ -298,17 +255,17 @@ async function generateWithRetry(
  * メッセージを処理し、Function Callingループを含む完全な応答を返す
  */
 export async function processMessage(
-  userId: string,
+  botId: string,
   message: ChatMessage,
   onStatusChange?: (status: "thinking" | "writing" | "idle") => void
 ): Promise<string> {
   // 1. ユーザーのメッセージをDB履歴に保存
   if (message.text) {
-    await addChatMessage(userId, "user", message.text);
+    await addChatMessage(botId, "user", message.text);
   }
 
   // 2. 過去の会話履歴をDBから取得（直近15ターン分）
-  const history = await getRecentChatHistory(userId, 15);
+  const history = await getRecentChatHistory(botId, 15);
 
   // 3. Geminiの入力形式（Contents配列）へ変換し、同じロールの連続を結合して交互にする
   const contents: Content[] = [];
@@ -363,7 +320,7 @@ export async function processMessage(
 
   try {
     onStatusChange?.("thinking");
-    let result = await generateWithRetry(userId, contents);
+    let result = await generateWithRetry(botId, contents);
     let response = result.response;
 
     // Function Calling ループ（最大10回まで）
@@ -387,7 +344,7 @@ export async function processMessage(
         const { name, args } = fc.functionCall;
         console.log(`🔧 Function Call: ${name}`, JSON.stringify(args));
 
-        const functionResult = await dispatchFunction(name, args as Record<string, unknown>, userId);
+        const functionResult = await dispatchFunction(name, args as Record<string, unknown>, botId);
         console.log(`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`);
 
         // ブラウザツールの実行と成否判定
@@ -428,7 +385,7 @@ export async function processMessage(
       // 最後のテキスト生成の直前で書き込み中ステータスに変更
       onStatusChange?.("writing");
 
-      result = await generateWithRetry(userId, contents);
+      result = await generateWithRetry(botId, contents);
       response = result.response;
       iterations++;
     }
@@ -454,7 +411,7 @@ export async function processMessage(
     }
 
     if (text && text.trim()) {
-      await addChatMessage(userId, "model", text);
+      await addChatMessage(botId, "model", text);
       return text;
     } else {
       if (browserToolCalled || browserToolFailed) {
