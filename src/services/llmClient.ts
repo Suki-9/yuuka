@@ -1,9 +1,16 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getUserGeminiConfig } from "../db/userRepo.js";
+import { getBotById } from "../db/botRepo.js";
 import { decryptText } from "../utils/crypto.js";
 
 // ユーザー別 GoogleGenerativeAI インスタンスキャッシュ
 const userAICache = new Map<string, { genAI: GoogleGenerativeAI; apiKey: string }>();
+
+// Bot別 GoogleGenerativeAI インスタンスキャッシュ（Bot専用キー実行用）
+const botAICache = new Map<string, { genAI: GoogleGenerativeAI; apiKey: string }>();
+
+/** Bot専用キーで使用する既定モデル（Bot単位のモデル設定はPhase 2課題） */
+const BOT_DEFAULT_MODEL = "gemini-3.1-flash-lite";
 
 /**
  * ユーザー自身の Gemini API キーから GenAI インスタンスを取得する。
@@ -31,6 +38,36 @@ export function getUserGenAI(userId: string): { genAI: GoogleGenerativeAI; model
   const genAI = new GoogleGenerativeAI(apiKey);
   userAICache.set(userId, { genAI, apiKey });
   return { genAI, model: conf.model || "gemini-3.1-flash-lite" };
+}
+
+/**
+ * Bot専用の Gemini API キーから GenAI インスタンスを取得する。
+ * bot_attributes_requirements.md §4.3.3: 汎用モードはBot専用キーで実行し、
+ * 発話ユーザーが登録済みユーザーであっても本人キーは使用しない。
+ * キー未設定・復号失敗時は null（呼び出し側は応答せず管理UIに警告を出す）。
+ */
+export function getBotGenAI(botId: string): { genAI: GoogleGenerativeAI; model: string } | null {
+  const bot = getBotById(botId);
+  if (!bot || !bot.gemini_api_key_encrypted || !bot.gemini_api_key_iv || !bot.gemini_api_key_tag) {
+    return null;
+  }
+
+  let apiKey: string;
+  try {
+    apiKey = decryptText(bot.gemini_api_key_encrypted, bot.gemini_api_key_iv, bot.gemini_api_key_tag);
+  } catch (err) {
+    console.error(`Bot ${botId} のGemini API Keyの復号に失敗しました:`, err);
+    return null;
+  }
+
+  const cached = botAICache.get(botId);
+  if (cached && cached.apiKey === apiKey) {
+    return { genAI: cached.genAI, model: BOT_DEFAULT_MODEL };
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  botAICache.set(botId, { genAI, apiKey });
+  return { genAI, model: BOT_DEFAULT_MODEL };
 }
 
 /** レート制限・一時サーバーエラー判定 */
