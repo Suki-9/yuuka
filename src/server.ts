@@ -42,7 +42,7 @@ registerRoutes(deliveryRoutes);  // 朝報・日報・週報（§3.8, §3.9）
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self';";
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-ancestors 'self';";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
@@ -59,6 +59,8 @@ const MIME_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".json": "application/json",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
 };
 
 /**

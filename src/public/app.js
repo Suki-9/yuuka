@@ -5373,4 +5373,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // On page load, try auto-login
   initAppSession();
 
+  // Service Worker 登録
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
 });
