@@ -1,4 +1,4 @@
-const CACHE = 'yuuka-v7';
+const CACHE = 'yuuka-v8';
 const PRECACHE = [
   '/',
   '/styles.css',

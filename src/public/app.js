@@ -119,11 +119,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const menuItems = document.querySelectorAll(".menu-item");
   const tabViews = document.querySelectorAll(".tab-view");
 
+  // 秘書プリセット専用のタブ（汎用モードBotの文脈では非表示にする）
+  const SECRETARY_ONLY_TABS = ["tasks", "schedules", "expenses", "reminders", "personal", "delivery", "webhooks", "playbooks"];
+
+  function currentBotPreset() {
+    return localStorage.getItem("currentBotPreset") || "secretary";
+  }
+
   function updateSidebarBotBranding() {
     const sidebarAppAvatar = document.getElementById("sidebar-app-avatar");
     const sidebarAppName = document.getElementById("sidebar-app-name");
     const sidebarAppId = document.getElementById("sidebar-app-id");
-    
+
     if (!sidebarAppName || !sidebarAppId) return;
 
     const botName = localStorage.getItem("currentBotName") || "システムデフォルト";
@@ -142,6 +149,15 @@ document.addEventListener("DOMContentLoaded", () => {
         sidebarAppAvatar.style.display = "block";
       }
     }
+
+    // 属性に含まれない機能のタブは、そのBotの文脈では非表示にする（Bot属性 §4.7）
+    const isAssistant = currentBotPreset() === "mcp_assistant";
+    menuItems.forEach(item => {
+      const tab = item.getAttribute("data-tab");
+      if (SECRETARY_ONLY_TABS.includes(tab)) {
+        item.style.display = isAssistant ? "none" : "";
+      }
+    });
   }
 
   // Dashboard DOM
@@ -202,6 +218,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // VIEW ROUTER (HTML5 History Path-based Routing)
   // ==========================================
   function switchTab(tabId) {
+    // 汎用モードBotでは秘書系タブへ遷移させない（Bot設定へフォールバック）
+    if (currentBotPreset() === "mcp_assistant" && SECRETARY_ONLY_TABS.includes(tabId)) {
+      tabId = "config";
+    }
     activeTab = tabId;
 
     // Update menu buttons active state
@@ -564,8 +584,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const isCustomToken = !!bot.discord_token_encrypted;
-      const statusText = isCustomToken ? "独自Bot起動中" : "デフォルト共有";
-      const accentColor = isCustomToken ? "#10b981" : "#3b82f6";
+      const isAssistant = bot.preset === "mcp_assistant";
+      // 属性バッジ: 汎用モード（MCPアシスタント）はプリセット表示名を冠する
+      const presetLabel = isAssistant ? (bot.preset_display_name || "汎用モード") + " ・ " : "";
+      const statusText = presetLabel + (isCustomToken ? "独自Bot起動中" : "デフォルト共有");
+      const accentColor = isAssistant ? "#a78bfa" : isCustomToken ? "#10b981" : "#3b82f6";
 
       // アバター部分
       const avatarDiv = document.createElement("div");
@@ -704,6 +727,7 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("currentBotId", bot.id);
     localStorage.setItem("currentBotName", bot.discord_username || bot.name);
     localStorage.setItem("currentBotAvatar", bot.discord_avatar_url || "");
+    localStorage.setItem("currentBotPreset", bot.preset || "secretary");
     if (activeBotDisplay) {
       activeBotDisplay.textContent = bot.discord_username || bot.name;
     }
@@ -760,8 +784,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  /** プリセット表示名（管理ページから変更可能）を作成フォームへ反映する */
+  async function refreshPresetOptions() {
+    try {
+      const res = await originalFetch("/api/bots/presets");
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.presets)) return;
+      const select = document.getElementById("new-bot-preset");
+      if (!select) return;
+      data.presets.forEach(p => {
+        const option = select.querySelector(`option[value="${p.id}"]`);
+        if (option) option.textContent = p.displayName;
+      });
+    } catch (e) { /* 表示名はHTMLの既定値で続行 */ }
+  }
+
   if (btnShowAddBot) {
     btnShowAddBot.addEventListener("click", () => {
+      refreshPresetOptions();
       openModal(modalCreateBot);
     });
   }
@@ -770,17 +810,22 @@ document.addEventListener("DOMContentLoaded", () => {
     createBotForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = document.getElementById("new-bot-name").value.trim();
+      const presetSelect = document.getElementById("new-bot-preset");
+      const preset = presetSelect ? presetSelect.value : "secretary";
 
       try {
         const res = await originalFetch("/api/bots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name })
+          body: JSON.stringify({ name, preset })
         });
         const data = await res.json();
         if (data.success) {
           closeModal(modalCreateBot);
           createBotForm.reset();
+          if (preset === "mcp_assistant" && data.message) {
+            alert(data.message);
+          }
           fetchBotList();
         } else {
           alert("Bot作成に失敗しました: " + data.message);
@@ -2333,9 +2378,417 @@ document.addEventListener("DOMContentLoaded", () => {
       // Load AI Credentials List & Bot共有設定
       fetchCredentialsSettings();
       fetchBotShares();
+      // Bot属性（プリセット）と汎用モード設定
+      fetchBotAttributeConfig();
     } catch (e) {
       console.error(e);
     }
+  }
+
+  // ==========================================
+  // Bot属性（プリセット）+ 汎用モード（MCPアシスタント）設定
+  // ==========================================
+
+  /** 現在のBotの属性カード・汎用モード設定カードの表示を更新する（owner のみ表示） */
+  async function fetchBotAttributeConfig() {
+    const attrCard = document.getElementById("config-bot-attribute-card");
+    const assistantCard = document.getElementById("config-assistant-card");
+    if (attrCard) attrCard.classList.add("hidden");
+    if (assistantCard) assistantCard.classList.add("hidden");
+
+    const botId = window.currentBotId;
+    if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
+
+    try {
+      const res = await originalFetch("/api/bots");
+      const data = await res.json();
+      if (!data.success) return;
+      const bot = (data.bots || []).find(b => b.id === botId);
+      if (!bot) return;
+
+      // プリセットが変わっている可能性に備えて localStorage を同期
+      if (bot.preset && bot.preset !== currentBotPreset()) {
+        localStorage.setItem("currentBotPreset", bot.preset);
+        updateSidebarBotBranding();
+      }
+
+      const isOwner = bot.user_id === activeUserId;
+      const isAdminUser = activeUserRole === "admin";
+      if (!isOwner && !isAdminUser) return; // 属性の変更は owner / Admin のみ（§4.1）
+
+      // ── Bot属性カード ──
+      if (attrCard) {
+        attrCard.classList.remove("hidden");
+        const badge = document.getElementById("bot-attribute-current-badge");
+        if (badge) badge.textContent = bot.preset_display_name || "";
+        const select = document.getElementById("bot-attribute-preset-select");
+        if (select) {
+          try {
+            const pres = await originalFetch("/api/bots/presets").then(r => r.json());
+            if (pres.success) {
+              select.innerHTML = "";
+              pres.presets.forEach(p => {
+                const opt = document.createElement("option");
+                opt.value = p.id;
+                opt.textContent = `${p.displayName}（${p.capabilities.join(" + ")}）`;
+                select.appendChild(opt);
+              });
+            }
+          } catch (e) { }
+          select.value = bot.preset || "secretary";
+        }
+      }
+
+      // ── 汎用モード設定カード ──
+      if (bot.preset === "mcp_assistant" && assistantCard) {
+        assistantCard.classList.remove("hidden");
+        await loadAssistantConfig(botId);
+      }
+    } catch (e) {
+      console.error("Bot属性設定の読み込みに失敗しました:", e);
+    }
+  }
+
+  /** 汎用モード設定タブの内容を取得して描画する */
+  async function loadAssistantConfig(botId) {
+    try {
+      const res = await originalFetch(`/api/bots/assistant-config?botId=${encodeURIComponent(botId)}`);
+      const data = await res.json();
+      if (!data.success) return;
+
+      // 警告表示（応答に必要な設定が欠けている場合 §4.3.3）
+      const warnings = document.getElementById("assistant-warnings");
+      if (warnings) {
+        warnings.innerHTML = "";
+        const warn = (text) => {
+          const div = document.createElement("div");
+          div.className = "field-sub";
+          div.style.color = "#f59e0b";
+          div.textContent = text;
+          warnings.appendChild(div);
+        };
+        if (!data.has_gemini_key) warn("⚠️ Bot専用のGemini APIキーが未設定です。設定されるまでこのBotは応答しません。");
+        if (!data.has_discord_token) warn("⚠️ 独自のDiscord Botトークンが未設定です。汎用モードは専用のDiscordクライアントとして動作するため、上の「Discord 独自Bot設定」から設定してください。");
+        if ((data.guilds || []).length === 0) warn("⚠️ 応答許可ギルドが未設定です。許可したギルドでのみ応答します。");
+      }
+
+      // APIキー（マスク表示）
+      const keyInput = document.getElementById("assistant-gemini-key");
+      if (keyInput) keyInput.value = data.has_gemini_key ? "••••••••••••" : "";
+
+      // ペルソナ選択（自身のペルソナ + 公開ペルソナ §4.4）
+      const personaSelect = document.getElementById("assistant-persona-select");
+      if (personaSelect) {
+        personaSelect.innerHTML = "";
+        const defaultOpt = document.createElement("option");
+        defaultOpt.value = "";
+        defaultOpt.textContent = "（デフォルトペルソナ）";
+        personaSelect.appendChild(defaultOpt);
+        (data.personas || []).forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = String(p.id);
+          opt.textContent = p.name;
+          personaSelect.appendChild(opt);
+        });
+        personaSelect.value = data.persona_id ? String(data.persona_id) : "";
+      }
+
+      // MCPサーバー紐付け
+      const mcpList = document.getElementById("assistant-mcp-list");
+      if (mcpList) {
+        mcpList.innerHTML = "";
+        const servers = data.mcp_servers || [];
+        if (servers.length === 0) {
+          mcpList.innerHTML = `<span class="field-sub">登録済みのMCPサーバーがありません。「MCPサーバー」タブから登録してください。</span>`;
+        }
+        servers.forEach(s => {
+          const row = document.createElement("label");
+          row.style.cssText = "display:flex; align-items:center; gap:10px; cursor:pointer;";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = !!s.linked;
+          cb.disabled = !!s.system; // システムレベルは常に利用可（変更不可）
+          cb.style.cssText = "width:18px; height:18px;";
+          cb.addEventListener("change", async () => {
+            cb.disabled = true;
+            try {
+              const r = await originalFetch("/api/bots/assistant/mcp-links", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ botId, mcpServerId: s.id, linked: cb.checked })
+              });
+              const d = await r.json();
+              if (!d.success) {
+                alert(d.message);
+                cb.checked = !cb.checked;
+              }
+            } catch (e) {
+              cb.checked = !cb.checked;
+            } finally {
+              cb.disabled = false;
+            }
+          });
+          const label = document.createElement("span");
+          label.textContent = `${s.name}${s.system ? "（システムレベル・常時利用可）" : ""}${!s.enabled ? "（無効化中）" : ""}`;
+          row.appendChild(cb);
+          row.appendChild(label);
+          mcpList.appendChild(row);
+        });
+      }
+
+      renderAssistantGuilds(botId, data.guilds || []);
+      renderAssistantMembers(botId, data.members || [], data.guilds || []);
+
+      // 共有ノートのギルド選択
+      const noteGuildSelect = document.getElementById("assistant-note-guild-select");
+      if (noteGuildSelect) {
+        noteGuildSelect.innerHTML = "";
+        (data.guilds || []).forEach(g => {
+          const opt = document.createElement("option");
+          opt.value = g.guild_id;
+          opt.textContent = `ギルド ${g.guild_id}`;
+          noteGuildSelect.appendChild(opt);
+        });
+        if ((data.guilds || []).length > 0) {
+          loadAssistantGuildNote(botId, noteGuildSelect.value);
+        } else {
+          const noteArea = document.getElementById("assistant-guild-note");
+          if (noteArea) noteArea.value = "";
+        }
+      }
+
+      // 利用量（直近14日・日次）
+      const usageEl = document.getElementById("assistant-usage");
+      if (usageEl) {
+        const usage = data.usage || [];
+        if (usage.length === 0) {
+          usageEl.innerHTML = `<span class="field-sub">まだ利用がありません。</span>`;
+        } else {
+          usageEl.innerHTML = usage
+            .map(u => `<div style="display:flex; justify-content:space-between; max-width:280px;"><span class="field-sub">${u.date}</span><span>${u.count} 回</span></div>`)
+            .join("");
+        }
+      }
+      const rateEl = document.getElementById("assistant-rate-limits");
+      if (rateEl && data.rate_limits) {
+        rateEl.textContent = `レート制限: ユーザー ${data.rate_limits.userPerMinute}回/分・${data.rate_limits.userPerDay}回/日、ギルド ${data.rate_limits.guildPerDay}回/日（Admin設定で変更可）`;
+      }
+    } catch (e) {
+      console.error("汎用モード設定の読み込みに失敗しました:", e);
+    }
+  }
+
+  function renderAssistantGuilds(botId, guilds) {
+    const list = document.getElementById("assistant-guild-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (guilds.length === 0) {
+      list.innerHTML = `<span class="field-sub">許可ギルドが未登録です。</span>`;
+      return;
+    }
+    guilds.forEach(g => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
+      const label = document.createElement("span");
+      label.style.fontFamily = "var(--font-family-mono)";
+      label.textContent = g.guild_id;
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "btn btn-secondary btn-sm";
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`ギルド ${g.guild_id} を応答許可リストから削除しますか？`)) return;
+        await postAssistantAction("/api/bots/assistant/guilds", { botId, guildId: g.guild_id, action: "remove" });
+      });
+      row.appendChild(label);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  function renderAssistantMembers(botId, members, guilds) {
+    // メンバー追加用のギルド選択
+    const guildSelect = document.getElementById("assistant-member-guild-select");
+    if (guildSelect) {
+      const prev = guildSelect.value;
+      guildSelect.innerHTML = "";
+      guilds.forEach(g => {
+        const opt = document.createElement("option");
+        opt.value = g.guild_id;
+        opt.textContent = `ギルド ${g.guild_id}`;
+        guildSelect.appendChild(opt);
+      });
+      if (prev && guilds.some(g => g.guild_id === prev)) guildSelect.value = prev;
+    }
+
+    const list = document.getElementById("assistant-member-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (members.length === 0) {
+      list.innerHTML = `<span class="field-sub">登録済みの利用メンバーはいません（あなたは常に利用できます）。</span>`;
+      return;
+    }
+    members.forEach(m => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
+      const label = document.createElement("span");
+      label.className = "field-sub";
+      label.innerHTML = `<span style="font-family:var(--font-family-mono);">${m.user_id}</span> @ ギルド ${m.guild_id}`;
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "btn btn-secondary btn-sm";
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`ユーザー ${m.user_id} を利用メンバーから削除しますか？`)) return;
+        await postAssistantAction("/api/bots/assistant/members", { botId, guildId: m.guild_id, userId: m.user_id, action: "remove" });
+      });
+      row.appendChild(label);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  /** 汎用モード設定のPOST + 再読み込みの共通処理 */
+  async function postAssistantAction(url, body) {
+    try {
+      const res = await originalFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.message || "操作に失敗しました。");
+      }
+      await loadAssistantConfig(body.botId);
+      return data;
+    } catch (e) {
+      alert("通信エラーが発生しました。");
+      return { success: false };
+    }
+  }
+
+  async function loadAssistantGuildNote(botId, guildId) {
+    const noteArea = document.getElementById("assistant-guild-note");
+    if (!noteArea || !guildId) return;
+    try {
+      const res = await originalFetch(`/api/bots/assistant/guild-note?botId=${encodeURIComponent(botId)}&guildId=${encodeURIComponent(guildId)}`);
+      const data = await res.json();
+      noteArea.value = data.success ? data.content : "";
+    } catch (e) {
+      noteArea.value = "";
+    }
+  }
+
+  // ── 汎用モード設定のイベントハンドラ（要素は静的なので一度だけ登録） ──
+
+  const btnSaveBotAttribute = document.getElementById("btn-save-bot-attribute");
+  if (btnSaveBotAttribute) {
+    btnSaveBotAttribute.addEventListener("click", async () => {
+      const select = document.getElementById("bot-attribute-preset-select");
+      if (!select || !select.value) return;
+      const preset = select.value;
+      const presetLabel = select.selectedIndex >= 0 ? select.options[select.selectedIndex].textContent : preset;
+      if (!confirm(`Botの属性を「${presetLabel}」へ変更しますか？\n機能セットが切り替わります（会話の文脈は属性ごとに分離されます）。`)) return;
+      try {
+        const res = await originalFetch("/api/bots/attributes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, preset })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "変更しました。" : "変更に失敗しました。"));
+        if (data.success) {
+          localStorage.setItem("currentBotPreset", preset);
+          updateSidebarBotBranding();
+          fetchBotAttributeConfig();
+        }
+      } catch (e) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  const btnSaveAssistantKey = document.getElementById("btn-save-assistant-key");
+  if (btnSaveAssistantKey) {
+    btnSaveAssistantKey.addEventListener("click", async () => {
+      const input = document.getElementById("assistant-gemini-key");
+      const apiKey = input ? input.value : "";
+      if (!apiKey.trim() && !confirm("APIキーを削除しますか？ 削除するとこのBotは応答を停止します。")) return;
+      await postAssistantAction("/api/bots/assistant/gemini-key", { botId: window.currentBotId, apiKey });
+    });
+  }
+
+  const btnSaveAssistantPersona = document.getElementById("btn-save-assistant-persona");
+  if (btnSaveAssistantPersona) {
+    btnSaveAssistantPersona.addEventListener("click", async () => {
+      const select = document.getElementById("assistant-persona-select");
+      const personaId = select && select.value ? Number(select.value) : null;
+      await postAssistantAction("/api/bots/assistant/persona", { botId: window.currentBotId, personaId });
+    });
+  }
+
+  const btnAddAssistantGuild = document.getElementById("btn-add-assistant-guild");
+  if (btnAddAssistantGuild) {
+    btnAddAssistantGuild.addEventListener("click", async () => {
+      const input = document.getElementById("assistant-guild-input");
+      const guildId = input ? input.value.trim() : "";
+      if (!/^\d{5,25}$/.test(guildId)) {
+        alert("ギルドID（数字）を入力してください。Discordの開発者モードでサーバーを右クリック →「IDをコピー」で取得できます。");
+        return;
+      }
+      const result = await postAssistantAction("/api/bots/assistant/guilds", { botId: window.currentBotId, guildId, action: "add" });
+      if (result.success && input) input.value = "";
+    });
+  }
+
+  const btnAddAssistantMember = document.getElementById("btn-add-assistant-member");
+  if (btnAddAssistantMember) {
+    btnAddAssistantMember.addEventListener("click", async () => {
+      const guildSelect = document.getElementById("assistant-member-guild-select");
+      const input = document.getElementById("assistant-member-input");
+      const guildId = guildSelect ? guildSelect.value : "";
+      const userId = input ? input.value.trim() : "";
+      if (!guildId) {
+        alert("先に応答許可ギルドを追加してください。");
+        return;
+      }
+      if (!/^\d{5,25}$/.test(userId)) {
+        alert("ユーザーID（数字）を入力してください。");
+        return;
+      }
+      const result = await postAssistantAction("/api/bots/assistant/members", { botId: window.currentBotId, guildId, userId, action: "add" });
+      if (result.success && input) input.value = "";
+    });
+  }
+
+  const assistantNoteGuildSelect = document.getElementById("assistant-note-guild-select");
+  if (assistantNoteGuildSelect) {
+    assistantNoteGuildSelect.addEventListener("change", () => {
+      loadAssistantGuildNote(window.currentBotId, assistantNoteGuildSelect.value);
+    });
+  }
+
+  const btnSaveAssistantNote = document.getElementById("btn-save-assistant-note");
+  if (btnSaveAssistantNote) {
+    btnSaveAssistantNote.addEventListener("click", async () => {
+      const guildSelect = document.getElementById("assistant-note-guild-select");
+      const noteArea = document.getElementById("assistant-guild-note");
+      const guildId = guildSelect ? guildSelect.value : "";
+      if (!guildId) {
+        alert("先に応答許可ギルドを追加してください。");
+        return;
+      }
+      try {
+        const res = await originalFetch("/api/bots/assistant/guild-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, guildId, content: noteArea ? noteArea.value : "" })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+      } catch (e) {
+        alert("通信エラーが発生しました。");
+      }
+    });
   }
 
   // Handle Profile settings update
@@ -2890,8 +3343,63 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchAdminInviteCodes(),
       fetchAdminSystemSettings(),
       fetchAdminAuditLogs(),
-      fetchAdminPersonas()
+      fetchAdminPersonas(),
+      fetchAdminBotAttributeSettings()
     ]);
+  }
+
+  // ── Bot属性設定（プリセット表示名・レート制限既定値） ──
+
+  async function fetchAdminBotAttributeSettings() {
+    try {
+      const res = await originalFetch("/api/admin/bot-attribute-settings");
+      const data = await res.json();
+      if (!data.success) return;
+      const byId = {};
+      (data.presets || []).forEach(p => { byId[p.id] = p; });
+      const nameSec = document.getElementById("admin-preset-name-secretary");
+      const nameMcp = document.getElementById("admin-preset-name-mcp");
+      if (nameSec && byId.secretary) nameSec.value = byId.secretary.displayName;
+      if (nameMcp && byId.mcp_assistant) nameMcp.value = byId.mcp_assistant.displayName;
+      const rl = data.rate_limits || {};
+      const userMin = document.getElementById("admin-rate-user-min");
+      const userDay = document.getElementById("admin-rate-user-day");
+      const guildDay = document.getElementById("admin-rate-guild-day");
+      if (userMin) userMin.value = rl.userPerMinute ?? 5;
+      if (userDay) userDay.value = rl.userPerDay ?? 100;
+      if (guildDay) guildDay.value = rl.guildPerDay ?? 1000;
+    } catch (err) {
+      console.error("Bot属性設定の取得に失敗しました:", err);
+    }
+  }
+
+  const adminBotAttrForm = document.getElementById("admin-bot-attr-form");
+  if (adminBotAttrForm) {
+    adminBotAttrForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const res = await originalFetch("/api/admin/bot-attribute-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            displayNames: {
+              secretary: document.getElementById("admin-preset-name-secretary").value.trim(),
+              mcp_assistant: document.getElementById("admin-preset-name-mcp").value.trim()
+            },
+            rateLimits: {
+              userPerMinute: Number(document.getElementById("admin-rate-user-min").value),
+              userPerDay: Number(document.getElementById("admin-rate-user-day").value),
+              guildPerDay: Number(document.getElementById("admin-rate-guild-day").value)
+            }
+          })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+        if (data.success) fetchAdminBotAttributeSettings();
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
   }
 
   async function fetchAdminStats() {
