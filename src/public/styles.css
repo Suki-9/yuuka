@@ -181,6 +181,10 @@
   padding: 0;
 }
 
+.theme-no-transition * {
+  transition: none !important;
+}
+
 body {
   background-color: var(--bg-secondary);
   color: var(--text-primary);

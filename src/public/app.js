@@ -5,6 +5,7 @@
    ============================================================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.documentElement.classList.remove('theme-no-transition');
 
   // Override native fetch to auto-inject currentBotId
   const originalFetch = window.fetch;

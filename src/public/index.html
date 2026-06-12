@@ -15,6 +15,15 @@
   <!-- Google Material Symbols (Outlined version matches shadcn/ui aesthetic perfectly) -->
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('yuuka-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.classList.add('theme-no-transition');
+      } catch(e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css">
 </head>
 
