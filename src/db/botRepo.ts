@@ -13,6 +13,14 @@ export interface BotRecord {
   discord_username: string | null;
   discord_avatar_url: string | null;
   suspended: number;
+  /** Bot属性: ケーパビリティのJSON配列（bot_attributes_requirements.md §3） */
+  capabilities: string;
+  /** Bot単位ペルソナ（汎用モード用。要件 §4.4） */
+  persona_id: number | null;
+  /** Bot専用Gemini APIキー（システム鍵で暗号化。要件 §4.3.3） */
+  gemini_api_key_encrypted: string | null;
+  gemini_api_key_iv: string | null;
+  gemini_api_key_tag: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -167,6 +175,40 @@ export function unsuspendBot(botId: string): boolean {
 export function isBotSuspended(botId: string): boolean {
   const bot = getBotById(botId);
   return !!bot && bot.suspended === 1;
+}
+
+/**
+ * Bot単位ペルソナを設定する（要件 §4.4: owner所有 or 公開ペルソナのみ。検証は呼び出し側）
+ */
+export function setBotPersona(botId: string, personaId: number | null): boolean {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `UPDATE bots SET persona_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
+      )
+      .run(personaId, botId).changes > 0
+  );
+}
+
+/**
+ * Bot専用のGemini APIキー（暗号化済み）を更新する（要件 §4.3.3。認可は呼び出し側で検証）
+ */
+export function updateBotGeminiKey(
+  botId: string,
+  encrypted: string | null,
+  iv: string | null,
+  tag: string | null
+): boolean {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `UPDATE bots SET gemini_api_key_encrypted = ?, gemini_api_key_iv = ?, gemini_api_key_tag = ?,
+         updated_at = datetime('now', 'localtime') WHERE id = ?`
+      )
+      .run(encrypted, iv, tag, botId).changes > 0
+  );
 }
 
 /**
