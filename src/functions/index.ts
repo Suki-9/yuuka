@@ -55,7 +55,7 @@ const browserDeclarations: FunctionDeclaration[] = [
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        query: { type: SchemaType.STRING, description: "検索に入力するキーワード（例: '東京 明日の天気', 'ブルーアーカイブ 最新ニュース'）" },
+        query: { type: SchemaType.STRING, description: "検索に入力するキーワード（例: '東京 明日の天気'）" },
       },
       required: ["query"],
     },
