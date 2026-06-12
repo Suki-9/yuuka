@@ -2,6 +2,7 @@ import type { EmbedBuilder, TextBasedChannel } from "discord.js";
 import { client, customClients } from "../bot.js";
 import { listBotsForUser } from "../db/botRepo.js";
 import { getUserNotifyTarget } from "../db/userRepo.js";
+import { isGuildAssistantBot } from "./botCapabilities.js";
 
 export interface NotifyPayload {
   content?: string;
@@ -17,12 +18,15 @@ export interface NotifyTarget {
 /**
  * ユーザーへ通知を送信できるオンラインなDiscordクライアントを解決する。
  * 優先順: ユーザー自身が起動している独自Bot → デフォルト共有Bot
+ * cron系通知（リマインド・朝報・日報等）は secretary を持つBotのみを対象とするため、
+ * 汎用モード（MCPアシスタント）のBotクライアントは通知に使わない（bot_attributes_requirements.md §4.2）。
  */
 function resolveClientForUser(userId: string) {
   try {
     const bots = listBotsForUser(userId);
     for (const bot of bots) {
       if (bot.id === "system_default") continue;
+      if (isGuildAssistantBot(bot.id)) continue;
       const custom = customClients.get(bot.id);
       if (custom && custom.readyAt) return custom;
     }

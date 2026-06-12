@@ -10,7 +10,12 @@ import {
   type Interaction,
   type Message,
 } from "discord.js";
-import { processMessage, type ChatMessage } from "./gemini.js";
+import {
+  processMessage,
+  processGuildMessage,
+  processBotDmMessage,
+  type ChatMessage,
+} from "./gemini.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import { isRegisteredUser } from "./db/userRepo.js";
 import {
@@ -24,6 +29,10 @@ import {
   revokeShare,
   getShareById,
 } from "./db/botRepo.js";
+import { isGuildAllowed, isBotMember } from "./db/botAttributesRepo.js";
+import { isGuildAssistantBot } from "./services/botCapabilities.js";
+import { getBotGenAI } from "./services/llmClient.js";
+import { consumeRateLimit, rateLimitMessage } from "./services/botRateLimit.js";
 import { importPersona, getPersonaById } from "./db/personaRepo.js";
 import { decryptText } from "./utils/crypto.js";
 
@@ -292,6 +301,212 @@ async function safeReply(
   }
 }
 
+// ─── 汎用モード（MCPアシスタント）のメッセージハンドリング ────────────────────
+// bot_attributes_requirements.md §4.3: 許可ギルド内のメンション/返信に応答し、
+// 利用メンバー制・Bot専用キー必須・レート制限の防衛線を通してから LLM を呼ぶ。
+
+/** メンバー外ユーザーへの利用案内のスロットル（連投スパムでDiscordレート制限を踏まない） */
+const guidanceThrottle = new Map<string, number>();
+const GUIDANCE_THROTTLE_MS = 5 * 60 * 1000;
+
+/** メンバー外のメンションへ定型の利用案内を返す（LLMは呼ばず、ログ・ノートにも記録しない §4.3.3） */
+async function sendNonMemberGuidance(botId: string, message: Message): Promise<void> {
+  const throttleKey = `${botId}:${message.author.id}`;
+  const last = guidanceThrottle.get(throttleKey);
+  if (last && Date.now() - last < GUIDANCE_THROTTLE_MS) return;
+  guidanceThrottle.set(throttleKey, Date.now());
+
+  await safeReply(
+    message,
+    "👋 このBotは利用メンバー制です。既存の利用メンバーかBot作成者に「メンバーに追加して」と依頼してもらうと利用できます。"
+  );
+}
+
+/** ギルド内の表示名を解決する（ニックネーム → グローバル表示名 → ユーザー名） */
+function resolveDisplayName(message: Message): string {
+  return message.member?.displayName || message.author.displayName || message.author.username;
+}
+
+/**
+ * 汎用モードBotのメッセージ処理本体。
+ * 防衛線の通過後に gemini.ts の processGuildMessage / processBotDmMessage を呼び出す。
+ */
+async function handleAssistantMessage(
+  botClient: Client,
+  botId: string,
+  message: Message
+): Promise<void> {
+  const bot = getBotById(botId);
+  if (!bot) return;
+  const ownerId = bot.user_id;
+  const isDM = !message.guild;
+
+  // ── DM: owner からのもののみ応答（要件 §4.3.2。owner 以外は黙殺） ──
+  if (isDM && message.author.id !== ownerId) return;
+
+  let guildId: string | null = null;
+
+  if (!isDM) {
+    // ── ギルド許可リスト（要件 §6: 未許可ギルドは応答も記録もしない） ──
+    guildId = message.guild!.id;
+    if (!isGuildAllowed(botId, guildId)) return;
+  }
+
+  // ── メンション / Botへの返信にのみ応答（要件 §4.3.2。DMは常に対象） ──
+  let isReplyToBot = false;
+  let referencedMsg: Message | null = null;
+  if (message.reference?.messageId) {
+    try {
+      referencedMsg = await message.channel.messages.fetch(message.reference.messageId);
+      if (referencedMsg?.author.id === botClient.user?.id) {
+        isReplyToBot = true;
+      }
+    } catch (err) {
+      console.error("返信先メッセージの取得に失敗しました:", err);
+    }
+  }
+  const isMentioned = message.mentions.has(botClient.user!);
+  if (!isDM && !isMentioned && !isReplyToBot) return;
+
+  const userId = message.author.id;
+
+  if (!isDM) {
+    // ── 利用メンバー判定（owner は常に暗黙メンバー §4.3.3） ──
+    const isMember = userId === ownerId || isBotMember(botId, guildId!, userId);
+    if (!isMember) {
+      await sendNonMemberGuidance(botId, message);
+      return;
+    }
+
+    // ── Bot専用キー必須（未設定・無効なキーのBotは応答しない §4.3.3） ──
+    if (!getBotGenAI(botId)) {
+      console.warn(`[汎用モード] Bot ${botId} はGemini APIキー未設定のため応答しません（管理UIに警告表示）。`);
+      return;
+    }
+
+    // ── レート制限（超過時はLLMを呼ばず定型応答 §6） ──
+    const rate = await consumeRateLimit(botId, guildId!, userId);
+    if (!rate.allowed) {
+      await safeReply(message, rateLimitMessage(rate.exceeded!));
+      return;
+    }
+  }
+
+  let typingInterval: NodeJS.Timeout | null = null;
+
+  try {
+    if ("sendTyping" in message.channel && typeof (message.channel as any).sendTyping === "function") {
+      const channel = message.channel as any;
+      await channel.sendTyping().catch((err: unknown) => console.error("sendTyping error:", err));
+      typingInterval = setInterval(() => {
+        channel.sendTyping().catch((err: unknown) => console.error("sendTyping error:", err));
+      }, 5000);
+    }
+
+    // 自Bot宛てのメンションのみ除去する。他ユーザーへのメンション（<@id>）は
+    // メンバー追加依頼（「@xx を追加して」）の対象解決に必要なため残す（要件 §4.3.3）
+    const botUserId = botClient.user!.id;
+    const text = message.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
+
+    // 返信先メッセージのプレフィックス（DB未記録メッセージへの返信もカバー。
+    // 記録がある場合の完全なチェーン解決は processGuildMessage 側で行う）
+    let contextPrefix = "";
+    if (referencedMsg) {
+      const refAuthorName =
+        referencedMsg.author.id === botClient.user?.id
+          ? "あなた"
+          : referencedMsg.member?.displayName || referencedMsg.author.username;
+      const cleanRefText = referencedMsg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
+      if (cleanRefText) {
+        contextPrefix = `[返信先メッセージ (${refAuthorName}): "${cleanRefText}"]\n`;
+      }
+    }
+
+    const fullText = contextPrefix + text;
+
+    // 添付（画像・音声はGeminiマルチモーダルへそのまま渡す。レシートOCR等の秘書機能は持たない）
+    const imageAttachment = message.attachments.find((a) => a.contentType?.startsWith("image/"));
+    const audioAttachment = message.attachments.find((a) => {
+      const ct = (a.contentType || "").split(";")[0].trim().toLowerCase();
+      return SUPPORTED_AUDIO_TYPES.includes(ct) || ct.startsWith("audio/");
+    });
+
+    const chatMessage: ChatMessage = {
+      text: fullText,
+      discordMsgId: message.id,
+      replyToMsgId: message.reference?.messageId ?? undefined,
+    };
+
+    if (audioAttachment) {
+      const audioResponse = await fetch(audioAttachment.url);
+      const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+      chatMessage.audioData = {
+        data: audioBuffer.toString("base64"),
+        mimeType: (audioAttachment.contentType || "audio/ogg").split(";")[0].trim(),
+      };
+      if (!chatMessage.text.trim()) {
+        chatMessage.text = "（音声メッセージを受信しました。内容を正確に文字起こしし、内容に沿って応答してください。）";
+      }
+    } else if (imageAttachment) {
+      const imageResponse = await fetch(imageAttachment.url);
+      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+      chatMessage.imageData = {
+        data: imageBuffer.toString("base64"),
+        mimeType: imageAttachment.contentType || "image/jpeg",
+      };
+    } else if (!fullText.trim()) {
+      await safeReply(message, "何かお手伝いできることはありますか？");
+      return;
+    }
+
+    const statusCallback = (status: "thinking" | "writing" | "idle") => {
+      setBotStatus(botClient, status);
+    };
+
+    const speaker = { userId, displayName: resolveDisplayName(message) };
+    const result = isDM
+      ? await processBotDmMessage(botId, speaker, chatMessage, statusCallback)
+      : await processGuildMessage(botId, guildId!, speaker, chatMessage, statusCallback);
+
+    if (typingInterval) {
+      clearInterval(typingInterval);
+      typingInterval = null;
+    }
+
+    if (!result.text && result.embeds.length === 0 && result.files.length === 0) {
+      return; // 応答なし（キー未設定等）は黙殺
+    }
+
+    const attachOptions = {
+      ...(result.embeds.length > 0 ? { embeds: result.embeds } : {}),
+      ...(result.files.length > 0 ? { files: result.files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
+    };
+
+    if (result.text.length > 2000) {
+      const chunks = splitMessage(result.text, 2000);
+      for (let i = 0; i < chunks.length; i++) {
+        const isLast = i === chunks.length - 1;
+        const sent = await safeReply(message, {
+          content: chunks[i],
+          ...(isLast ? attachOptions : {}),
+        });
+        if (!sent) break;
+      }
+    } else {
+      await safeReply(message, { content: result.text, ...attachOptions });
+    }
+  } catch (error) {
+    if (typingInterval) {
+      clearInterval(typingInterval);
+      typingInterval = null;
+    }
+    console.error(`[汎用モード] Bot ${botId} のメッセージ処理エラー:`, error);
+    await safeReply(message, "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。");
+  } finally {
+    setBotStatus(botClient, "idle");
+  }
+}
+
 export function setupMessageListener(botClient: Client, botId?: string) {
   botClient.on("messageCreate", async (message: Message) => {
     // Bot自身のメッセージは無視
@@ -300,6 +515,13 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     // クライアントが利用可能でない（destroy直後・再起動中など）場合は処理しない。
     // この状態でREST送信すると "Expected token to be set" で失敗する
     if (!botClient.isReady() || !botClient.token) return;
+
+    // 汎用モード（MCPアシスタント）のBotはギルド常駐の専用フローで処理する（要件 §4.3）。
+    // 秘書系の登録ユーザー・共有チェックは適用しない（利用メンバー制 §4.3.3）
+    if (botId && isGuildAssistantBot(botId)) {
+      await handleAssistantMessage(botClient, botId, message);
+      return;
+    }
 
     // 特定Bot専用のカスタムクライアントの場合、送信者がそのオーナーまたは共有ユーザーでなければ無視する
     if (botId) {
@@ -320,6 +542,8 @@ export function setupMessageListener(botClient: Client, botId?: string) {
       const authorBots = listBotsForUser(message.author.id);
       const hasActiveCustomBot = authorBots.some(b => {
         if (b.id === "system_default") return false;
+        // 汎用モード（MCPアシスタント）のBotは秘書の代替にならないため対象外
+        if (isGuildAssistantBot(b.id)) return false;
         const custom = customClients.get(b.id);
         return custom && custom.readyAt;
       });
