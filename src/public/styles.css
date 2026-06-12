@@ -1789,7 +1789,8 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  /* .overlay (z-index: 9999) の上に重なる必要がある（Bot選択画面から開くモーダル等） */
+  z-index: 10000;
   opacity: 0;
   pointer-events: none;
   transition: var(--transition-smooth);

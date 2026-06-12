@@ -1,4 +1,4 @@
-const CACHE = 'yuuka-v6';
+const CACHE = 'yuuka-v7';
 const PRECACHE = [
   '/',
   '/styles.css',
@@ -23,6 +23,13 @@ self.addEventListener('activate', e => {
   );
 });
 
+// アプリシェル（HTML・JS・CSS）かどうかを判定する。
+// これらは network-first で配信し、サーバー側の更新が確実に反映されるようにする。
+function isAppShell(url) {
+  if (url.pathname === '/' || url.pathname === '/index.html') return true;
+  return /\.(?:js|css|html)$/.test(url.pathname);
+}
+
 self.addEventListener('fetch', e => {
   // API・認証・外部リクエストはキャッシュしない
   const url = new URL(e.request.url);
@@ -31,12 +38,34 @@ self.addEventListener('fetch', e => {
   if (url.pathname.includes('/api/')) return;
   if (url.pathname.startsWith('/hook/')) return;
 
+  // アプリシェルは network-first（最新を優先・失敗時のみキャッシュへフォールバック）
+  if (isAppShell(url)) {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, copy));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(e.request).then(cached => cached || caches.match('/'))
+        )
+    );
+    return;
+  }
+
+  // その他の静的アセットは cache-first（stale-while-revalidate）
   e.respondWith(
     caches.match(e.request).then(cached => {
       const network = fetch(e.request).then(res => {
-        if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
         return res;
-      });
+      }).catch(() => cached);
       return cached || network;
     })
   );
