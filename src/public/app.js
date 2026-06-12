@@ -72,7 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
     applyTheme(currentTheme() === "dark" ? "light" : "dark");
   });
 
-  // 設定タブのテーマセレクタ（ダーク / ライト / ブルーアーカイブ）
+  // 設定タブのテーマセレクタ（ダーク / ライト / BA）
   document.querySelectorAll(".theme-option").forEach(btn => {
     btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme")));
   });
