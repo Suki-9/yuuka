@@ -8,6 +8,7 @@
 ## 0. 最重要原則
 
 1. **データ分離**: 全ユーザーデータは `user_id`（DiscordユーザーID, TEXT）を WHERE 句の必須条件とする。`user_id` なしのワイルドカードクエリ禁止（cron系の全件走査は例外として明示コメントを書く）。
+   **例外パターン（Bot属性 docs/bot_attributes_requirements.md §6）**: 汎用モード（MCPアシスタント）のデータは `bot_id × user_id`（bot_context_notes）/ `bot_id × guild_id`（bot_guild_notes, bot_guilds, message_logs のギルド会話）の複合スコープを正式な分離キーとする。この user_id にはWebアカウント未登録のDiscordユーザーIDも入るため、message_logs / bot_context_notes / bot_members は users へのFKを持たない。
 2. **ブラウザ操作層は不変**: `src/services/browserService.ts`・`src/rust_crawler/`・`src/functions/browserFunctions.ts` の既存アプローチ（Rustクローラーデーモン→Puppeteerフォールバック、ユーザー別永続セッション、`data-yuuka-id` 数値IDアノテーション）は変更しない。新機能はこの上に乗せる。
 3. **認証情報はLLMに渡さない**: パスワードマネージャの復号値は `browserService` へ直接渡す。Function Call の戻り値・ログ・プロンプトに含めてはならない。
 4. **既存データは破棄してよい**: スキーマバージョン2へ全面再構築する（migrations.ts が旧テーブルをDROPする）。
@@ -113,8 +114,9 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 
 ## 5. LLM層
 
-- `src/services/llmClient.ts`（基盤提供・変更禁止）:
-  - `getUserGenAI(userId): { genAI, model } | null` — **ユーザー自身のGemini APIキーのみ**使用（仕様§4.2: Bot単位キーは廃止）。
+- `src/services/llmClient.ts`（基盤提供）:
+  - `getUserGenAI(userId): { genAI, model } | null` — **ユーザー自身のGemini APIキーのみ**使用（仕様§4.2。秘書系の対話・補助生成はこちら）。
+  - `getBotGenAI(botId): { genAI, model } | null` — **Bot専用キー**（bots テーブルへ暗号化保存）。汎用モード（MCPアシスタント）の対話のみが使用し、発話ユーザーの個人キーは使わない（bot_attributes_requirements.md §4.3.3）。
   - `generateAuxText(userId, prompt, systemInstruction?): Promise<string>` — タグ自動付与・Webhook解釈・レポート要約などの補助生成用（Function Callなし、リトライ付き）。
 - `src/gemini.ts`（統合フェーズで書き換え）: per-user コンテキスト（Redis `context:{userId}` 直近15件）、返信チェーン解決、ペルソナ+コンテキストノート注入、MCP動的ツール、リッチ返信ゲート。
 - 会話履歴の正は `message_logs`（SQLite, user_id スコープ）。Redisキャッシュ消失時はSQLiteから直近15件を再構築。
@@ -169,6 +171,7 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 | webhook | db/webhookRepo.ts, services/webhookProcessor.ts, server/routes/webhookRoutes.ts |
 | mcp | db/mcpRepo.ts, services/mcpClient.ts, functions/mcpDynamic.ts, server/routes/mcpRoutes.ts |
 | persona | db/personaRepo.ts, server/routes/personaRoutes.ts |
+| botattributes（Bot属性 docs/bot_attributes_requirements.md） | services/botCapabilities.ts, services/botRateLimit.ts, db/botAttributesRepo.ts, db/botNoteRepo.ts, functions/botAssistantFunctions.ts, server/routes/botAttributeRoutes.ts |
 | charts | services/chartService.ts, functions/chartFunctions.ts |
 | calendar | services/googleCalendarService.ts, services/googleDriveService.ts, services/backupService.ts, db/scheduleRepo.ts, functions/scheduleFunctions.ts |
 | 統合 | gemini.ts, bot.ts, index.ts, server.ts, functions/index.ts, db/chatHistoryRepo.ts(廃止), db/taskRepo.ts(廃止), db/botRepo.ts, db/inviteRepo.ts, utils/embeds.ts, public/* |
