@@ -284,11 +284,16 @@ async function generateWithRetry(
     throw new Error("Gemini API Keyが設定されていません。管理画面からあなた専用のAPIキーを設定してください。");
   }
 
-  const model = ai.genAI.getGenerativeModel({
-    model: ai.model,
-    systemInstruction,
-    ...(declarations.length > 0 ? { tools: [{ functionDeclarations: declarations }] } : {}),
-  });
+  const model = ai.genAI.getGenerativeModel(
+    {
+      model: ai.model,
+      systemInstruction,
+      ...(declarations.length > 0 ? { tools: [{ functionDeclarations: declarations }] } : {}),
+    },
+    // タイムアウト無しだと応答が返らない場合に await が永遠に解決せず、
+    // 「入力中...」タイマーと共にリクエストが滞留し続ける
+    { timeout: 120_000 }
+  );
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

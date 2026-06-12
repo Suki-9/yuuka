@@ -54,19 +54,35 @@ async function main() {
   console.log("✨ Yuuka が起動しました！");
 }
 
+let shuttingDown = false;
+
 async function gracefulShutdown(): Promise<void> {
-  stopBackupScheduler();
-  stopBriefingService();
-  stopReportService();
-  stopPaymentRecurrenceService();
-  stopBirthdayReminderService();
-  stopClipboardCleanup();
-  stopPlaybookScheduleService();
-  stopReminderEngine();
-  stopWebServer();
-  stopBot();
-  closeDb();
-  await closeRedis();
+  if (shuttingDown) return; // SIGINT/SIGTERM の二重受信や多重経路からの呼び出しを無視
+  shuttingDown = true;
+
+  // 停止処理自体がハングしても systemd の SIGKILL を待たず確実にプロセスを終える
+  const watchdog = setTimeout(() => {
+    console.error("⚠️ シャットダウンが15秒以内に完了しなかったため強制終了します。");
+    process.exit(1);
+  }, 15_000);
+  watchdog.unref();
+
+  try {
+    stopBackupScheduler();
+    stopBriefingService();
+    stopReportService();
+    stopPaymentRecurrenceService();
+    stopBirthdayReminderService();
+    stopClipboardCleanup();
+    stopPlaybookScheduleService();
+    stopReminderEngine();
+    stopWebServer();
+    stopBot();
+    closeDb();
+    await closeRedis();
+  } catch (err) {
+    console.error("シャットダウン処理中にエラーが発生しました:", err);
+  }
 }
 
 process.on("SIGINT", async () => {
@@ -79,6 +95,25 @@ process.on("SIGTERM", async () => {
   console.log("\n👋 シャットダウン中...");
   await gracefulShutdown();
   process.exit(0);
+});
+
+// ─── 最終防衛線（24/365 運用: 捕捉漏れでプロセスを落とさない / 落ちる時は確実に再起動させる） ───
+
+// 捕捉漏れの Promise 拒否はログに残して稼働を継続する。
+// （discord.js や cron コールバック等の深部で漏れた1件の拒否でBot全体を道連れにしない）
+process.on("unhandledRejection", (reason) => {
+  console.error("⚠️ 未捕捉の Promise 拒否を検出しました（処理は継続します）:", reason);
+});
+
+// 同期例外はプロセス状態が壊れている可能性があるため、後始末をして終了し
+// systemd (Restart=always) に再起動させる。
+process.on("uncaughtException", async (err) => {
+  console.error("💥 未捕捉の例外が発生しました。シャットダウンして再起動します:", err);
+  try {
+    await gracefulShutdown();
+  } finally {
+    process.exit(1);
+  }
 });
 
 main().catch(async (err) => {

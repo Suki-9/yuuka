@@ -118,7 +118,16 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
       return;
     }
 
+    // 'error' リスナーが無いとストリームのエラーイベントでプロセスごとクラッシュする
+    // （stat 後にファイルが消えた場合や読み取りエラー等）
     const stream = fs.createReadStream(finalPath);
+    stream.on("error", (streamErr) => {
+      console.error(`静的ファイルの読み取りに失敗しました (${finalPath}):`, streamErr);
+      res.destroy();
+    });
+    res.on("close", () => {
+      stream.destroy(); // クライアント切断時に読み取りを確実に打ち切る
+    });
     stream.pipe(res);
   });
 }

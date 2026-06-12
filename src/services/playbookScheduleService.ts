@@ -214,8 +214,15 @@ function registerCronJob(schedule: PlaybookSchedule): void {
   if (!cron.validate(schedule.cron_expression)) return;
 
   const key = taskKey(schedule.user_id, schedule.playbook_name);
-  const task = cron.schedule(schedule.cron_expression, async () => {
-    await executePlaybook(schedule);
+  const task = cron.schedule(schedule.cron_expression, () => {
+    // executePlaybook 内部の try/catch から漏れた例外（createRun 等のDBエラー）が
+    // 未捕捉の Promise 拒否にならないようここでも捕捉する
+    executePlaybook(schedule).catch((err) => {
+      console.error(
+        `❌ マクロ定期実行で予期しないエラー: ${schedule.playbook_name} (user: ${schedule.user_id})`,
+        err
+      );
+    });
   });
   activeTasks.set(key, task);
 }

@@ -132,6 +132,15 @@ export async function fetchAvailableCalendars(userId: string): Promise<{ id: str
 const cachedCalendarsMap = new Map<string, { calendars: { id: string; summary: string }[]; lastFetched: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5分キャッシュ
 
+// 期限切れエントリの定期掃除（TTL超過後も Map に残り続けるとユーザー数に比例して増え続ける）
+const calendarCacheSweep = setInterval(() => {
+  const now = Date.now();
+  for (const [userId, entry] of cachedCalendarsMap) {
+    if (now - entry.lastFetched >= CACHE_TTL) cachedCalendarsMap.delete(userId);
+  }
+}, 30 * 60 * 1000);
+calendarCacheSweep.unref();
+
 /**
  * ユーザー別のキャッシュ付きで利用可能なカレンダーの一覧を返す
  */

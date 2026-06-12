@@ -36,9 +36,9 @@ function cleanupOldFiles() {
   });
 }
 
-// 起動時とその後1時間ごとにクリーンアップを実行
+// 起動時とその後1時間ごとにクリーンアップを実行（unref でプロセス終了を妨げない）
 cleanupOldFiles();
-setInterval(cleanupOldFiles, 60 * 60 * 1000);
+setInterval(cleanupOldFiles, 60 * 60 * 1000).unref();
 
 // バイナリパス候補
 const CRAWLER_BIN_PATHS = [
@@ -124,7 +124,8 @@ class CrawlerDaemon {
 
       const proc = spawn(this.binPath, ["daemon"], { stdio: ["pipe", "pipe", "pipe"], env });
 
-      createInterface({ input: proc.stdout! }).on("line", (line: string) => {
+      const rl = createInterface({ input: proc.stdout! });
+      rl.on("line", (line: string) => {
         try {
           const res: CrawlerDaemonResponse = JSON.parse(line);
           const req = this.pending.get(res.id);
@@ -143,15 +144,26 @@ class CrawlerDaemon {
         process.stderr.write(`[Crawler Daemon] ${data}`);
       });
 
-      proc.on("exit", (code) => {
-        console.error(`[Crawler Daemon] Process exited (code: ${code}), 次のリクエスト時に再起動します`);
+      // 'error' リスナーが無いと spawn 失敗（権限等）でプロセスごとクラッシュする
+      proc.on("error", (err) => {
+        console.error("[Crawler Daemon] プロセスエラー:", err);
+        rl.close();
         this.proc = null;
         this.startingPromise = null;
-        for (const [, req] of this.pending) {
-          clearTimeout(req.timer);
-          req.reject(new Error("Crawler daemon exited unexpectedly"));
-        }
-        this.pending.clear();
+        this.failAllPending(new Error(`Crawler daemon process error: ${err.message}`));
+      });
+
+      // デーモン死亡後の書き込みで EPIPE が emit されてもクラッシュさせない
+      proc.stdin?.on("error", (err) => {
+        console.error("[Crawler Daemon] stdin への書き込みエラー:", err);
+      });
+
+      proc.on("exit", (code) => {
+        console.error(`[Crawler Daemon] Process exited (code: ${code}), 次のリクエスト時に再起動します`);
+        rl.close();
+        this.proc = null;
+        this.startingPromise = null;
+        this.failAllPending(new Error("Crawler daemon exited unexpectedly"));
       });
 
       this.proc = proc;
@@ -161,8 +173,21 @@ class CrawlerDaemon {
     return this.startingPromise;
   }
 
+  private failAllPending(err: Error): void {
+    for (const [, req] of this.pending) {
+      clearTimeout(req.timer);
+      req.reject(err);
+    }
+    this.pending.clear();
+  }
+
   async send(command: string, target: string, extra?: string, timeoutMs = 40_000): Promise<string> {
     await this.start();
+    // start() 直後でもデーモンが即死していることがある（exit ハンドラで proc=null）
+    const proc = this.proc;
+    if (!proc?.stdin || !proc.stdin.writable) {
+      throw new Error("Crawler daemon is not running");
+    }
     const id = ++this.nextId;
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -170,7 +195,13 @@ class CrawlerDaemon {
         reject(new Error(`Crawler daemon timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.proc!.stdin!.write(JSON.stringify({ id, command, target, extra }) + "\n");
+      proc.stdin!.write(JSON.stringify({ id, command, target, extra }) + "\n", (writeErr) => {
+        if (writeErr && this.pending.has(id)) {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          reject(new Error(`Crawler daemon write failed: ${writeErr.message}`));
+        }
+      });
     });
   }
 
@@ -210,9 +241,14 @@ function scheduleAutoClose(userId: string) {
   }
   session.autoCloseTimer = setTimeout(async () => {
     const s = userSessions.get(userId);
-    if (s && Date.now() - s.lastInteractionTime >= AUTO_CLOSE_TIMEOUT_MS) {
+    if (!s) return;
+    if (Date.now() - s.lastInteractionTime >= AUTO_CLOSE_TIMEOUT_MS) {
       console.log(`[Interactive Browser] [User: ${userId}] 自動クローズタイマー作動 (5分間無操作)`);
       await closeInteractiveBrowser(userId).catch(() => {});
+    } else {
+      // まだ無操作期間に達していない場合は必ず再スケジュールする。
+      // ここで打ち切るとセッション（=Chromiumプロセス）が永久に残る
+      scheduleAutoClose(userId);
     }
   }, AUTO_CLOSE_TIMEOUT_MS);
 }

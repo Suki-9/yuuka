@@ -60,10 +60,14 @@ export async function generateAuxText(
   const ai = getUserGenAI(userId);
   if (!ai) return null;
 
-  const model = ai.genAI.getGenerativeModel({
-    model: ai.model,
-    ...(systemInstruction ? { systemInstruction } : {}),
-  });
+  const model = ai.genAI.getGenerativeModel(
+    {
+      model: ai.model,
+      ...(systemInstruction ? { systemInstruction } : {}),
+    },
+    // 応答が返らない場合に cron ティック等が永久に待たされないようにする
+    { timeout: 60_000 }
+  );
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -95,7 +99,7 @@ export async function generateAuxMultimodal(
   const ai = getUserGenAI(userId);
   if (!ai) return null;
 
-  const model = ai.genAI.getGenerativeModel({ model: ai.model });
+  const model = ai.genAI.getGenerativeModel({ model: ai.model }, { timeout: 120_000 });
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

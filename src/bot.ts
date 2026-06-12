@@ -234,6 +234,21 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
   }
 }
 
+// REST/Gateway起因のエラーでプロセスが落ちないようにする。
+// discord.js の Client は 'error' リスナーが無いと、非同期リスナー内の例外が
+// 'error' イベントとして emit された際に Node プロセスごとクラッシュする。
+client.on(Events.Error, (err) => {
+  console.error("[Discord Bot] デフォルトクライアントでエラーが発生しました:", err);
+});
+
+// [Debug] 無反応調査用: ゲートウェイから MESSAGE_CREATE が届いているかを
+// messageCreate リスナーとは独立に確認する（原因特定後に削除する）
+client.on(Events.Raw, (packet: { t?: string }) => {
+  if (packet?.t === "MESSAGE_CREATE") {
+    console.log("[Debug] Gateway: MESSAGE_CREATE dispatch を受信");
+  }
+});
+
 client.on(Events.ClientReady, (c) => {
   console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
   setBotStatus(client, "idle");
@@ -255,10 +270,42 @@ client.on(Events.InteractionCreate, handleInteraction);
 /**
  * 指定したBotクライアントにメッセージハンドラーを設定する
  */
+/**
+ * 例外を投げない安全な返信ヘルパー。
+ * トークン更新（destroy→login）やシャットダウン中のレース、権限不足等で
+ * 送信が失敗してもハンドラ全体（ひいてはプロセス）を巻き込まないようにする。
+ */
+async function safeReply(
+  message: Message,
+  options: Parameters<Message["reply"]>[0]
+): Promise<boolean> {
+  try {
+    await message.reply(options);
+    return true;
+  } catch (err) {
+    console.error("[Discord Bot] 返信の送信に失敗しました:", err);
+    return false;
+  }
+}
+
 export function setupMessageListener(botClient: Client, botId?: string) {
   botClient.on("messageCreate", async (message: Message) => {
     // Bot自身のメッセージは無視
     if (message.author.bot) return;
+
+    // [Debug] 無反応調査用の受信トレース（原因特定後に削除する）
+    console.log(
+      `[Debug] messageCreate: author=${message.author.id} ` +
+        `place=${message.guild ? `guild:${message.guild.id}` : "DM"} ` +
+        `ready=${botClient.isReady()} token=${!!botClient.token} contentLen=${message.content.length}`
+    );
+
+    // クライアントが利用可能でない（destroy直後・再起動中など）場合は処理しない。
+    // この状態でREST送信すると "Expected token to be set" で失敗する
+    if (!botClient.isReady() || !botClient.token) {
+      console.log("[Debug] → 早期return: クライアント未準備（isReady/token）");
+      return;
+    }
 
     // 特定Bot専用のカスタムクライアントの場合、送信者がそのオーナーまたは共有ユーザーでなければ無視する
     if (botId) {
@@ -272,7 +319,10 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     }
 
     // 登録ユーザーからのメッセージのみ応答（§5.4）
-    if (!isRegisteredUser(message.author.id)) return;
+    if (!isRegisteredUser(message.author.id)) {
+      console.log(`[Debug] → 早期return: 未登録ユーザー (${message.author.id})`);
+      return;
+    }
 
     // 登録ユーザーが独自のBotを有効に起動している場合は、デフォルトクライアントは応答をスキップする
     if (!botId) {
@@ -283,6 +333,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         return custom && custom.readyAt;
       });
       if (hasActiveCustomBot) {
+        console.log("[Debug] → 早期return: 独自Bot稼働中のためデフォルトBotはスキップ");
         return;
       }
     }
@@ -312,7 +363,10 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     const isDM = !message.guild;
 
     // メンションもDMも、ボットへの返信でもなければ無視
-    if (!isMentioned && !isDM && !isReplyToBot) return;
+    if (!isMentioned && !isDM && !isReplyToBot) {
+      console.log("[Debug] → 早期return: メンション/DM/Bot宛返信のいずれでもない");
+      return;
+    }
 
     // 「入力中...」を維持するためのタイマー
     let typingInterval: NodeJS.Timeout | null = null;
@@ -435,13 +489,14 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         const chunks = splitMessage(responseText, 2000);
         for (let i = 0; i < chunks.length; i++) {
           const isLast = i === chunks.length - 1;
-          await message.reply({
+          const sent = await safeReply(message, {
             content: chunks[i],
             ...(isLast ? attachOptions : {}),
           });
+          if (!sent) break; // 送信不能（トークン喪失等）なら以降のチャンクは諦める
         }
       } else {
-        await message.reply({ content: responseText, ...attachOptions });
+        await safeReply(message, { content: responseText, ...attachOptions });
       }
     } catch (error) {
       if (typingInterval) {
@@ -449,7 +504,9 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         typingInterval = null;
       }
       console.error("メッセージ処理エラー:", error);
-      await message.reply(
+      // 返信自体が失敗してもプロセスを巻き込まない（safeReply内でcatch）
+      await safeReply(
+        message,
         "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。"
       );
     } finally {
@@ -537,6 +594,10 @@ export async function startCustomBot(botId: string): Promise<boolean> {
       }
     });
 
+    // 'error' リスナー必須（プロセスクラッシュ防止）
+    customClient.on(Events.Error, (err) => {
+      console.error(`[Discord Bot] [Bot: ${botId}] クライアントでエラーが発生しました:`, err);
+    });
     customClient.on(Events.InteractionCreate, handleInteraction);
     setupMessageListener(customClient, botId);
     await customClient.login(token);
@@ -570,7 +631,8 @@ export function stopCustomBot(botId: string): void {
 
 export async function restartDefaultBot(token: string): Promise<boolean> {
   try {
-    client.destroy();
+    // destroy の完了を待ってから再ログインする（処理中メッセージとのレース窓を最小化）
+    await client.destroy();
     console.log("🔌 デフォルトBotを一旦停止しました。再起動します...");
   } catch {}
 
@@ -579,8 +641,12 @@ export async function restartDefaultBot(token: string): Promise<boolean> {
     client.removeAllListeners("messageCreate");
     client.removeAllListeners(Events.ClientReady);
     client.removeAllListeners(Events.InteractionCreate);
+    client.removeAllListeners(Events.Error);
     setupMessageListener(client);
     client.on(Events.InteractionCreate, handleInteraction);
+    client.on(Events.Error, (err) => {
+      console.error("[Discord Bot] デフォルトクライアントでエラーが発生しました:", err);
+    });
 
     // Readyイベントの再登録
     client.on(Events.ClientReady, (c) => {

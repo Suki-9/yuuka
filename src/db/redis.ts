@@ -15,14 +15,14 @@ export async function initRedis(): Promise<void> {
       url: config.redisUrl,
       socket: {
         reconnectStrategy(retries) {
-          // 最大 5 回リトライし、その後は再接続を諦めて SQLite フォールバックで稼働する
-          if (retries > 5) {
-            console.warn("⚠️ Redis への再接続を諦めました。SQLite フォールバックモードで稼働します。");
-            isRedisReady = false;
-            return false;
+          // 24/365 運用のため再接続は決して諦めない。
+          // 切断中は getRedisClient() が null を返し SQLite フォールバックで稼働し、
+          // Redis 復旧時に 'ready' イベントで自動的にキャッシュ層へ復帰する。
+          const delay = Math.min(1000 * Math.pow(2, Math.min(retries, 5)), 30_000);
+          if (retries > 0 && retries % 10 === 0) {
+            console.warn(`⚠️ Redis 再接続を継続中 (${retries}回目)。SQLite フォールバックで稼働しています。`);
           }
-          // 3秒間隔でリトライ
-          return 3000;
+          return delay;
         }
       }
     }) as RedisClientType;
@@ -43,9 +43,23 @@ export async function initRedis(): Promise<void> {
     });
 
     console.log(`🔌 Redis に接続中: ${config.redisUrl}`);
-    await client.connect();
+    // Redis がダウンしていても起動をブロックしない: 初回接続は5秒だけ待ち、
+    // 未接続のままでもバックグラウンドで再接続を継続させる（'ready' で自動復帰）。
+    const connecting = client.connect().catch((err) => {
+      console.error("❌ Redis 接続エラー（バックグラウンドで再接続を継続します）:", err);
+    });
+    await Promise.race([
+      connecting,
+      new Promise<void>((resolve) => {
+        const t = setTimeout(() => {
+          console.warn("⚠️ Redis 初回接続が5秒以内に確立しませんでした。SQLite フォールバックで起動を続行します。");
+          resolve();
+        }, 5000);
+        t.unref();
+      }),
+    ]);
   } catch (err) {
-    console.error("❌ Redis 初期接続に失敗しました。SQLite のみで動作します。:", err);
+    console.error("❌ Redis クライアントの初期化に失敗しました。SQLite のみで動作します。:", err);
     client = null;
     isRedisReady = false;
   }
