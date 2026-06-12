@@ -43,8 +43,11 @@ const SUPPORTED_AUDIO_TYPES = [
   "audio/mp4", "audio/x-m4a", "audio/m4a", "audio/aac", "audio/flac",
 ];
 
-// デフォルト（共有）クライアント
-export const client = new Client(DISCORD_CLIENT_OPTIONS);
+// デフォルト（共有）クライアント。
+// discord.js v14 は destroy 済み Client の再ログインを保証しないため、
+// トークン更新時は restartDefaultBot が新しいインスタンスへ差し替える
+// （ESM の named import はライブバインディングなので参照側へも即時反映される）。
+export let client: Client = new Client(DISCORD_CLIENT_OPTIONS);
 
 // Botごとのカスタムクライアント: Map<botId, Client>
 export const customClients = new Map<string, Client>();
@@ -234,38 +237,39 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
   }
 }
 
-// REST/Gateway起因のエラーでプロセスが落ちないようにする。
-// discord.js の Client は 'error' リスナーが無いと、非同期リスナー内の例外が
-// 'error' イベントとして emit された際に Node プロセスごとクラッシュする。
-client.on(Events.Error, (err) => {
-  console.error("[Discord Bot] デフォルトクライアントでエラーが発生しました:", err);
-});
+/**
+ * デフォルトBot用クライアントに必要な全リスナーを登録する。
+ * 初期化時と restartDefaultBot での差し替え時の両方で使い、登録漏れ・二重登録を防ぐ。
+ */
+function attachDefaultClientHandlers(botClient: Client): void {
+  // REST/Gateway起因のエラーでプロセスが落ちないようにする。
+  // discord.js の Client は 'error' リスナーが無いと、非同期リスナー内の例外が
+  // 'error' イベントとして emit された際に Node プロセスごとクラッシュする。
+  botClient.on(Events.Error, (err) => {
+    console.error("[Discord Bot] デフォルトクライアントでエラーが発生しました:", err);
+  });
 
-// [Debug] 無反応調査用: ゲートウェイから MESSAGE_CREATE が届いているかを
-// messageCreate リスナーとは独立に確認する（原因特定後に削除する）
-client.on(Events.Raw, (packet: { t?: string }) => {
-  if (packet?.t === "MESSAGE_CREATE") {
-    console.log("[Debug] Gateway: MESSAGE_CREATE dispatch を受信");
-  }
-});
+  botClient.on(Events.ClientReady, (c) => {
+    console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
+    setBotStatus(botClient, "idle");
 
-client.on(Events.ClientReady, (c) => {
-  console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
-  setBotStatus(client, "idle");
+    // Discordからプロフィールを同期（起動時 §4.3.2）
+    try {
+      const avatarUrl = c.user.displayAvatarURL();
+      updateBotDiscordProfile("system_default", c.user.username, avatarUrl);
+      console.log(`[Discord Bot] デフォルトBotのプロフィールを同期しました: ${c.user.username}`);
+    } catch (err) {
+      console.error("[Discord Bot] デフォルトBotのプロフィールの同期に失敗しました:", err);
+    }
 
-  // Discordからプロフィールを同期（起動時 §4.3.2）
-  try {
-    const avatarUrl = c.user.displayAvatarURL();
-    updateBotDiscordProfile("system_default", c.user.username, avatarUrl);
-    console.log(`[Discord Bot] デフォルトBotのプロフィールを同期しました: ${c.user.username}`);
-  } catch (err) {
-    console.error("[Discord Bot] デフォルトBotのプロフィールの同期に失敗しました:", err);
-  }
+    startProfileSyncTimer();
+  });
 
-  startProfileSyncTimer();
-});
+  botClient.on(Events.InteractionCreate, handleInteraction);
+  setupMessageListener(botClient);
+}
 
-client.on(Events.InteractionCreate, handleInteraction);
+attachDefaultClientHandlers(client);
 
 /**
  * 指定したBotクライアントにメッセージハンドラーを設定する
@@ -293,19 +297,9 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     // Bot自身のメッセージは無視
     if (message.author.bot) return;
 
-    // [Debug] 無反応調査用の受信トレース（原因特定後に削除する）
-    console.log(
-      `[Debug] messageCreate: author=${message.author.id} ` +
-        `place=${message.guild ? `guild:${message.guild.id}` : "DM"} ` +
-        `ready=${botClient.isReady()} token=${!!botClient.token} contentLen=${message.content.length}`
-    );
-
     // クライアントが利用可能でない（destroy直後・再起動中など）場合は処理しない。
     // この状態でREST送信すると "Expected token to be set" で失敗する
-    if (!botClient.isReady() || !botClient.token) {
-      console.log("[Debug] → 早期return: クライアント未準備（isReady/token）");
-      return;
-    }
+    if (!botClient.isReady() || !botClient.token) return;
 
     // 特定Bot専用のカスタムクライアントの場合、送信者がそのオーナーまたは共有ユーザーでなければ無視する
     if (botId) {
@@ -319,10 +313,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     }
 
     // 登録ユーザーからのメッセージのみ応答（§5.4）
-    if (!isRegisteredUser(message.author.id)) {
-      console.log(`[Debug] → 早期return: 未登録ユーザー (${message.author.id})`);
-      return;
-    }
+    if (!isRegisteredUser(message.author.id)) return;
 
     // 登録ユーザーが独自のBotを有効に起動している場合は、デフォルトクライアントは応答をスキップする
     if (!botId) {
@@ -333,7 +324,6 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         return custom && custom.readyAt;
       });
       if (hasActiveCustomBot) {
-        console.log("[Debug] → 早期return: 独自Bot稼働中のためデフォルトBotはスキップ");
         return;
       }
     }
@@ -363,10 +353,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     const isDM = !message.guild;
 
     // メンションもDMも、ボットへの返信でもなければ無視
-    if (!isMentioned && !isDM && !isReplyToBot) {
-      console.log("[Debug] → 早期return: メンション/DM/Bot宛返信のいずれでもない");
-      return;
-    }
+    if (!isMentioned && !isDM && !isReplyToBot) return;
 
     // 「入力中...」を維持するためのタイマー
     let typingInterval: NodeJS.Timeout | null = null;
@@ -630,49 +617,33 @@ export function stopCustomBot(botId: string): void {
 
 
 export async function restartDefaultBot(token: string): Promise<boolean> {
+  // discord.js v14 は destroy 済み Client の再ログインをサポートしない
+  // （ready にはなるがイベントが配送されない状態になり得る）ため、
+  // 同一インスタンスの再利用ではなく必ず新しい Client へ差し替える。
   try {
-    // destroy の完了を待ってから再ログインする（処理中メッセージとのレース窓を最小化）
     await client.destroy();
     console.log("🔌 デフォルトBotを一旦停止しました。再起動します...");
   } catch {}
 
+  const newClient = new Client(DISCORD_CLIENT_OPTIONS);
+  attachDefaultClientHandlers(newClient);
+
   try {
-    // 既存のリスナーを除去してから再登録（二重登録防止）
-    client.removeAllListeners("messageCreate");
-    client.removeAllListeners(Events.ClientReady);
-    client.removeAllListeners(Events.InteractionCreate);
-    client.removeAllListeners(Events.Error);
-    setupMessageListener(client);
-    client.on(Events.InteractionCreate, handleInteraction);
-    client.on(Events.Error, (err) => {
-      console.error("[Discord Bot] デフォルトクライアントでエラーが発生しました:", err);
-    });
-
-    // Readyイベントの再登録
-    client.on(Events.ClientReady, (c) => {
-      console.log(`✅ デフォルトBot: ${c.user.tag} としてログインしました (clientReady)`);
-      setBotStatus(client, "idle");
-      try {
-        const avatarUrl = c.user.displayAvatarURL();
-        updateBotDiscordProfile("system_default", c.user.username, avatarUrl);
-        console.log(`[Discord Bot] デフォルトBotのプロフィールを同期しました: ${c.user.username}`);
-      } catch (err) {
-        console.error("[Discord Bot] デフォルトBotのプロフィールの同期に失敗しました:", err);
-      }
-    });
-
-    await client.login(token);
+    await newClient.login(token);
+    client = newClient; // ライブバインディング経由で notifier 等の参照側にも反映される
     console.log("✅ デフォルトBotが新しいトークンでログイン成功しました。");
     return true;
   } catch (err) {
     console.error("❌ デフォルトBotのログインに失敗しました:", err);
+    try {
+      await newClient.destroy();
+    } catch {}
     return false;
   }
 }
 
 export async function startBot(): Promise<void> {
-  // 1. デフォルトBotをログイン
-  setupMessageListener(client);
+  // 1. デフォルトBotをログイン（リスナーは attachDefaultClientHandlers で登録済み）
   const token = getDecryptedDiscordToken("system_default");
   if (token) {
     try {
