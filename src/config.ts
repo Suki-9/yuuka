@@ -51,6 +51,25 @@ export const config = {
   /** データベースファイルのパス */
   dbPath: getSetting("DB_PATH", "./data/yuuka.db"),
 
+  /**
+   * 保存時暗号化のマスターシークレット（§6.2）
+   * SECRET_KEY を推奨。後方互換のため YUUKA_ENCRYPTION_SECRET も受け付ける。
+   * ローテーション中のみ書き換わるため mutable。
+   */
+  secretKey: getSetting("SECRET_KEY", "") || getSetting("YUUKA_ENCRYPTION_SECRET", ""),
+
+  /** SECRET_KEY ローテーション用の新キー（設定されている場合、起動時に再暗号化が走る） */
+  secretKeyNew: getSetting("SECRET_KEY_NEW", ""),
+
+  /** 返信チェーン解決の最大遡り深度（§3.1.4 無限ループ防止） */
+  replyChainMaxDepth: parseInt(getSetting("REPLY_CHAIN_MAX_DEPTH", "10"), 10),
+
+  /** セッショントークンの有効期限（日数、§5.4.2） */
+  sessionTtlDays: parseInt(getSetting("SESSION_TTL_DAYS", "7"), 10),
+
+  /** 初期Adminに昇格するDiscordユーザーID（§5.3.1。カンマ区切り、任意） */
+  adminDiscordIds: getSettingArray("ADMIN_DISCORD_IDS"),
+
   /** Redis接続用URL */
   redisUrl: getSetting("REDIS_URL", "redis://127.0.0.1:6379"),
 
@@ -84,4 +103,4 @@ export const config = {
   /** Google Search Console 所有権確認トークン */
   googleSiteVerification: getSetting("GOOGLE_SITE_VERIFICATION", ""),
 
-} as const;
+};

@@ -9,4 +9,3 @@ config.yaml
 *.db-wal
 *.db-shm
 yuuka.service
-

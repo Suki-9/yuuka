@@ -1,26 +1,15 @@
 import { getDb } from "./database.js";
 
+// ─── Botインスタンス（§5.1: Discord APIトークン単位で1インスタンス） ──────────
+
 export interface BotRecord {
   id: string;
-  user_id: string;
+  user_id: string; // Bot作成者（オーナー）
   name: string;
   discord_token_encrypted: string | null;
   discord_token_iv: string | null;
   discord_token_tag: string | null;
-  persona: string | null;
-  gemini_api_key_encrypted: string | null;
-  gemini_api_key_iv: string | null;
-  gemini_api_key_tag: string | null;
-  gemini_model: string;
-  google_client_id: string | null;
-  google_client_secret: string | null;
-  google_refresh_token: string | null;
-  google_calendar_id: string | null;
-  google_calendars: string | null;
-  google_drive_backup_enabled: number;
-  google_drive_backup_folder_id: string | null;
-  backup_cron: string;
-  memories: string | null;
+  recommended_persona_id: number | null;
   discord_username: string | null;
   discord_avatar_url: string | null;
   suspended: number;
@@ -28,89 +17,79 @@ export interface BotRecord {
   updated_at: string;
 }
 
-export interface BotGoogleConfig {
-  clientId: string | null;
-  clientSecret: string | null;
-  refreshToken: string | null;
-  calendarId: string | null;
-  calendars: string[];
-}
-
-export interface BotGeminiConfig {
-  apiKeyEncrypted: string | null;
-  apiKeyIv: string | null;
-  apiKeyTag: string | null;
-  model: string;
-}
-
 export interface BotDiscordConfig {
   tokenEncrypted: string | null;
   tokenIv: string | null;
   tokenTag: string | null;
-  persona: string | null;
-  memories: string | null;
+}
+
+export interface BotShareRecord {
+  id: number;
+  bot_id: string;
+  owner_id: string;
+  shared_user_id: string;
+  status: "pending" | "active" | "revoked";
+  created_at: string;
+  updated_at: string;
 }
 
 /**
- * 新しいBotを作成する
+ * 新しいBotインスタンスを作成する
  */
-export function createBot(
-  botId: string,
-  userId: string,
-  name: string,
-  persona: string | null = null
-): BotRecord {
+export function createBot(botId: string, userId: string, name: string): BotRecord {
   const db = getDb();
-  const runTx = db.transaction(() => {
-    db.prepare(`
-      INSERT INTO bots (id, user_id, name, persona)
-      VALUES (?, ?, ?, ?)
-    `).run(botId, userId, name, persona);
-
-    // アクセス制限テーブル（user_bot_access）に初期権限を追加
-    db.prepare(`
-      INSERT INTO user_bot_access (user_id, bot_id)
-      VALUES (?, ?)
-    `).run(userId, botId);
-  });
-  
-  runTx();
+  db.prepare(`INSERT INTO bots (id, user_id, name) VALUES (?, ?, ?)`).run(botId, userId, name);
   return getBotById(botId)!;
 }
 
-/**
- * IDでBotを取得する
- */
 export function getBotById(botId: string): BotRecord | undefined {
   const db = getDb();
   return db.prepare("SELECT * FROM bots WHERE id = ?").get(botId) as BotRecord | undefined;
 }
 
 /**
- * ユーザーがアクセス権限を持つBotの一覧を取得する
+ * ユーザーが利用可能なBot一覧を取得する
+ * （自身がオーナーのBot + システムデフォルトBot + 共有が有効(active)なBot）
  */
 export function listBotsForUser(userId: string): BotRecord[] {
   const db = getDb();
-  return db.prepare(`
-    SELECT DISTINCT b.* FROM bots b
-    LEFT JOIN user_bot_access uba ON b.id = uba.bot_id
-    WHERE b.user_id = ? OR uba.user_id = ? OR b.id = 'system_default'
-    ORDER BY b.created_at ASC
-  `).all(userId, userId) as BotRecord[];
+  return db
+    .prepare(
+      `SELECT DISTINCT b.* FROM bots b
+       LEFT JOIN bot_shares s ON s.bot_id = b.id AND s.shared_user_id = ? AND s.status = 'active'
+       WHERE b.user_id = ? OR b.id = 'system_default' OR s.id IS NOT NULL
+       ORDER BY b.created_at ASC`
+    )
+    .all(userId, userId) as BotRecord[];
 }
 
 /**
- * 全てのBotのID一覧を取得する
+ * ユーザーが指定Botへアクセス可能か検証する（§5.5）
  */
+export function hasBotAccess(userId: string, botId: string): boolean {
+  if (botId === "system_default") return true;
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT 1 FROM bots b
+       LEFT JOIN bot_shares s ON s.bot_id = b.id AND s.shared_user_id = ? AND s.status = 'active'
+       WHERE b.id = ? AND (b.user_id = ? OR s.id IS NOT NULL)`
+    )
+    .get(userId, botId, userId);
+  return !!row;
+}
+
 export function listAllBotIds(): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT id FROM bots").all() as { id: string }[];
-  return rows.map(r => r.id);
+  return rows.map((r) => r.id);
 }
 
-/**
- * Botを削除する
- */
+export function listAllBots(): BotRecord[] {
+  const db = getDb();
+  return db.prepare("SELECT * FROM bots ORDER BY created_at ASC").all() as BotRecord[];
+}
+
 export function deleteBot(botId: string): boolean {
   const db = getDb();
   const result = db.prepare("DELETE FROM bots WHERE id = ?").run(botId);
@@ -118,289 +97,157 @@ export function deleteBot(botId: string): boolean {
 }
 
 /**
- * Botの基本設定と独自Discord設定を更新する
+ * BotのDiscordトークン（暗号化済み）を更新する
+ * §4.3.1: トークンの設定・変更はBotオーナー（または管理者）のみが行えること（認可は呼び出し側で検証）
  */
-export function updateBotSettings(
+export function updateBotDiscordToken(
   botId: string,
-  name: string,
-  discordTokenEncrypted: string | null,
-  discordTokenIv: string | null,
-  discordTokenTag: string | null,
-  persona: string | null,
-  memories: string | null = null
+  tokenEncrypted: string | null,
+  tokenIv: string | null,
+  tokenTag: string | null
 ): boolean {
   const db = getDb();
-  const result = db.prepare(`
-    UPDATE bots SET
-      name = ?,
-      discord_token_encrypted = ?,
-      discord_token_iv = ?,
-      discord_token_tag = ?,
-      persona = ?,
-      memories = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(name, discordTokenEncrypted, discordTokenIv, discordTokenTag, persona, memories, botId);
+  const result = db
+    .prepare(
+      `UPDATE bots SET discord_token_encrypted = ?, discord_token_iv = ?, discord_token_tag = ?,
+       updated_at = datetime('now', 'localtime') WHERE id = ?`
+    )
+    .run(tokenEncrypted, tokenIv, tokenTag, botId);
   return result.changes > 0;
 }
 
-/**
- * BotのGemini設定を更新する
- */
-export function updateBotGeminiSettings(
-  botId: string,
-  apiKeyEncrypted: string | null,
-  apiKeyIv: string | null,
-  apiKeyTag: string | null,
-  model: string
-): boolean {
-  const db = getDb();
-  const result = db.prepare(`
-    UPDATE bots SET
-      gemini_api_key_encrypted = ?,
-      gemini_api_key_iv = ?,
-      gemini_api_key_tag = ?,
-      gemini_model = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(apiKeyEncrypted, apiKeyIv, apiKeyTag, model, botId);
-  return result.changes > 0;
-}
-
-/**
- * BotのGoogleカレンダー・OAuth設定を更新する
- */
-export function updateBotGoogleSettings(
-  botId: string,
-  clientId: string | null,
-  clientSecret: string | null,
-  refreshToken: string | null,
-  calendarId: string | null,
-  calendars: string[]
-): boolean {
-  const db = getDb();
-  
-  const runTx = db.transaction(() => {
-    db.prepare(`
-      UPDATE bots SET
-        google_client_id = ?,
-        google_client_secret = ?,
-        google_refresh_token = ?,
-        google_calendar_id = ?,
-        google_calendars = NULL,
-        updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `).run(clientId, clientSecret, refreshToken, calendarId, botId);
-
-    // 新しいカレンダーアクセス権限テーブル（bot_calendar_access）を更新
-    db.prepare("DELETE FROM bot_calendar_access WHERE bot_id = ?").run(botId);
-    
-    const bot = getBotById(botId);
-    if (bot) {
-      const insertStmt = db.prepare("INSERT INTO bot_calendar_access (user_id, bot_id, calendar_id) VALUES (?, ?, ?)");
-      for (const calId of calendars) {
-        insertStmt.run(bot.user_id, botId, calId);
-      }
-    }
-  });
-
-  runTx();
-  return true;
-}
-
-/**
- * BotのGoogle Driveバックアップ設定を更新する
- */
-export function updateBotBackupSettings(
-  botId: string,
-  enabled: boolean,
-  folderId: string | null,
-  cron: string
-): boolean {
-  const db = getDb();
-  const result = db.prepare(`
-    UPDATE bots SET
-      google_drive_backup_enabled = ?,
-      google_drive_backup_folder_id = ?,
-      backup_cron = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(enabled ? 1 : 0, folderId, cron, botId);
-  return result.changes > 0;
-}
-
-/**
- * BotのGemini設定のみ取得する
- */
-export function getBotGeminiConfig(botId: string): BotGeminiConfig | null {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag, gemini_model
-    FROM bots WHERE id = ?
-  `).get(botId) as {
-    gemini_api_key_encrypted: string | null;
-    gemini_api_key_iv: string | null;
-    gemini_api_key_tag: string | null;
-    gemini_model: string;
-  } | undefined;
-
-  if (!row) return null;
-  return {
-    apiKeyEncrypted: row.gemini_api_key_encrypted,
-    apiKeyIv: row.gemini_api_key_iv,
-    apiKeyTag: row.gemini_api_key_tag,
-    model: row.gemini_model,
-  };
-}
-
-/**
- * BotのGoogle OAuth設定のみ取得する
- */
-export function getBotGoogleConfig(botId: string): BotGoogleConfig | null {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT google_client_id, google_client_secret, google_refresh_token,
-           google_calendar_id
-    FROM bots WHERE id = ?
-  `).get(botId) as {
-    google_client_id: string | null;
-    google_client_secret: string | null;
-    google_refresh_token: string | null;
-    google_calendar_id: string | null;
-  } | undefined;
-
-  if (!row) return null;
-
-  // bot_calendar_access から同期対象カレンダー一覧を取得
-  const calendarRows = db.prepare("SELECT calendar_id FROM bot_calendar_access WHERE bot_id = ?").all(botId) as { calendar_id: string }[];
-  const calendars = calendarRows.map(r => r.calendar_id);
-
-  return {
-    clientId: row.google_client_id,
-    clientSecret: row.google_client_secret,
-    refreshToken: row.google_refresh_token,
-    calendarId: row.google_calendar_id,
-    calendars,
-  };
-}
-
-/**
- * Botの独自Discord Tokenおよびペルソナ設定のみを取得する
- */
 export function getBotDiscordConfig(botId: string): BotDiscordConfig | null {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT discord_token_encrypted, discord_token_iv, discord_token_tag, persona, memories
-    FROM bots WHERE id = ?
-  `).get(botId) as {
-    discord_token_encrypted: string | null;
-    discord_token_iv: string | null;
-    discord_token_tag: string | null;
-    persona: string | null;
-    memories: string | null;
-  } | undefined;
-
-  if (!row) return null;
+  const bot = getBotById(botId);
+  if (!bot) return null;
   return {
-    tokenEncrypted: row.discord_token_encrypted,
-    tokenIv: row.discord_token_iv,
-    tokenTag: row.discord_token_tag,
-    persona: row.persona,
-    memories: row.memories,
+    tokenEncrypted: bot.discord_token_encrypted,
+    tokenIv: bot.discord_token_iv,
+    tokenTag: bot.discord_token_tag,
   };
 }
 
-/**
- * ユーザーのデフォルトBotを取得する（トークンが設定されていないBot）
- */
-export function getDefaultBotForUser(userId: string): BotRecord | undefined {
-  const db = getDb();
-  return db.prepare(`
-    SELECT * FROM bots 
-    WHERE user_id = ? AND (discord_token_encrypted IS NULL OR discord_token_encrypted = '') 
-    LIMIT 1
-  `).get(userId) as BotRecord | undefined;
-}
-
-/**
- * Discordから取得したユーザー名とアバターイメージURLをBotレコードに保存する
- */
+/** Discord側から取得したプロフィール（名前・アバター）をDBへ同期する（§4.3.2） */
 export function updateBotDiscordProfile(
   botId: string,
-  discordUsername: string | null,
-  avatarUrl: string | null
+  discordUsername?: string,
+  avatarUrl?: string
 ): boolean {
   const db = getDb();
-  const result = db.prepare(`
-    UPDATE bots SET
-      discord_username = ?,
-      discord_avatar_url = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(discordUsername, avatarUrl, botId);
+  const result = db
+    .prepare(
+      `UPDATE bots SET discord_username = COALESCE(?, discord_username),
+       discord_avatar_url = COALESCE(?, discord_avatar_url),
+       updated_at = datetime('now', 'localtime') WHERE id = ?`
+    )
+    .run(discordUsername ?? null, avatarUrl ?? null, botId);
   return result.changes > 0;
 }
 
-/**
- * Botの表示名とアバターURLを更新する（手動編集用）
- * discord_username も同時に更新することで Bot選択画面に即反映される
- */
-export function updateBotProfile(
-  botId: string,
-  name: string,
-  avatarUrl: string | null
-): boolean {
+export function updateBotProfile(botId: string, name: string, avatarUrl?: string): boolean {
   const db = getDb();
-  const result = db.prepare(`
-    UPDATE bots SET
-      name = ?,
-      discord_username = ?,
-      discord_avatar_url = ?,
-      updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(name, name, avatarUrl, botId);
+  const result = db
+    .prepare(
+      `UPDATE bots SET name = ?, discord_avatar_url = COALESCE(?, discord_avatar_url),
+       updated_at = datetime('now', 'localtime') WHERE id = ?`
+    )
+    .run(name, avatarUrl ?? null, botId);
   return result.changes > 0;
 }
 
-// --- Admin モデレーション ---
-
-/**
- * 全Bot一覧を取得する（Admin用）
- */
-export function listAllBots(): BotRecord[] {
-  const db = getDb();
-  return db.prepare("SELECT * FROM bots ORDER BY created_at ASC").all() as BotRecord[];
-}
-
-/**
- * Botを差し押さえる（停止状態にする）
- */
 export function suspendBot(botId: string): boolean {
   const db = getDb();
-  const result = db.prepare(
-    "UPDATE bots SET suspended = 1, updated_at = datetime('now', 'localtime') WHERE id = ?"
-  ).run(botId);
-  return result.changes > 0;
+  return db.prepare("UPDATE bots SET suspended = 1 WHERE id = ?").run(botId).changes > 0;
 }
 
-/**
- * Botの差し押さえを解除する
- */
 export function unsuspendBot(botId: string): boolean {
   const db = getDb();
-  const result = db.prepare(
-    "UPDATE bots SET suspended = 0, updated_at = datetime('now', 'localtime') WHERE id = ?"
-  ).run(botId);
-  return result.changes > 0;
+  return db.prepare("UPDATE bots SET suspended = 0 WHERE id = ?").run(botId).changes > 0;
+}
+
+export function isBotSuspended(botId: string): boolean {
+  const bot = getBotById(botId);
+  return !!bot && bot.suspended === 1;
 }
 
 /**
- * Botが差し押さえ状態かどうか判定する
+ * 推奨ペルソナを設定する（§5.2.1: is_public = true のペルソナのみ。検証は呼び出し側）
  */
-export function isBotSuspended(botId: string): boolean {
+export function setRecommendedPersona(botId: string, personaId: number | null): boolean {
   const db = getDb();
-  const row = db.prepare(
-    "SELECT 1 FROM bots WHERE id = ? AND suspended = 1 LIMIT 1"
-  ).get(botId);
-  return !!row;
+  return (
+    db
+      .prepare(
+        `UPDATE bots SET recommended_persona_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
+      )
+      .run(personaId, botId).changes > 0
+  );
+}
+
+// ─── Bot共有（§5.2） ─────────────────────────────────────────────────────────
+
+/** 共有招待を作成する（既存の revoked 招待は pending として再利用） */
+export function createShareInvite(botId: string, ownerId: string, sharedUserId: string): BotShareRecord {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO bot_shares (bot_id, owner_id, shared_user_id, status) VALUES (?, ?, ?, 'pending')
+     ON CONFLICT(bot_id, shared_user_id)
+     DO UPDATE SET status = 'pending', updated_at = datetime('now', 'localtime')`
+  ).run(botId, ownerId, sharedUserId);
+  return db
+    .prepare("SELECT * FROM bot_shares WHERE bot_id = ? AND shared_user_id = ?")
+    .get(botId, sharedUserId) as BotShareRecord;
+}
+
+/** 招待を承認してアクセスを有効化する（§5.2.2） */
+export function acceptShareInvite(botId: string, sharedUserId: string): boolean {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `UPDATE bot_shares SET status = 'active', updated_at = datetime('now', 'localtime')
+         WHERE bot_id = ? AND shared_user_id = ? AND status = 'pending'`
+      )
+      .run(botId, sharedUserId).changes > 0
+  );
+}
+
+/** 共有アクセスを取り消す（Bot作成者のみ。認可は呼び出し側で検証） */
+export function revokeShare(botId: string, sharedUserId: string): boolean {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `UPDATE bot_shares SET status = 'revoked', updated_at = datetime('now', 'localtime')
+         WHERE bot_id = ? AND shared_user_id = ?`
+      )
+      .run(botId, sharedUserId).changes > 0
+  );
+}
+
+export function listSharesForBot(botId: string): BotShareRecord[] {
+  const db = getDb();
+  return db
+    .prepare("SELECT * FROM bot_shares WHERE bot_id = ? ORDER BY created_at ASC")
+    .all(botId) as BotShareRecord[];
+}
+
+/** 指定ユーザー宛の共有招待一覧（承認待ち画面・DM通知用） */
+export function listShareInvitesForUser(
+  userId: string,
+  status?: "pending" | "active" | "revoked"
+): BotShareRecord[] {
+  const db = getDb();
+  if (status) {
+    return db
+      .prepare("SELECT * FROM bot_shares WHERE shared_user_id = ? AND status = ? ORDER BY created_at DESC")
+      .all(userId, status) as BotShareRecord[];
+  }
+  return db
+    .prepare("SELECT * FROM bot_shares WHERE shared_user_id = ? ORDER BY created_at DESC")
+    .all(userId) as BotShareRecord[];
+}
+
+export function getShareById(shareId: number): BotShareRecord | undefined {
+  const db = getDb();
+  return db.prepare("SELECT * FROM bot_shares WHERE id = ?").get(shareId) as BotShareRecord | undefined;
 }

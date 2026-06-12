@@ -2,10 +2,15 @@ import cron from "node-cron";
 import { getDb } from "../db/database.js";
 import { findPlaybooks } from "./playbookService.js";
 import { processMessage } from "../gemini.js";
+import { sendToUser } from "./notifier.js";
+
+// ─── マクロ（Playbook）定期実行スケジュール（§3.6） ──────────────────────────
+// user_id スコープで管理し、実行は本人のGemini APIキー・本人のデータコンテキストで行う。
 
 export interface PlaybookSchedule {
   id: number;
-  bot_id: string;
+  user_id: string;
+  bot_id: string; // 実行結果の通知に使うBotインスタンス
   playbook_name: string;
   cron_expression: string;
   description: string;
@@ -19,7 +24,7 @@ export interface PlaybookSchedule {
 export interface PlaybookRun {
   id: number;
   schedule_id: number;
-  bot_id: string;
+  user_id: string;
   playbook_name: string;
   status: "running" | "success" | "failed";
   output: string;
@@ -27,11 +32,11 @@ export interface PlaybookRun {
   finished_at: string | null;
 }
 
-// botId+playbookName → ScheduledTask のマップ
+// userId+playbookName → ScheduledTask のマップ
 const activeTasks = new Map<string, cron.ScheduledTask>();
 
-function taskKey(botId: string, playbookName: string): string {
-  return `${botId}::${playbookName}`;
+function taskKey(userId: string, playbookName: string): string {
+  return `${userId}::${playbookName}`;
 }
 
 function rowToSchedule(row: any): PlaybookSchedule {
@@ -43,59 +48,55 @@ function rowToSchedule(row: any): PlaybookSchedule {
 
 // ── CRUD ──────────────────────────────────────────────
 
-export function listSchedules(botId: string): PlaybookSchedule[] {
+export function listSchedules(userId: string): PlaybookSchedule[] {
   const db = getDb();
   const rows = db
-    .prepare(
-      `SELECT * FROM playbook_schedules WHERE bot_id = ? ORDER BY created_at DESC`
-    )
-    .all(botId) as any[];
+    .prepare(`SELECT * FROM playbook_schedules WHERE user_id = ? ORDER BY created_at DESC`)
+    .all(userId) as any[];
   return rows.map(rowToSchedule);
 }
 
 export function getScheduleById(id: number): PlaybookSchedule | null {
   const db = getDb();
-  const row = db
-    .prepare(`SELECT * FROM playbook_schedules WHERE id = ?`)
-    .get(id) as any;
+  const row = db.prepare(`SELECT * FROM playbook_schedules WHERE id = ?`).get(id) as any;
   return row ? rowToSchedule(row) : null;
 }
 
 export function upsertSchedule(
-  botId: string,
+  userId: string,
   playbookName: string,
   cronExpression: string,
   description: string,
-  enabled: boolean
+  enabled: boolean,
+  botId: string = "system_default"
 ): { success: boolean; message: string; schedule?: PlaybookSchedule } {
   if (!cron.validate(cronExpression)) {
     return { success: false, message: "無効なcron式です。" };
   }
 
-  const playbooks = findPlaybooks(botId);
+  const playbooks = findPlaybooks(userId);
   if (!playbooks.some((p) => p.name === playbookName)) {
     return {
       success: false,
-      message: `Playbook「${playbookName}」が見つかりません。`,
+      message: `マクロ「${playbookName}」が見つかりません。`,
     };
   }
 
   const db = getDb();
   db.prepare(
-    `INSERT INTO playbook_schedules (bot_id, playbook_name, cron_expression, description, enabled)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(bot_id, playbook_name) DO UPDATE SET
+    `INSERT INTO playbook_schedules (user_id, bot_id, playbook_name, cron_expression, description, enabled)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, playbook_name) DO UPDATE SET
+       bot_id = excluded.bot_id,
        cron_expression = excluded.cron_expression,
        description = excluded.description,
        enabled = excluded.enabled,
        updated_at = datetime('now', 'localtime')`
-  ).run(botId, playbookName, cronExpression, description, enabled ? 1 : 0);
+  ).run(userId, botId, playbookName, cronExpression, description, enabled ? 1 : 0);
 
   const row = db
-    .prepare(
-      `SELECT * FROM playbook_schedules WHERE bot_id = ? AND playbook_name = ?`
-    )
-    .get(botId, playbookName) as any;
+    .prepare(`SELECT * FROM playbook_schedules WHERE user_id = ? AND playbook_name = ?`)
+    .get(userId, playbookName) as any;
   const schedule = rowToSchedule(row);
 
   // cron再登録
@@ -109,12 +110,15 @@ export function upsertSchedule(
 }
 
 export function toggleSchedule(
+  userId: string,
   id: number,
   enabled: boolean
 ): { success: boolean; message: string } {
   const db = getDb();
   const schedule = getScheduleById(id);
-  if (!schedule) return { success: false, message: "スケジュールが見つかりません。" };
+  if (!schedule || schedule.user_id !== userId) {
+    return { success: false, message: "スケジュールが見つかりません。" };
+  }
 
   db.prepare(
     `UPDATE playbook_schedules SET enabled = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
@@ -123,7 +127,7 @@ export function toggleSchedule(
   if (enabled) {
     registerCronJob({ ...schedule, enabled: true });
   } else {
-    stopCronJob(schedule.bot_id, schedule.playbook_name);
+    stopCronJob(schedule.user_id, schedule.playbook_name);
   }
 
   return {
@@ -133,60 +137,52 @@ export function toggleSchedule(
 }
 
 export function deleteSchedule(
-  botId: string,
+  userId: string,
   id: number
 ): { success: boolean; message: string } {
   const db = getDb();
   const schedule = getScheduleById(id);
-  if (!schedule || schedule.bot_id !== botId) {
+  if (!schedule || schedule.user_id !== userId) {
     return { success: false, message: "スケジュールが見つかりません。" };
   }
 
-  stopCronJob(schedule.bot_id, schedule.playbook_name);
+  stopCronJob(schedule.user_id, schedule.playbook_name);
   db.prepare(`DELETE FROM playbook_schedules WHERE id = ?`).run(id);
   return { success: true, message: "スケジュールを削除しました。" };
 }
 
 // ── 実行履歴 ─────────────────────────────────────────
 
-export function listRuns(
-  botId: string,
-  scheduleId?: number,
-  limit = 50
-): PlaybookRun[] {
+export function listRuns(userId: string, scheduleId?: number, limit = 50): PlaybookRun[] {
   const db = getDb();
   if (scheduleId != null) {
     return db
       .prepare(
-        `SELECT * FROM playbook_runs WHERE bot_id = ? AND schedule_id = ?
+        `SELECT * FROM playbook_runs WHERE user_id = ? AND schedule_id = ?
          ORDER BY started_at DESC LIMIT ?`
       )
-      .all(botId, scheduleId, limit) as PlaybookRun[];
+      .all(userId, scheduleId, limit) as PlaybookRun[];
   }
   return db
     .prepare(
-      `SELECT * FROM playbook_runs WHERE bot_id = ?
+      `SELECT * FROM playbook_runs WHERE user_id = ?
        ORDER BY started_at DESC LIMIT ?`
     )
-    .all(botId, limit) as PlaybookRun[];
+    .all(userId, limit) as PlaybookRun[];
 }
 
-function createRun(scheduleId: number, botId: string, playbookName: string): number {
+function createRun(scheduleId: number, userId: string, playbookName: string): number {
   const db = getDb();
   const result = db
     .prepare(
-      `INSERT INTO playbook_runs (schedule_id, bot_id, playbook_name, status)
+      `INSERT INTO playbook_runs (schedule_id, user_id, playbook_name, status)
        VALUES (?, ?, ?, 'running')`
     )
-    .run(scheduleId, botId, playbookName);
+    .run(scheduleId, userId, playbookName);
   return result.lastInsertRowid as number;
 }
 
-function finishRun(
-  runId: number,
-  status: "success" | "failed",
-  output: string
-): void {
+function finishRun(runId: number, status: "success" | "failed", output: string): void {
   const db = getDb();
   db.prepare(
     `UPDATE playbook_runs SET status = ?, output = ?, finished_at = datetime('now', 'localtime') WHERE id = ?`
@@ -203,8 +199,8 @@ function updateLastRun(scheduleId: number): void {
 
 // ── cron 管理 ─────────────────────────────────────────
 
-function stopCronJob(botId: string, playbookName: string): void {
-  const key = taskKey(botId, playbookName);
+function stopCronJob(userId: string, playbookName: string): void {
+  const key = taskKey(userId, playbookName);
   const existing = activeTasks.get(key);
   if (existing) {
     existing.stop();
@@ -213,11 +209,11 @@ function stopCronJob(botId: string, playbookName: string): void {
 }
 
 function registerCronJob(schedule: PlaybookSchedule): void {
-  stopCronJob(schedule.bot_id, schedule.playbook_name);
+  stopCronJob(schedule.user_id, schedule.playbook_name);
   if (!schedule.enabled) return;
   if (!cron.validate(schedule.cron_expression)) return;
 
-  const key = taskKey(schedule.bot_id, schedule.playbook_name);
+  const key = taskKey(schedule.user_id, schedule.playbook_name);
   const task = cron.schedule(schedule.cron_expression, async () => {
     await executePlaybook(schedule);
   });
@@ -225,37 +221,50 @@ function registerCronJob(schedule: PlaybookSchedule): void {
 }
 
 async function executePlaybook(schedule: PlaybookSchedule): Promise<void> {
-  const runId = createRun(schedule.id, schedule.bot_id, schedule.playbook_name);
+  const runId = createRun(schedule.id, schedule.user_id, schedule.playbook_name);
   console.log(
-    `▶️ Playbook スケジュール実行開始: ${schedule.playbook_name} (bot: ${schedule.bot_id})`
+    `▶️ マクロ定期実行開始: ${schedule.playbook_name} (user: ${schedule.user_id})`
   );
 
   try {
-    // Playbookの内容を取得
-    const playbooks = findPlaybooks(schedule.bot_id, schedule.playbook_name);
+    // マクロの内容を取得
+    const playbooks = findPlaybooks(schedule.user_id, schedule.playbook_name);
     const playbook = playbooks.find((p) => p.name === schedule.playbook_name);
     if (!playbook) {
-      finishRun(runId, "failed", `Playbook「${schedule.playbook_name}」が見つかりませんでした。`);
+      finishRun(runId, "failed", `マクロ「${schedule.playbook_name}」が見つかりませんでした。`);
       return;
     }
 
     const prompt =
-      `【定期実行】以下の手順書を実行してください。\n\n` +
-      `手順書名: ${playbook.title}\n` +
+      `【定期実行】以下のマクロ（手順書）を実行してください。\n\n` +
+      `マクロ名: ${playbook.title}\n` +
       `---\n${playbook.steps}`;
 
-    const result = await processMessage(schedule.bot_id, { text: prompt });
+    const result = await processMessage(schedule.bot_id, schedule.user_id, { text: prompt });
     finishRun(runId, "success", result.text);
     updateLastRun(schedule.id);
+
+    // 実行結果をユーザーへ通知する
+    await sendToUser(schedule.user_id, {
+      content: `📋 マクロ「**${playbook.title}**」の定期実行が完了しました。\n\n${result.text.slice(0, 1700)}`,
+      embeds: result.embeds,
+      files: result.files,
+    });
+
     console.log(
-      `✅ Playbook スケジュール実行完了: ${schedule.playbook_name} (bot: ${schedule.bot_id})`
+      `✅ マクロ定期実行完了: ${schedule.playbook_name} (user: ${schedule.user_id})`
     );
   } catch (err: any) {
     const errMsg = err?.message || String(err);
     finishRun(runId, "failed", errMsg);
     updateLastRun(schedule.id);
+
+    await sendToUser(schedule.user_id, {
+      content: `⚠️ マクロ「${schedule.playbook_name}」の定期実行に失敗しました: ${errMsg.slice(0, 500)}`,
+    }).catch(() => {});
+
     console.error(
-      `❌ Playbook スケジュール実行失敗: ${schedule.playbook_name} (bot: ${schedule.bot_id})`,
+      `❌ マクロ定期実行失敗: ${schedule.playbook_name} (user: ${schedule.user_id})`,
       err
     );
   }
@@ -265,9 +274,8 @@ async function executePlaybook(schedule: PlaybookSchedule): Promise<void> {
 
 export function startPlaybookScheduleService(): void {
   const db = getDb();
-  const rows = db
-    .prepare(`SELECT * FROM playbook_schedules WHERE enabled = 1`)
-    .all() as any[];
+  // 起動時の全件読み込み（cron用・全ユーザー横断の例外クエリ）
+  const rows = db.prepare(`SELECT * FROM playbook_schedules WHERE enabled = 1`).all() as any[];
 
   let count = 0;
   for (const row of rows) {
@@ -277,7 +285,7 @@ export function startPlaybookScheduleService(): void {
       count++;
     }
   }
-  console.log(`📅 Playbookスケジュールサービス開始 (${count}件のスケジュールを登録)`);
+  console.log(`📅 マクロ（Playbook）スケジュールサービス開始 (${count}件のスケジュールを登録)`);
 }
 
 export function stopPlaybookScheduleService(): void {
@@ -285,5 +293,5 @@ export function stopPlaybookScheduleService(): void {
     task.stop();
   }
   activeTasks.clear();
-  console.log("📅 Playbookスケジュールサービス停止");
+  console.log("📅 マクロ（Playbook）スケジュールサービス停止");
 }

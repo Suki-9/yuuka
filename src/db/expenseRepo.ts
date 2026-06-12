@@ -1,23 +1,53 @@
 import { getDb } from "./database.js";
 
-export interface Expense {
+// ─── 家計 リポジトリ（§3.4） ─────────────────────────────────────────────────
+//
+// expenses / budget_limits テーブル（スキーマ定義は db/migrations.ts が唯一の定義元）の
+// リポジトリ。v2 で bot_id スコープから user_id (DiscordユーザーID) スコープへ移行し、
+// 収入（type='income'）と memo 列に対応した。
+// データ分離の原則: 全クエリは user_id を WHERE 必須条件とする。
+
+// ─── 型定義 ──────────────────────────────────────────────────────────────────
+
+/** 収支区分（§3.4.4） */
+export type ExpenseType = "income" | "expense";
+
+/** expenses テーブルの1レコード */
+export interface ExpenseRecord {
   id: number;
-  bot_id: string;
+  user_id: string;
+  type: ExpenseType;
   amount: number;
   category: string;
-  description: string | null;
+  memo: string | null;
+  /** 'YYYY-MM-DD' */
   date: string;
+  /** 'HH:MM:SS'（任意） */
   time: string | null;
+  /** 'manual' | 'receipt_ocr' */
   source: string;
   created_at: string;
 }
 
+/** 旧名との互換エイリアス */
+export type Expense = ExpenseRecord;
+
+/** カテゴリ別集計（getMonthlyCategoryBreakdown の戻り値） */
 export interface CategoryTotal {
   category: string;
   total: number;
   count: number;
 }
 
+/** 月次推移の1点（getMonthlyTrend の戻り値） */
+export interface MonthlyTrendPoint {
+  /** 'YYYY-MM' */
+  month: string;
+  income: number;
+  expense: number;
+}
+
+/** 支出カテゴリ（既存9カテゴリを維持） */
 export const CATEGORIES = [
   "食費",
   "日用品",
@@ -32,168 +62,200 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
-export function addExpense(
-  botId: string,
-  amount: number,
-  category: string,
-  description?: string,
-  date?: string,
-  time?: string,
-  source: string = "manual"
-): Expense {
-  const db = getDb();
-  const now = new Date();
-  const expenseDate = date ?? now.toISOString().slice(0, 10);
-  
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  const expenseTime = time ?? defaultTime;
+// ─── ヘルパー ────────────────────────────────────────────────────────────────
 
-  const stmt = db.prepare(`
-    INSERT INTO expenses (bot_id, amount, category, description, date, time, source)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  const result = stmt.run(botId, amount, category, description ?? null, expenseDate, expenseTime, source);
-  return getExpenseById(result.lastInsertRowid as number)!;
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
-export function getExpenseById(id: number): Expense | undefined {
-  const db = getDb();
-  return db.prepare("SELECT * FROM expenses WHERE id = ?").get(id) as Expense | undefined;
-}
-
-export function getMonthlyTotal(botId: string, year?: number, month?: number): number {
-  const db = getDb();
+/** 集計対象月の 'YYYY-MM' プレフィックスを返す（省略時は当月） */
+function monthPrefix(year?: number, month?: number): string {
   const now = new Date();
   const y = year ?? now.getFullYear();
   const m = month ?? now.getMonth() + 1;
-  const prefix = `${y}-${String(m).padStart(2, "0")}`;
+  return `${y}-${pad2(m)}`;
+}
 
+// ─── 収支記録（§3.4.1: 収支手動入力・レシート自動記帳） ─────────────────────
+
+/**
+ * 収支を記録する（§3.4.4）。
+ * @param type 'expense'（支出、既定） | 'income'（収入）
+ * @param source 'manual'（既定） | 'receipt_ocr'（レシートOCR経由）
+ */
+export function addExpense(
+  userId: string,
+  amount: number,
+  category: string,
+  memo?: string,
+  date?: string,
+  time?: string,
+  source: string = "manual",
+  type: ExpenseType = "expense"
+): ExpenseRecord {
+  const db = getDb();
+  const now = new Date();
+  const expenseDate =
+    date ?? `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const expenseTime =
+    time ?? `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+
+  const result = db
+    .prepare(
+      `INSERT INTO expenses (user_id, type, amount, category, memo, date, time, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(userId, type, amount, category, memo ?? null, expenseDate, expenseTime, source);
+  return getExpenseById(userId, result.lastInsertRowid as number)!;
+}
+
+/** ID指定で1件取得する（本人の記録のみ） */
+export function getExpenseById(userId: string, id: number): ExpenseRecord | undefined {
+  const db = getDb();
+  return db
+    .prepare("SELECT * FROM expenses WHERE user_id = ? AND id = ?")
+    .get(userId, id) as ExpenseRecord | undefined;
+}
+
+/** 直近の収支記録を新しい順に取得する（type 指定で収入/支出のみに絞り込み可） */
+export function listRecentExpenses(
+  userId: string,
+  count: number = 10,
+  type?: ExpenseType
+): ExpenseRecord[] {
+  const db = getDb();
+  if (type) {
+    return db
+      .prepare(
+        `SELECT * FROM expenses WHERE user_id = ? AND type = ?
+         ORDER BY date DESC, created_at DESC LIMIT ?`
+      )
+      .all(userId, type, count) as ExpenseRecord[];
+  }
+  return db
+    .prepare(
+      "SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC, created_at DESC LIMIT ?"
+    )
+    .all(userId, count) as ExpenseRecord[];
+}
+
+// ─── 月次集計（§3.4.1: 収支一覧・集計） ─────────────────────────────────────
+
+/** 指定月の合計金額を取得する（type 既定は支出。省略時は当月） */
+export function getMonthlyTotal(
+  userId: string,
+  year?: number,
+  month?: number,
+  type: ExpenseType = "expense"
+): number {
+  const db = getDb();
   const row = db
-    .prepare("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE bot_id = ? AND date LIKE ?")
-    .get(botId, `${prefix}%`) as { total: number };
+    .prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
+       WHERE user_id = ? AND type = ? AND date LIKE ?`
+    )
+    .get(userId, type, `${monthPrefix(year, month)}%`) as { total: number };
   return row.total;
 }
 
+/** 指定月の収入合計を取得する（省略時は当月） */
+export function getMonthlyIncomeTotal(userId: string, year?: number, month?: number): number {
+  return getMonthlyTotal(userId, year, month, "income");
+}
+
+/** 指定月のカテゴリ別集計を金額の大きい順に取得する（type 既定は支出。省略時は当月） */
 export function getMonthlyCategoryBreakdown(
-  botId: string,
+  userId: string,
   year?: number,
-  month?: number
+  month?: number,
+  type: ExpenseType = "expense"
 ): CategoryTotal[] {
   const db = getDb();
-  const now = new Date();
-  const y = year ?? now.getFullYear();
-  const m = month ?? now.getMonth() + 1;
-  const prefix = `${y}-${String(m).padStart(2, "0")}`;
-
   return db
-    .prepare
-    (
-      `SELECT category, SUM(amount) as total, COUNT(*) as count 
-       FROM expenses 
-       WHERE bot_id = ? AND date LIKE ?
-       GROUP BY category 
+    .prepare(
+      `SELECT category, SUM(amount) AS total, COUNT(*) AS count
+       FROM expenses
+       WHERE user_id = ? AND type = ? AND date LIKE ?
+       GROUP BY category
        ORDER BY total DESC`
     )
-    .all(botId, `${prefix}%`) as CategoryTotal[];
+    .all(userId, type, `${monthPrefix(year, month)}%`) as CategoryTotal[];
 }
 
-export function listRecentExpenses(botId: string, count: number = 10): Expense[] {
+/**
+ * 月次推移（収入・支出の月別合計）を古い月から順に取得する（グラフ・レポート用）。
+ * 記録の無い月も income/expense = 0 で埋めて、常に months 件返す。
+ * @param months 当月を含めて過去何ヶ月分を返すか（既定6ヶ月）
+ */
+export function getMonthlyTrend(userId: string, months: number = 6): MonthlyTrendPoint[] {
   const db = getDb();
-  return db
-    .prepare("SELECT * FROM expenses WHERE bot_id = ? ORDER BY date DESC, created_at DESC LIMIT ?")
-    .all(botId, count) as Expense[];
+  const n = Math.max(1, Math.floor(months));
+
+  // 当月を含む過去 n ヶ月の 'YYYY-MM' ラベルを古い順に生成
+  const now = new Date();
+  const labels: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    labels.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}`);
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT substr(date, 1, 7) AS month,
+              COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+              COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+       FROM expenses
+       WHERE user_id = ? AND substr(date, 1, 7) >= ?
+       GROUP BY month`
+    )
+    .all(userId, labels[0]) as MonthlyTrendPoint[];
+
+  const byMonth = new Map(rows.map((r) => [r.month, r]));
+  return labels.map((month) => byMonth.get(month) ?? { month, income: 0, expense: 0 });
 }
 
-// ── 予算上限 ──
+// ─── 予算上限（§3.4.1: 予算管理） ───────────────────────────────────────────
 
 export interface BudgetLimit {
   category: string;
   limit_amount: number;
 }
 
-export function getBudgetLimits(botId: string): BudgetLimit[] {
+/** 設定済みの月次予算上限を全カテゴリ分取得する */
+export function getBudgetLimits(userId: string): BudgetLimit[] {
   const db = getDb();
   return db
-    .prepare("SELECT category, limit_amount FROM bot_budget_limits WHERE bot_id = ?")
-    .all(botId) as BudgetLimit[];
+    .prepare(
+      "SELECT category, limit_amount FROM budget_limits WHERE user_id = ? ORDER BY category"
+    )
+    .all(userId) as BudgetLimit[];
 }
 
-export function upsertBudgetLimit(botId: string, category: string, limitAmount: number): void {
+/** 特定カテゴリの月次予算上限を取得する（未設定なら undefined） */
+export function getBudgetLimit(userId: string, category: string): BudgetLimit | undefined {
   const db = getDb();
-  db.prepare(`
-    INSERT INTO bot_budget_limits (bot_id, category, limit_amount, updated_at)
-    VALUES (?, ?, ?, datetime('now', 'localtime'))
-    ON CONFLICT(bot_id, category) DO UPDATE SET
-      limit_amount = excluded.limit_amount,
-      updated_at = datetime('now', 'localtime')
-  `).run(botId, category, limitAmount);
-}
-
-export function deleteBudgetLimit(botId: string, category: string): void {
-  const db = getDb();
-  db.prepare("DELETE FROM bot_budget_limits WHERE bot_id = ? AND category = ?").run(botId, category);
-}
-
-// ── 支払い予定 ──
-
-export interface ExpensePlan {
-  id: number;
-  bot_id: string;
-  title: string;
-  amount: number;
-  category: string;
-  description: string | null;
-  planned_date: string;
-  is_paid: number;
-  paid_expense_id: number | null;
-  created_at: string;
-}
-
-export function addExpensePlan(
-  botId: string,
-  title: string,
-  amount: number,
-  category: string,
-  plannedDate: string,
-  description?: string
-): ExpensePlan {
-  const db = getDb();
-  const result = db.prepare(`
-    INSERT INTO expense_plans (bot_id, title, amount, category, planned_date, description)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(botId, title, amount, category, plannedDate, description ?? null);
-  return getExpensePlanById(result.lastInsertRowid as number)!;
-}
-
-export function getExpensePlanById(id: number): ExpensePlan | undefined {
-  const db = getDb();
-  return db.prepare("SELECT * FROM expense_plans WHERE id = ?").get(id) as ExpensePlan | undefined;
-}
-
-export function listExpensePlans(botId: string, includePaid = false): ExpensePlan[] {
-  const db = getDb();
-  if (includePaid) {
-    return db
-      .prepare("SELECT * FROM expense_plans WHERE bot_id = ? ORDER BY planned_date ASC, created_at DESC")
-      .all(botId) as ExpensePlan[];
-  }
   return db
-    .prepare("SELECT * FROM expense_plans WHERE bot_id = ? AND is_paid = 0 ORDER BY planned_date ASC, created_at DESC")
-    .all(botId) as ExpensePlan[];
+    .prepare("SELECT category, limit_amount FROM budget_limits WHERE user_id = ? AND category = ?")
+    .get(userId, category) as BudgetLimit | undefined;
 }
 
-export function markExpensePlanPaid(id: number, botId: string, paidExpenseId: number): boolean {
+/** 月次予算上限を設定・更新する */
+export function upsertBudgetLimit(userId: string, category: string, limitAmount: number): void {
   const db = getDb();
-  const result = db.prepare(`
-    UPDATE expense_plans SET is_paid = 1, paid_expense_id = ?
-    WHERE id = ? AND bot_id = ? AND is_paid = 0
-  `).run(paidExpenseId, id, botId);
-  return result.changes > 0;
+  db.prepare(
+    `INSERT INTO budget_limits (user_id, category, limit_amount, updated_at)
+     VALUES (?, ?, ?, datetime('now', 'localtime'))
+     ON CONFLICT(user_id, category) DO UPDATE SET
+       limit_amount = excluded.limit_amount,
+       updated_at = datetime('now', 'localtime')`
+  ).run(userId, category, limitAmount);
 }
 
-export function deleteExpensePlan(id: number, botId: string): boolean {
+/** 月次予算上限を削除する（削除できた場合 true） */
+export function deleteBudgetLimit(userId: string, category: string): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM expense_plans WHERE id = ? AND bot_id = ?").run(id, botId);
+  const result = db
+    .prepare("DELETE FROM budget_limits WHERE user_id = ? AND category = ?")
+    .run(userId, category);
   return result.changes > 0;
 }

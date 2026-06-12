@@ -208,6 +208,12 @@ document.addEventListener("DOMContentLoaded", () => {
       tasks: "タスク管理",
       schedules: "予定スケジュール",
       expenses: "家計管理",
+      reminders: "リマインダー",
+      personal: "メモ・連絡先",
+      personas: "ペルソナ管理",
+      delivery: "配信設定",
+      webhooks: "Webhook 連携",
+      mcp: "MCPサーバー管理",
       playbooks: "Playbook 設定",
       config: "システム設定情報",
       admin: "管理者パネル"
@@ -291,6 +297,12 @@ document.addEventListener("DOMContentLoaded", () => {
       "/tasks": "tasks",
       "/schedules": "schedules",
       "/expenses": "expenses",
+      "/reminders": "reminders",
+      "/personal": "personal",
+      "/personas": "personas",
+      "/delivery": "delivery",
+      "/webhooks": "webhooks",
+      "/mcp": "mcp",
       "/playbooks": "playbooks",
       "/config": "config",
       "/admin": "admin"
@@ -432,10 +444,11 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalReceiptResult);
       closeModal(modalCredential);
       closeModal(modalCreateBot);
-      const mPlan = document.getElementById("modal-expense-plan");
-      const mBudget = document.getElementById("modal-budget-settings");
-      if (mPlan) closeModal(mPlan);
-      if (mBudget) closeModal(mBudget);
+      ["modal-expense-plan", "modal-budget-settings", "modal-persona-edit",
+        "modal-persona-preview", "modal-contact", "modal-webhook"].forEach(id => {
+        const m = document.getElementById(id);
+        if (m) closeModal(m);
+      });
     });
   });
 
@@ -458,6 +471,23 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchSchedulesList();
     } else if (activeTab === "expenses") {
       fetchExpensesList();
+    } else if (activeTab === "reminders") {
+      fetchRemindersList();
+    } else if (activeTab === "personal") {
+      fetchContextNote();
+      fetchClipboardList();
+      fetchContactsList();
+    } else if (activeTab === "personas") {
+      fetchPersonasList();
+      fetchPersonaMarketplace();
+    } else if (activeTab === "delivery") {
+      fetchBriefingConfig();
+      fetchReportConfigs();
+    } else if (activeTab === "webhooks") {
+      fetchWebhooksList();
+      fetchWebhookDeliveries();
+    } else if (activeTab === "mcp") {
+      fetchMcpServersList();
     } else if (activeTab === "playbooks") {
       fetchPlaybooksList();
       fetchPlaybookSchedulesList();
@@ -720,13 +750,12 @@ document.addEventListener("DOMContentLoaded", () => {
     createBotForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = document.getElementById("new-bot-name").value.trim();
-      const persona = document.getElementById("new-bot-persona").value.trim();
 
       try {
         const res = await originalFetch("/api/bots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, persona })
+          body: JSON.stringify({ name })
         });
         const data = await res.json();
         if (data.success) {
@@ -1369,7 +1398,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const badge = document.createElement("span");
           badge.className = "urgent-badge badge-normal";
-          badge.textContent = task.priority === 2 ? "優先: 高" : "優先: 普通";
+          badge.textContent = task.priority === "high" ? "優先: 高" : "優先: 普通";
 
           item.appendChild(iconSpan);
           item.appendChild(title);
@@ -1448,12 +1477,28 @@ document.addEventListener("DOMContentLoaded", () => {
           priIcon.className = "material-symbols-outlined meta-icon";
           priIcon.textContent = "priority_high";
 
-          const priorityLabels = ["低", "中", "高"];
-          const priText = document.createTextNode(` 優先度: ${priorityLabels[task.priority] || "低"}`);
+          // v2: priority は "high" | "medium" | "low" | null
+          const priorityLabels = { high: "🔴 高", medium: "🟡 中", low: "🔵 低" };
+          const priText = document.createTextNode(` 優先度: ${priorityLabels[task.priority] || "—"}`);
 
           pri.appendChild(priIcon);
           pri.appendChild(priText);
           meta.appendChild(pri);
+
+          // v2: tags はJSON文字列（パースしてチップ表示）
+          let taskTags = [];
+          try {
+            taskTags = JSON.parse(task.tags || "[]");
+            if (!Array.isArray(taskTags)) taskTags = [];
+          } catch (err) {
+            taskTags = [];
+          }
+          taskTags.forEach(tag => {
+            const chip = document.createElement("span");
+            chip.className = "tag-chip";
+            chip.textContent = `#${tag}`;
+            meta.appendChild(chip);
+          });
 
           text.appendChild(title);
           text.appendChild(desc);
@@ -1507,7 +1552,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const title = document.getElementById("task-title").value.trim();
     const description = document.getElementById("task-description").value.trim();
     const dueDate = document.getElementById("task-due").value;
-    const priority = parseInt(document.getElementById("task-priority").value, 10);
+    const priority = document.getElementById("task-priority").value || undefined;
 
     try {
       const res = await fetch("/api/tasks/add", {
@@ -1725,12 +1770,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (data.success) {
         expenseMonthTotal.textContent = `¥${data.total.toLocaleString()}`;
 
-        // 支払い予定件数バッジ
+        // v2: 当月収入合計
+        const incomeTotalEl = document.getElementById("expense-income-total");
+        if (incomeTotalEl) {
+          incomeTotalEl.textContent = `当月収入: ¥${(data.incomeTotal || 0).toLocaleString()}`;
+        }
+
+        // 支払い予定件数バッジ（v2: status=pending のみ取得・due_date）
         const plansDueCount = document.getElementById("expense-plans-due-count");
         if (plansDueCount && plansData.success) {
           const today = new Date().toISOString().slice(0, 10);
-          const dueSoon = (plansData.plans || []).filter(p => p.planned_date <= today);
-          plansDueCount.textContent = `支払い予定: ${(plansData.plans || []).length}件${dueSoon.length > 0 ? ` (本日以前 ${dueSoon.length}件)` : ""}`;
+          const pendingPlans = (plansData.plans || []).filter(p => p.status === "pending");
+          const dueSoon = pendingPlans.filter(p => p.due_date <= today);
+          plansDueCount.textContent = `支払い予定: ${pendingPlans.length}件${dueSoon.length > 0 ? ` (本日以前 ${dueSoon.length}件)` : ""}`;
           plansDueCount.style.color = dueSoon.length > 0 ? "var(--color-red)" : "";
         }
 
@@ -1749,7 +1801,7 @@ document.addEventListener("DOMContentLoaded", () => {
             tdCat.textContent = exp.category;
 
             const tdDesc = document.createElement("td");
-            tdDesc.textContent = exp.description || "説明なし";
+            tdDesc.textContent = exp.memo || "説明なし";
 
             const tdSource = document.createElement("td");
             tdSource.style.fontSize = "0.75rem";
@@ -1757,7 +1809,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const sourceIcon = document.createElement("span");
             sourceIcon.className = "material-symbols-outlined source-icon";
-            const srcKey = exp.source === "receipt" ? "receipt" : exp.source === "plan" ? "plan" : "manual";
+            const srcKey = (exp.source === "receipt" || exp.source === "receipt_ocr") ? "receipt" : exp.source === "plan" ? "plan" : "manual";
             sourceIcon.textContent = srcKey === "receipt" ? "photo_camera" : srcKey === "plan" ? "event_available" : "web";
 
             tdSource.appendChild(sourceIcon);
@@ -1765,7 +1817,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const tdAmount = document.createElement("td");
             tdAmount.className = "amount-cell";
-            tdAmount.textContent = `¥${exp.amount.toLocaleString()}`;
+            if (exp.type === "income") {
+              tdAmount.textContent = `+¥${exp.amount.toLocaleString()}`;
+              tdAmount.style.color = "var(--color-green)";
+            } else {
+              tdAmount.textContent = `¥${exp.amount.toLocaleString()}`;
+            }
 
             tr.appendChild(tdDate);
             tr.appendChild(tdCat);
@@ -1846,12 +1903,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     plans.forEach(plan => {
       const tr = document.createElement("tr");
-      const isOverdue = plan.planned_date <= today;
+      const isPending = plan.status === "pending";
+      const isOverdue = isPending && plan.due_date <= today;
       if (isOverdue) tr.style.background = "rgba(207,102,121,0.07)";
 
       const tdDate = document.createElement("td");
-      tdDate.textContent = plan.planned_date;
+      tdDate.textContent = plan.due_date;
       if (isOverdue) tdDate.style.color = "var(--color-red)";
+      if (plan.repeat_rule) {
+        const repeatBadge = document.createElement("span");
+        repeatBadge.className = "tag-chip";
+        repeatBadge.style.marginLeft = "6px";
+        repeatBadge.title = `繰り返し: ${plan.repeat_rule}`;
+        repeatBadge.textContent = "🔁";
+        tdDate.appendChild(repeatBadge);
+      }
 
       const tdTitle = document.createElement("td");
       tdTitle.textContent = plan.title;
@@ -1860,7 +1926,7 @@ document.addEventListener("DOMContentLoaded", () => {
       tdCat.textContent = plan.category;
 
       const tdDesc = document.createElement("td");
-      tdDesc.textContent = plan.description || "—";
+      tdDesc.textContent = plan.memo || "—";
       tdDesc.style.color = "var(--text-secondary)";
 
       const tdAmount = document.createElement("td");
@@ -1870,43 +1936,50 @@ document.addEventListener("DOMContentLoaded", () => {
       const tdActions = document.createElement("td");
       tdActions.style.textAlign = "right";
 
-      const payBtn = document.createElement("button");
-      payBtn.className = "btn btn-primary btn-sm";
-      payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;margin-right:4px;";
-      payBtn.textContent = "支払完了";
-      payBtn.addEventListener("click", async () => {
-        if (!confirm(`「${plan.title}」¥${plan.amount.toLocaleString()} の支払いを完了しますか？\n家計簿に自動記録されます。`)) return;
-        try {
-          const res = await fetch("/api/expenses/plans/pay", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: plan.id })
-          });
-          const result = await res.json();
-          if (result.success) { fetchExpensesList(); }
-          else { alert("エラー: " + result.message); }
-        } catch (e) { alert("通信エラーが発生しました。"); }
-      });
+      if (isPending) {
+        const payBtn = document.createElement("button");
+        payBtn.className = "btn btn-primary btn-sm";
+        payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;margin-right:4px;";
+        payBtn.textContent = "支払う";
+        payBtn.addEventListener("click", async () => {
+          if (!confirm(`「${plan.title}」¥${plan.amount.toLocaleString()} の支払いを完了しますか？\n家計簿に自動記録（消込）されます。`)) return;
+          try {
+            const res = await fetch("/api/expenses/plans/pay", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: plan.id })
+            });
+            const result = await res.json();
+            if (result.success) { fetchExpensesList(); }
+            else { alert("エラー: " + result.message); }
+          } catch (e) { alert("通信エラーが発生しました。"); }
+        });
+        tdActions.appendChild(payBtn);
 
-      const delBtn = document.createElement("button");
-      delBtn.className = "btn btn-secondary btn-sm";
-      delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;";
-      delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">delete</span>`;
-      delBtn.addEventListener("click", async () => {
-        if (!confirm(`「${plan.title}」を削除しますか？`)) return;
-        try {
-          const res = await fetch("/api/expenses/plans/delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: plan.id })
-          });
-          const result = await res.json();
-          if (result.success) { fetchExpensesList(); }
-        } catch (e) { alert("通信エラーが発生しました。"); }
-      });
-
-      tdActions.appendChild(payBtn);
-      tdActions.appendChild(delBtn);
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn btn-secondary btn-sm";
+        delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;";
+        delBtn.title = "支払い予定をキャンセル";
+        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">delete</span>`;
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`「${plan.title}」をキャンセルしますか？`)) return;
+          try {
+            const res = await fetch("/api/expenses/plans/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: plan.id })
+            });
+            const result = await res.json();
+            if (result.success) { fetchExpensesList(); }
+          } catch (e) { alert("通信エラーが発生しました。"); }
+        });
+        tdActions.appendChild(delBtn);
+      } else {
+        const statusSpan = document.createElement("span");
+        statusSpan.className = "status-badge " + (plan.status === "settled" ? "status-sent" : "status-cancelled");
+        statusSpan.textContent = plan.status === "settled" ? "消込済み" : "キャンセル";
+        tdActions.appendChild(statusSpan);
+      }
 
       tr.appendChild(tdDate);
       tr.appendChild(tdTitle);
@@ -1924,6 +1997,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const category = document.getElementById("exp-category").value;
     const description = document.getElementById("exp-description").value.trim();
     const date = document.getElementById("exp-date").value;
+    const type = document.getElementById("exp-type").value === "income" ? "income" : "expense";
 
     const now = new Date();
     const pad = (n) => n.toString().padStart(2, "0");
@@ -1933,7 +2007,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/expenses/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, category, description, date, time })
+        body: JSON.stringify({ amount, category, description, date, time, type })
       });
       const data = await res.json();
       if (data.success) {
@@ -2154,7 +2228,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
         document.getElementById("backup-enable").checked = data.config.backupEnabled;
         document.getElementById("backup-folder-id").value = data.config.backupFolderId === "未設定" ? "" : data.config.backupFolderId;
-        document.getElementById("backup-cron").value = data.config.backupCron;
+        document.getElementById("backup-interval-hours").value = data.config.backupIntervalHours ?? 24;
+        document.getElementById("backup-generations").value = data.config.backupGenerations ?? 7;
+        const backupLastRun = document.getElementById("backup-last-run");
+        if (backupLastRun) {
+          backupLastRun.textContent = `最終実行: ${data.config.backupLastRunAt || "—"}`;
+        }
+
+        // アシスタント設定（/api/settings/user の現在値）
+        const richReplyEl = document.getElementById("user-rich-reply");
+        if (richReplyEl) richReplyEl.checked = data.config.richReplyEnabled !== false;
+        const remindDefaultEl = document.getElementById("user-remind-default");
+        if (remindDefaultEl) remindDefaultEl.value = data.config.remindDefaultMinutes ?? 10;
+        const notifyTypeEl = document.getElementById("user-notify-type");
+        const notifyIdEl = document.getElementById("user-notify-id");
+        if (notifyTypeEl) notifyTypeEl.value = (data.config.notifyTarget && data.config.notifyTarget.type) || "dm";
+        if (notifyIdEl) notifyIdEl.value = (data.config.notifyTarget && data.config.notifyTarget.id) || "";
 
         // UI access control for system_default bot settings
         const isSystemDefault = window.currentBotId === "system_default";
@@ -2195,7 +2284,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        // Fetch and fill Discord / Persona config values
+        // Fetch and fill Discord token config (v2: トークンのみ)
         if (!isSystemDefault || isAdmin) {
           try {
             fetch("/api/settings/discord")
@@ -2203,8 +2292,6 @@ document.addEventListener("DOMContentLoaded", () => {
               .then(discordData => {
                 if (discordData.success) {
                   document.getElementById("discord-token").value = discordData.tokenMasked;
-                  document.getElementById("discord-persona").value = discordData.persona;
-                  fetchMemories();
                 }
               })
               .catch(err => console.error("Failed to load Discord settings:", err));
@@ -2214,60 +2301,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Load AI Credentials List
+      // Load AI Credentials List & Bot共有設定
       fetchCredentialsSettings();
+      fetchBotShares();
     } catch (e) {
       console.error(e);
-    }
-  }
-
-  async function fetchMemories() {
-    const container = document.getElementById("memories-container");
-    if (!container) return;
-    try {
-      const res = await fetch(`/api/memories?botId=${window.currentBotId}`);
-      const data = await res.json();
-      container.innerHTML = "";
-      if (data.success && data.memories && data.memories.length > 0) {
-        data.memories.forEach(mem => {
-          const item = document.createElement("div");
-          item.style.cssText = "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid var(--border-matte || #27272a);";
-          
-          const contentSpan = document.createElement("span");
-          contentSpan.style.cssText = "font-size: 0.85rem; color: var(--text-primary); word-break: break-all; flex-grow: 1; margin-right: 8px;";
-          contentSpan.textContent = mem.content;
-          
-          const deleteBtn = document.createElement("button");
-          deleteBtn.type = "button";
-          deleteBtn.className = "btn btn-secondary btn-sm";
-          deleteBtn.style.cssText = "padding: 2px 6px; font-size: 0.7rem; display: flex; align-items: center; background: transparent; border: none; color: var(--color-red || #cf6679); cursor: pointer;";
-          deleteBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 16px;">delete</span>`;
-          deleteBtn.addEventListener("click", async () => {
-            if (!confirm(`この記憶「${mem.content}」を削除しますか？`)) return;
-            try {
-              const delRes = await fetch("/api/memories/delete", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ botId: window.currentBotId, id: mem.id })
-              });
-              const delData = await delRes.json();
-              if (delData.success) {
-                fetchMemories();
-              }
-            } catch (err) {
-              console.error("Failed to delete memory:", err);
-            }
-          });
-          
-          item.appendChild(contentSpan);
-          item.appendChild(deleteBtn);
-          container.appendChild(item);
-        });
-      } else {
-        container.innerHTML = `<p style="font-size:0.8rem;color:var(--text-secondary);margin:0;padding: 4px 0;">登録されている記憶はありません。</p>`;
-      }
-    } catch (err) {
-      console.error("Failed to fetch memories:", err);
     }
   }
 
@@ -2323,19 +2361,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle Discord & Persona settings update
+  // Handle Discord token settings update (v2: トークンのみ)
   const discordConfigForm = document.getElementById("discord-config-form");
   if (discordConfigForm) {
     discordConfigForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const token = document.getElementById("discord-token").value.trim();
-      const persona = document.getElementById("discord-persona").value.trim();
 
       try {
         const res = await fetch("/api/settings/discord", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, persona })
+          body: JSON.stringify({ token })
         });
         const data = await res.json();
         if (data.success) {
@@ -2350,72 +2387,223 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle Edit Persona Modal triggers
-  const modalPersona = document.getElementById("modal-persona");
-  const btnOpenPersonaModal = document.getElementById("btn-open-persona-modal");
-  const btnClosePersonaModal = document.getElementById("btn-close-persona-modal");
-  const btnCancelPersona = document.getElementById("btn-cancel-persona");
-  const personaModalForm = document.getElementById("persona-modal-form");
-  const personaModalTextarea = document.getElementById("persona-modal-textarea");
-  const discordPersonaInput = document.getElementById("discord-persona");
-
-  if (btnOpenPersonaModal && modalPersona && personaModalTextarea && discordPersonaInput) {
-    btnOpenPersonaModal.addEventListener("click", () => {
-      personaModalTextarea.value = discordPersonaInput.value;
-      modalPersona.classList.add("active");
-    });
+  // ペルソナ / コンテキストノートへの誘導リンク
+  const btnGotoPersonas = document.getElementById("btn-goto-personas");
+  if (btnGotoPersonas) {
+    btnGotoPersonas.addEventListener("click", () => navigateTo("/personas"));
+  }
+  const btnGotoContextNote = document.getElementById("btn-goto-context-note");
+  if (btnGotoContextNote) {
+    btnGotoContextNote.addEventListener("click", () => navigateTo("/personal"));
   }
 
-  function closePersonaModal() {
-    if (modalPersona) {
-      modalPersona.classList.remove("active");
-    }
-  }
-
-  if (btnClosePersonaModal) {
-    btnClosePersonaModal.addEventListener("click", closePersonaModal);
-  }
-  if (btnCancelPersona) {
-    btnCancelPersona.addEventListener("click", closePersonaModal);
-  }
-
-  if (personaModalForm && discordPersonaInput) {
-    personaModalForm.addEventListener("submit", (e) => {
+  // Handle password change
+  const passwordConfigForm = document.getElementById("password-config-form");
+  if (passwordConfigForm) {
+    passwordConfigForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      discordPersonaInput.value = personaModalTextarea.value;
-      closePersonaModal();
-    });
-  }
+      const currentPassword = document.getElementById("config-current-password").value;
+      const newPassword = document.getElementById("config-new-password").value;
+      if (!currentPassword || !newPassword) return;
 
-  // Handle add memory chunk
-  const btnAddMemory = document.getElementById("btn-add-memory");
-  const newMemoryInput = document.getElementById("new-memory-input");
-  if (btnAddMemory && newMemoryInput) {
-    btnAddMemory.addEventListener("click", async () => {
-      const content = newMemoryInput.value.trim();
-      if (!content) return;
       try {
-        const res = await fetch("/api/memories/add", {
+        const res = await fetch("/api/settings/password", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ botId: window.currentBotId, content })
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "パスワードを変更しました。" : "パスワードの変更に失敗しました。"));
+        if (data.success) passwordConfigForm.reset();
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Handle assistant (user) settings update
+  const userSettingsForm = document.getElementById("user-settings-form");
+  if (userSettingsForm) {
+    userSettingsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const richReplyEnabled = document.getElementById("user-rich-reply").checked;
+      const remindDefaultMinutes = parseInt(document.getElementById("user-remind-default").value, 10) || 0;
+      const notifyTargetType = document.getElementById("user-notify-type").value === "channel" ? "channel" : "dm";
+      const notifyTargetId = document.getElementById("user-notify-id").value.trim();
+      const timezone = document.getElementById("user-timezone").value.trim();
+
+      const payload = { richReplyEnabled, remindDefaultMinutes, notifyTargetType, notifyTargetId };
+      if (timezone) payload.timezone = timezone;
+
+      try {
+        const res = await fetch("/api/settings/user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.success) {
-          newMemoryInput.value = "";
-          fetchMemories();
+          alert("アシスタント設定を保存しました。");
         } else {
-          alert("エラー: " + data.message);
+          alert(data.message || "設定の保存に失敗しました。");
         }
       } catch (err) {
-        console.error("Failed to add memory:", err);
+        alert("通信エラーが発生しました。");
       }
     });
+  }
 
-    newMemoryInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        btnAddMemory.click();
+  // ==========================================
+  // BOT SHARING MANAGEMENT (オーナーのみ §5.2)
+  // ==========================================
+  async function fetchBotShares() {
+    const shareCard = document.getElementById("config-share-card");
+    const sharesList = document.getElementById("bot-shares-list");
+    if (!shareCard || !sharesList) return;
+
+    const botId = window.currentBotId;
+    if (!botId || botId === "system_default") {
+      shareCard.classList.add("hidden");
+      return;
+    }
+
+    try {
+      const res = await originalFetch(`/api/bots/shares?botId=${encodeURIComponent(botId)}`);
+      const data = await res.json();
+      if (!data.success) {
+        // 403 = オーナーではない → カードを隠す
+        shareCard.classList.add("hidden");
+        return;
+      }
+      shareCard.classList.remove("hidden");
+      renderBotShares(data.shares || []);
+      populateRecommendedPersonaSelect(data.recommended_persona_id ?? null);
+    } catch (err) {
+      shareCard.classList.add("hidden");
+    }
+  }
+
+  function renderBotShares(shares) {
+    const sharesList = document.getElementById("bot-shares-list");
+    sharesList.replaceChildren();
+
+    const visible = shares.filter(s => s.status !== "revoked");
+    if (visible.length === 0) {
+      const empty = document.createElement("p");
+      empty.style.cssText = "font-size:0.8rem;color:var(--text-secondary);margin:0;";
+      empty.textContent = "共有中のユーザーはいません。";
+      sharesList.appendChild(empty);
+      return;
+    }
+
+    visible.forEach(share => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--border-matte);border-radius:var(--radius);";
+
+      const info = document.createElement("div");
+      info.style.cssText = "display:flex;align-items:center;gap:10px;min-width:0;";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.style.cssText = "font-size:0.88rem;font-weight:600;color:var(--text-primary);";
+      nameSpan.textContent = share.shared_username || share.shared_user_id;
+
+      const badge = document.createElement("span");
+      badge.className = `status-badge ${share.status === "active" ? "status-sent" : "status-pending"}`;
+      badge.textContent = share.status === "active" ? "承認済み" : "招待中";
+
+      info.appendChild(nameSpan);
+      info.appendChild(badge);
+
+      const revokeBtn = document.createElement("button");
+      revokeBtn.type = "button";
+      revokeBtn.className = "btn btn-secondary btn-sm";
+      revokeBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+      revokeBtn.textContent = "取り消し";
+      revokeBtn.addEventListener("click", async () => {
+        if (!confirm(`${share.shared_username || share.shared_user_id} さんへの共有を取り消しますか？`)) return;
+        try {
+          const res = await originalFetch("/api/bots/shares/revoke", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ botId: window.currentBotId, targetUserId: share.shared_user_id })
+          });
+          const data = await res.json();
+          if (data.success) {
+            fetchBotShares();
+          } else {
+            alert(data.message || "取り消しに失敗しました。");
+          }
+        } catch (err) {
+          alert("通信エラーが発生しました。");
+        }
+      });
+
+      row.appendChild(info);
+      row.appendChild(revokeBtn);
+      sharesList.appendChild(row);
+    });
+  }
+
+  const botShareInviteForm = document.getElementById("bot-share-invite-form");
+  if (botShareInviteForm) {
+    botShareInviteForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const targetUserId = document.getElementById("share-target-user-id").value.trim();
+      if (!targetUserId) return;
+      try {
+        const res = await originalFetch("/api/bots/shares/invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, targetUserId })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "招待を送信しました。" : "招待に失敗しました。"));
+        if (data.success) {
+          botShareInviteForm.reset();
+          fetchBotShares();
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  async function populateRecommendedPersonaSelect(recommendedId) {
+    const sel = document.getElementById("recommended-persona-select");
+    if (!sel) return;
+    try {
+      const res = await fetch("/api/personas/marketplace");
+      const data = await res.json();
+      sel.innerHTML = '<option value="">-- 推奨ペルソナなし --</option>';
+      if (data.success && data.personas) {
+        data.personas.forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = `${p.name} (by ${p.owner_username})`;
+          sel.appendChild(opt);
+        });
+      }
+      sel.value = recommendedId != null ? String(recommendedId) : "";
+    } catch (err) {
+      console.error("公開ペルソナの取得失敗:", err);
+    }
+  }
+
+  const btnSaveRecommendedPersona = document.getElementById("btn-save-recommended-persona");
+  if (btnSaveRecommendedPersona) {
+    btnSaveRecommendedPersona.addEventListener("click", async () => {
+      const sel = document.getElementById("recommended-persona-select");
+      const personaId = sel.value ? Number(sel.value) : null;
+      try {
+        const res = await originalFetch("/api/bots/recommended-persona", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, personaId })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "設定しました。" : "設定に失敗しました。"));
+      } catch (err) {
+        alert("通信エラーが発生しました。");
       }
     });
   }
@@ -2447,13 +2635,14 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       const enabled = document.getElementById("backup-enable").checked;
       const folderId = document.getElementById("backup-folder-id").value.trim();
-      const cron = document.getElementById("backup-cron").value.trim();
+      const intervalHours = Math.min(Math.max(parseInt(document.getElementById("backup-interval-hours").value, 10) || 24, 1), 720);
+      const generations = Math.max(parseInt(document.getElementById("backup-generations").value, 10) || 7, 1);
 
       try {
         const res = await fetch("/api/settings/backup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled, folderId, cron })
+          body: JSON.stringify({ enabled, folderId, intervalHours, generations })
         });
         const data = await res.json();
         if (data.success) {
@@ -2522,12 +2711,14 @@ document.addEventListener("DOMContentLoaded", () => {
           const tr = document.createElement("tr");
           tr.style.borderBottom = "1px solid var(--border-matte)";
 
+          const serviceName = cred.service_name || cred.serviceName;
+
           const tdService = document.createElement("td");
           tdService.style.padding = "12px 10px";
           tdService.style.fontSize = "0.85rem";
           tdService.style.color = "var(--color-white)";
           tdService.style.fontWeight = "700";
-          tdService.textContent = cred.serviceName;
+          tdService.textContent = serviceName;
 
           const tdUser = document.createElement("td");
           tdUser.style.padding = "12px 10px";
@@ -2542,11 +2733,22 @@ document.addEventListener("DOMContentLoaded", () => {
           tdPass.style.fontFamily = "var(--font-family-mono)";
           tdPass.textContent = "••••••••••••";
 
+          const tdUrl = document.createElement("td");
+          tdUrl.style.padding = "12px 10px";
+          tdUrl.style.fontSize = "0.78rem";
+          tdUrl.style.fontFamily = "var(--font-family-mono)";
+          tdUrl.style.maxWidth = "200px";
+          tdUrl.style.overflow = "hidden";
+          tdUrl.style.textOverflow = "ellipsis";
+          tdUrl.style.whiteSpace = "nowrap";
+          tdUrl.title = cred.url || "";
+          tdUrl.textContent = cred.url || "—";
+
           const tdDate = document.createElement("td");
           tdDate.style.padding = "12px 10px";
           tdDate.style.fontSize = "0.75rem";
           tdDate.style.color = "var(--color-zinc-muted)";
-          tdDate.textContent = cred.updatedAt;
+          tdDate.textContent = cred.updated_at || cred.updatedAt || "";
 
           const tdActions = document.createElement("td");
           tdActions.style.padding = "12px 10px";
@@ -2564,13 +2766,14 @@ document.addEventListener("DOMContentLoaded", () => {
           btnDel.appendChild(delIcon);
           btnDel.appendChild(document.createTextNode(" 削除"));
 
-          btnDel.addEventListener("click", () => handleDeleteCredential(cred.serviceName));
+          btnDel.addEventListener("click", () => handleDeleteCredential(serviceName));
 
           tdActions.appendChild(btnDel);
 
           tr.appendChild(tdService);
           tr.appendChild(tdUser);
           tr.appendChild(tdPass);
+          tr.appendChild(tdUrl);
           tr.appendChild(tdDate);
           tr.appendChild(tdActions);
 
@@ -2579,7 +2782,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } else {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 5;
+        td.colSpan = 6;
         td.style.textAlign = "center";
         td.style.padding = "20px";
         td.style.color = "var(--color-zinc-muted)";
@@ -2598,12 +2801,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const serviceName = document.getElementById("cred-service-name").value.trim().toLowerCase();
     const username = document.getElementById("cred-username").value.trim();
     const password = document.getElementById("cred-password").value;
+    const url = document.getElementById("cred-url").value.trim();
 
     try {
       const res = await fetch("/api/credentials/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serviceName, username, password })
+        body: JSON.stringify({ serviceName, username, password, ...(url ? { url } : {}) })
       });
       const data = await res.json();
       if (data.success) {
@@ -2655,7 +2859,9 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchAdminUsers(),
       fetchAdminBots(),
       fetchAdminInviteCodes(),
-      fetchAdminSystemSettings()
+      fetchAdminSystemSettings(),
+      fetchAdminAuditLogs(),
+      fetchAdminPersonas()
     ]);
   }
 
@@ -2766,6 +2972,36 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           });
           tdAction.appendChild(btn);
+
+          // ユーザー削除ボタン（§5.3.2）
+          const btnDelete = document.createElement("button");
+          btnDelete.className = "admin-btn-action btn-danger";
+          btnDelete.type = "button";
+          btnDelete.style.marginLeft = "6px";
+          btnDelete.textContent = "削除";
+          btnDelete.addEventListener("click", async () => {
+            if (!confirm(`ユーザー「${user.username}」を完全に削除しますか？\nタスク・家計簿・ペルソナ等の関連データも全て削除され、元に戻せません。`)) return;
+            try {
+              const r = await originalFetch("/api/admin/users/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetUserId: user.discord_id })
+              });
+              const d = await r.json();
+              if (d.success) {
+                alert(d.message);
+                fetchAdminUsers();
+                fetchAdminStats();
+                fetchAdminBots();
+              } else {
+                alert(d.message || "削除に失敗しました。");
+              }
+            } catch (e) {
+              console.error("User delete failed");
+              alert("削除処理中にエラーが発生しました。");
+            }
+          });
+          tdAction.appendChild(btnDelete);
         } else {
           const selfLabel = document.createElement("span");
           selfLabel.style.fontSize = "0.75rem";
@@ -2992,6 +3228,196 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (err) {
       console.error("Admin system settings fetch error", err);
+    }
+  }
+
+  // Admin: 監査ログ（§5.3.2）
+  async function fetchAdminAuditLogs() {
+    const tbody = document.getElementById("admin-audit-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    const actionInput = document.getElementById("admin-audit-action-input");
+    const action = actionInput ? actionInput.value.trim() : "";
+
+    try {
+      const url = `/api/admin/audit-logs?limit=100${action ? `&action=${encodeURIComponent(action)}` : ""}`;
+      const res = await originalFetch(url);
+      const data = await res.json();
+      if (!data.success || !data.logs || !data.logs.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.style.textAlign = "center";
+        td.style.padding = "20px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "監査ログはありません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      data.logs.forEach(log => {
+        const tr = document.createElement("tr");
+
+        const tdDate = document.createElement("td");
+        tdDate.className = "admin-table-td";
+        tdDate.style.fontSize = "0.78rem";
+        tdDate.style.whiteSpace = "nowrap";
+        tdDate.style.color = "var(--color-zinc-muted)";
+        tdDate.textContent = log.created_at;
+        tr.appendChild(tdDate);
+
+        const tdUser = document.createElement("td");
+        tdUser.className = "admin-table-td admin-discord-id";
+        tdUser.textContent = maskDiscordId(log.user_id);
+        tr.appendChild(tdUser);
+
+        const tdAction = document.createElement("td");
+        tdAction.className = "admin-table-td";
+        tdAction.style.fontFamily = "var(--font-family-mono)";
+        tdAction.style.fontSize = "0.78rem";
+        tdAction.textContent = log.action;
+        tr.appendChild(tdAction);
+
+        const tdTarget = document.createElement("td");
+        tdTarget.className = "admin-table-td";
+        tdTarget.style.fontSize = "0.78rem";
+        tdTarget.style.color = "var(--color-zinc-muted)";
+        tdTarget.textContent = log.target || "—";
+        tr.appendChild(tdTarget);
+
+        const tdDetail = document.createElement("td");
+        tdDetail.className = "admin-table-td";
+        tdDetail.style.fontSize = "0.78rem";
+        tdDetail.style.color = "var(--color-zinc-muted)";
+        tdDetail.textContent = log.detail || "—";
+        tr.appendChild(tdDetail);
+
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Admin audit logs fetch error", err);
+    }
+  }
+
+  const adminAuditFilterForm = document.getElementById("admin-audit-filter-form");
+  if (adminAuditFilterForm) {
+    adminAuditFilterForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      fetchAdminAuditLogs();
+    });
+  }
+
+  // Admin: ペルソナ マーケットプレイス管理（§5.3.2）
+  async function fetchAdminPersonas() {
+    const tbody = document.getElementById("admin-personas-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    try {
+      const res = await originalFetch("/api/personas/marketplace");
+      const data = await res.json();
+      if (!data.success || !data.personas || !data.personas.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.style.textAlign = "center";
+        td.style.padding = "20px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "公開中のペルソナはありません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      data.personas.forEach(p => {
+        const tr = document.createElement("tr");
+
+        const tdId = document.createElement("td");
+        tdId.className = "admin-table-td";
+        tdId.style.fontFamily = "var(--font-family-mono)";
+        tdId.textContent = p.id;
+        tr.appendChild(tdId);
+
+        const tdName = document.createElement("td");
+        tdName.className = "admin-table-td";
+        tdName.style.fontWeight = "700";
+        tdName.style.color = "var(--color-white)";
+        tdName.textContent = p.name;
+        tr.appendChild(tdName);
+
+        const tdOwner = document.createElement("td");
+        tdOwner.className = "admin-table-td";
+        tdOwner.textContent = p.owner_username;
+        tr.appendChild(tdOwner);
+
+        const tdLen = document.createElement("td");
+        tdLen.className = "admin-table-td";
+        tdLen.style.fontFamily = "var(--font-family-mono)";
+        tdLen.textContent = (p.prompt_length || 0).toLocaleString();
+        tr.appendChild(tdLen);
+
+        const tdAction = document.createElement("td");
+        tdAction.className = "admin-table-td";
+        tdAction.style.textAlign = "right";
+
+        const btnUnpublish = document.createElement("button");
+        btnUnpublish.className = "admin-btn-action";
+        btnUnpublish.type = "button";
+        btnUnpublish.textContent = "非公開化";
+        btnUnpublish.addEventListener("click", async () => {
+          if (!confirm(`ペルソナ「${p.name}」を非公開化しますか？`)) return;
+          try {
+            const r = await originalFetch("/api/admin/personas/unpublish", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: p.id })
+            });
+            const d = await r.json();
+            if (d.success) {
+              fetchAdminPersonas();
+            } else {
+              alert(d.message || "非公開化に失敗しました。");
+            }
+          } catch (e) {
+            console.error("Persona unpublish failed");
+          }
+        });
+        tdAction.appendChild(btnUnpublish);
+
+        const btnDelete = document.createElement("button");
+        btnDelete.className = "admin-btn-action btn-danger";
+        btnDelete.type = "button";
+        btnDelete.style.marginLeft = "6px";
+        btnDelete.textContent = "削除";
+        btnDelete.addEventListener("click", async () => {
+          if (!confirm(`ペルソナ「${p.name}」を完全に削除しますか？`)) return;
+          try {
+            const r = await originalFetch("/api/admin/personas/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: p.id })
+            });
+            const d = await r.json();
+            if (d.success) {
+              fetchAdminPersonas();
+            } else {
+              alert(d.message || "削除に失敗しました。");
+            }
+          } catch (e) {
+            console.error("Persona delete failed");
+          }
+        });
+        tdAction.appendChild(btnDelete);
+
+        tr.appendChild(tdAction);
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Admin personas fetch error", err);
     }
   }
 
@@ -3346,7 +3772,7 @@ document.addEventListener("DOMContentLoaded", () => {
         delBtn.textContent = "削除";
         delBtn.addEventListener("click", async () => {
           if (!confirm(`スケジュール「${sc.playbook_name}」を削除しますか？`)) return;
-          await handleDeleteSchedule(sc.id);
+          await handleDeletePlaybookSchedule(sc.id);
         });
 
         // ステータスバッジ
@@ -3497,7 +3923,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function handleDeleteSchedule(id) {
+  async function handleDeletePlaybookSchedule(id) {
     try {
       const res = await fetch("/api/playbooks/schedules/delete", {
         method: "POST",
@@ -3514,6 +3940,1405 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {
       console.error("スケジュール削除エラー:", e);
     }
+  }
+
+  // ==========================================
+  // PERSONAS MANAGEMENT (§4.1)
+  // ==========================================
+  let personaMaxLength = 20000;
+  let activePersonaId = null;
+  let myPersonasCache = [];
+
+  const modalPersonaEdit = document.getElementById("modal-persona-edit");
+  const personaEditForm = document.getElementById("persona-edit-form");
+  const personaEditPrompt = document.getElementById("persona-edit-prompt");
+  const personaEditCounter = document.getElementById("persona-edit-counter");
+
+  function updatePersonaCounter() {
+    if (!personaEditPrompt || !personaEditCounter) return;
+    const len = personaEditPrompt.value.length;
+    personaEditCounter.textContent = `${len.toLocaleString()} / ${personaMaxLength.toLocaleString()} 文字`;
+    personaEditCounter.style.color = len > personaMaxLength ? "var(--color-red)" : "";
+  }
+  if (personaEditPrompt) {
+    personaEditPrompt.addEventListener("input", updatePersonaCounter);
+  }
+
+  function openPersonaEditModal(persona) {
+    document.getElementById("persona-edit-id").value = persona ? persona.id : "";
+    document.getElementById("persona-edit-name").value = persona ? persona.name : "";
+    personaEditPrompt.value = persona ? persona.prompt : "";
+    document.getElementById("persona-edit-modal-title").textContent = persona ? `ペルソナの編集: ${persona.name}` : "ペルソナの作成";
+    updatePersonaCounter();
+    openModal(modalPersonaEdit);
+  }
+
+  const btnNewPersona = document.getElementById("btn-new-persona");
+  if (btnNewPersona) {
+    btnNewPersona.addEventListener("click", () => openPersonaEditModal(null));
+  }
+  const btnCancelPersonaEdit = document.getElementById("btn-cancel-persona-edit");
+  if (btnCancelPersonaEdit) {
+    btnCancelPersonaEdit.addEventListener("click", () => closeModal(modalPersonaEdit));
+  }
+
+  if (personaEditForm) {
+    personaEditForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const idVal = document.getElementById("persona-edit-id").value;
+      const name = document.getElementById("persona-edit-name").value.trim();
+      const prompt = personaEditPrompt.value;
+      if (prompt.length > personaMaxLength) {
+        alert(`ペルソナ定義は最大 ${personaMaxLength.toLocaleString()} 文字までです。`);
+        return;
+      }
+      try {
+        const res = await fetch("/api/personas/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...(idVal ? { id: Number(idVal) } : {}), name, prompt })
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeModal(modalPersonaEdit);
+          personaEditForm.reset();
+          fetchPersonasList();
+        } else {
+          alert(data.message || "保存に失敗しました。");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  async function fetchPersonasList() {
+    const container = document.getElementById("personas-list");
+    if (!container) return;
+    container.replaceChildren();
+
+    try {
+      const res = await fetch("/api/personas");
+      const data = await res.json();
+      if (!data.success) return;
+
+      personaMaxLength = data.max_length || 20000;
+      activePersonaId = data.active_persona_id ?? null;
+      myPersonasCache = data.personas || [];
+
+      // 適用中ラベル
+      const activeLabel = document.getElementById("active-persona-label");
+      if (activeLabel) {
+        const active = myPersonasCache.find(p => p.id === activePersonaId);
+        activeLabel.textContent = `適用中: ${active ? active.name : "デフォルトペルソナ"}`;
+      }
+
+      if (myPersonasCache.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "glass";
+        empty.textContent = "ペルソナが作成されていません。「＋ ペルソナ作成」から作成できます。";
+        container.appendChild(empty);
+        return;
+      }
+
+      myPersonasCache.forEach(p => {
+        const card = document.createElement("div");
+        card.className = "card-item glass hover-lift";
+        card.style.cssText = "flex-direction:column;align-items:stretch;gap:8px;padding:16px;";
+
+        const topRow = document.createElement("div");
+        topRow.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const title = document.createElement("div");
+        title.className = "card-title";
+        title.style.fontSize = "1.0rem";
+        title.textContent = p.name;
+        titleWrap.appendChild(title);
+
+        if (p.id === activePersonaId) {
+          const activeBadge = document.createElement("span");
+          activeBadge.className = "status-badge status-sent";
+          activeBadge.textContent = "適用中";
+          titleWrap.appendChild(activeBadge);
+        }
+        if (p.is_public === 1) {
+          const pubBadge = document.createElement("span");
+          pubBadge.className = "status-badge status-pending";
+          pubBadge.textContent = "公開中";
+          titleWrap.appendChild(pubBadge);
+        }
+
+        const lenSpan = document.createElement("span");
+        lenSpan.style.cssText = "font-size:0.72rem;color:var(--color-zinc-muted);font-family:var(--font-family-mono);";
+        lenSpan.textContent = `${(p.prompt || "").length.toLocaleString()} 文字`;
+
+        topRow.appendChild(titleWrap);
+        topRow.appendChild(lenSpan);
+
+        const preview = document.createElement("div");
+        preview.className = "card-desc";
+        preview.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+        preview.textContent = (p.prompt || "").substring(0, 120);
+
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;";
+
+        const mkBtn = (label, cls, onClick) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = `btn ${cls} btn-sm`;
+          b.style.cssText = "font-size:0.75rem;padding:4px 12px;";
+          b.textContent = label;
+          b.addEventListener("click", onClick);
+          return b;
+        };
+
+        if (p.id !== activePersonaId) {
+          actions.appendChild(mkBtn("適用", "btn-primary", async () => {
+            await postPersonaAction("/api/personas/activate", { id: p.id });
+          }));
+        }
+        actions.appendChild(mkBtn("編集", "btn-secondary", () => openPersonaEditModal(p)));
+        actions.appendChild(mkBtn(p.is_public === 1 ? "非公開にする" : "公開する", "btn-secondary", async () => {
+          if (p.is_public !== 1 && !confirm(`ペルソナ「${p.name}」をマーケットプレイスに公開しますか？\n全ユーザーが内容を閲覧・インポートできるようになります。`)) return;
+          await postPersonaAction("/api/personas/publish", { id: p.id, isPublic: p.is_public !== 1 });
+        }));
+        actions.appendChild(mkBtn("削除", "btn-secondary", async () => {
+          if (!confirm(`ペルソナ「${p.name}」を削除しますか？`)) return;
+          await postPersonaAction("/api/personas/delete", { id: p.id });
+        }));
+
+        card.appendChild(topRow);
+        card.appendChild(preview);
+        card.appendChild(actions);
+        container.appendChild(card);
+      });
+    } catch (err) {
+      console.error("ペルソナ一覧の取得失敗:", err);
+    }
+  }
+
+  async function postPersonaAction(url, payload) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.message || "操作に失敗しました。");
+      }
+      fetchPersonasList();
+      fetchPersonaMarketplace();
+    } catch (err) {
+      alert("通信エラーが発生しました。");
+    }
+  }
+
+  const btnResetPersona = document.getElementById("btn-reset-persona");
+  if (btnResetPersona) {
+    btnResetPersona.addEventListener("click", async () => {
+      if (!confirm("デフォルトペルソナに戻しますか？")) return;
+      await postPersonaAction("/api/personas/activate", { id: null });
+    });
+  }
+
+  async function fetchPersonaMarketplace() {
+    const container = document.getElementById("persona-marketplace-list");
+    if (!container) return;
+    container.replaceChildren();
+
+    try {
+      const res = await fetch("/api/personas/marketplace");
+      const data = await res.json();
+      if (!data.success || !data.personas || data.personas.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "glass";
+        empty.textContent = "公開されているペルソナはまだありません。";
+        container.appendChild(empty);
+        return;
+      }
+
+      data.personas.forEach(p => {
+        const card = document.createElement("div");
+        card.className = "card-item glass hover-lift";
+        card.style.cssText = "flex-direction:column;align-items:stretch;gap:8px;padding:16px;";
+
+        const topRow = document.createElement("div");
+        topRow.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const title = document.createElement("div");
+        title.className = "card-title";
+        title.style.fontSize = "1.0rem";
+        title.textContent = p.name;
+
+        const ownerSpan = document.createElement("span");
+        ownerSpan.style.cssText = "font-size:0.75rem;color:var(--color-zinc-muted);";
+        ownerSpan.textContent = `by ${p.owner_username} ・ ${(p.prompt_length || 0).toLocaleString()} 文字`;
+
+        topRow.appendChild(title);
+        topRow.appendChild(ownerSpan);
+
+        const preview = document.createElement("div");
+        preview.className = "card-desc";
+        preview.textContent = p.prompt_preview || "";
+
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;";
+
+        const viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.className = "btn btn-secondary btn-sm";
+        viewBtn.style.cssText = "font-size:0.75rem;padding:4px 12px;";
+        viewBtn.textContent = "全文表示";
+        viewBtn.addEventListener("click", () => openPersonaPreview(p.id));
+        actions.appendChild(viewBtn);
+
+        const importBtn = document.createElement("button");
+        importBtn.type = "button";
+        importBtn.className = "btn btn-primary btn-sm";
+        importBtn.style.cssText = "font-size:0.75rem;padding:4px 12px;";
+        importBtn.textContent = "インポート";
+        importBtn.addEventListener("click", () => importPersonaById(p.id));
+        actions.appendChild(importBtn);
+
+        card.appendChild(topRow);
+        card.appendChild(preview);
+        card.appendChild(actions);
+        container.appendChild(card);
+      });
+    } catch (err) {
+      console.error("マーケットプレイスの取得失敗:", err);
+    }
+  }
+
+  const modalPersonaPreview = document.getElementById("modal-persona-preview");
+  let previewPersonaId = null;
+
+  async function openPersonaPreview(id) {
+    try {
+      const res = await fetch(`/api/personas/marketplace/${id}`);
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.message || "ペルソナの取得に失敗しました。");
+        return;
+      }
+      previewPersonaId = data.persona.id;
+      document.getElementById("persona-preview-title").textContent = `ペルソナ プレビュー: ${data.persona.name}`;
+      document.getElementById("persona-preview-prompt").textContent = data.persona.prompt;
+      openModal(modalPersonaPreview);
+    } catch (err) {
+      alert("通信エラーが発生しました。");
+    }
+  }
+
+  async function importPersonaById(id) {
+    try {
+      const res = await fetch("/api/personas/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      const data = await res.json();
+      alert(data.message || (data.success ? "インポートしました。" : "インポートに失敗しました。"));
+      if (data.success) {
+        fetchPersonasList();
+      }
+    } catch (err) {
+      alert("通信エラーが発生しました。");
+    }
+  }
+
+  const btnImportFromPreview = document.getElementById("btn-import-from-preview");
+  if (btnImportFromPreview) {
+    btnImportFromPreview.addEventListener("click", async () => {
+      if (previewPersonaId == null) return;
+      await importPersonaById(previewPersonaId);
+      closeModal(modalPersonaPreview);
+    });
+  }
+
+  // ==========================================
+  // REMINDERS MANAGEMENT (§3.3)
+  // ==========================================
+  async function fetchRemindersList() {
+    const container = document.getElementById("reminders-list");
+    if (!container) return;
+    container.replaceChildren();
+
+    const showAll = document.getElementById("reminders-show-all");
+    const includeAll = showAll && showAll.checked;
+
+    try {
+      const res = await fetch(`/api/reminders${includeAll ? "?all=1" : ""}`);
+      const data = await res.json();
+      if (!data.success || !data.reminders || data.reminders.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "glass";
+        empty.style.cssText = "padding:16px;text-align:center;color:var(--color-zinc-muted);font-size:0.85rem;";
+        empty.textContent = "リマインダーは登録されていません。";
+        container.appendChild(empty);
+        return;
+      }
+
+      data.reminders.forEach(rem => {
+        const card = document.createElement("div");
+        card.className = "card-item glass";
+        card.style.cssText = "align-items:flex-start;gap:10px;padding:12px 14px;";
+
+        const left = document.createElement("div");
+        left.style.cssText = "flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;";
+
+        const msgRow = document.createElement("div");
+        msgRow.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const msg = document.createElement("span");
+        msg.className = "card-title";
+        msg.style.fontSize = "0.92rem";
+        msg.textContent = rem.message;
+        msgRow.appendChild(msg);
+
+        const statusBadge = document.createElement("span");
+        statusBadge.className = `status-badge status-${rem.status}`;
+        statusBadge.textContent = rem.status === "pending" ? "待機中" : rem.status === "sent" ? "送信済み" : "キャンセル";
+        msgRow.appendChild(statusBadge);
+
+        const metaRow = document.createElement("div");
+        metaRow.style.cssText = "font-size:0.78rem;color:var(--color-zinc-muted);display:flex;gap:12px;flex-wrap:wrap;";
+
+        const timeSpan = document.createElement("span");
+        timeSpan.textContent = `⏰ ${rem.trigger_at}`;
+        metaRow.appendChild(timeSpan);
+
+        if (rem.repeat_rule) {
+          const repeatSpan = document.createElement("span");
+          repeatSpan.style.fontFamily = "var(--font-family-mono)";
+          repeatSpan.textContent = `🔁 ${rem.repeat_rule}`;
+          metaRow.appendChild(repeatSpan);
+        }
+
+        const targetSpan = document.createElement("span");
+        targetSpan.textContent = rem.target_type === "channel" ? `📢 チャンネル${rem.target_id ? `: ${rem.target_id}` : ""}` : "📩 DM";
+        metaRow.appendChild(targetSpan);
+
+        left.appendChild(msgRow);
+        left.appendChild(metaRow);
+        card.appendChild(left);
+
+        if (rem.status === "pending") {
+          const cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.className = "btn btn-secondary btn-sm";
+          cancelBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;flex-shrink:0;";
+          cancelBtn.textContent = "キャンセル";
+          cancelBtn.addEventListener("click", async () => {
+            if (!confirm(`リマインダー「${rem.message}」をキャンセルしますか？`)) return;
+            try {
+              const r = await fetch("/api/reminders/cancel", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reminder_id: rem.id })
+              });
+              const d = await r.json();
+              if (d.success) {
+                fetchRemindersList();
+              } else {
+                alert(d.message || "キャンセルに失敗しました。");
+              }
+            } catch (err) {
+              alert("通信エラーが発生しました。");
+            }
+          });
+          card.appendChild(cancelBtn);
+        }
+
+        container.appendChild(card);
+      });
+    } catch (err) {
+      console.error("リマインダー一覧の取得失敗:", err);
+    }
+  }
+
+  const remindersShowAll = document.getElementById("reminders-show-all");
+  if (remindersShowAll) {
+    remindersShowAll.addEventListener("change", fetchRemindersList);
+  }
+
+  const reminderForm = document.getElementById("reminder-form");
+  if (reminderForm) {
+    reminderForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = document.getElementById("reminder-message").value.trim();
+      const triggerRaw = document.getElementById("reminder-trigger-at").value; // YYYY-MM-DDTHH:MM
+      const repeatRule = document.getElementById("reminder-repeat-rule").value.trim();
+      const targetType = document.getElementById("reminder-target-type").value;
+      const targetId = document.getElementById("reminder-target-id").value.trim();
+
+      if (!message || !triggerRaw) return;
+
+      const payload = {
+        message,
+        trigger_at: triggerRaw.replace("T", " "),
+        ...(repeatRule ? { repeat_rule: repeatRule } : {}),
+        ...(targetType ? { target_type: targetType } : {}),
+        ...(targetId ? { target_id: targetId } : {})
+      };
+
+      try {
+        const res = await fetch("/api/reminders/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          reminderForm.reset();
+          fetchRemindersList();
+        } else {
+          alert(data.message || "リマインダーの登録に失敗しました。");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // ==========================================
+  // PERSONAL: コンテキストノート / クリップボード / 連絡先 (§3.7, §3.10, §3.11)
+  // ==========================================
+  let contextNoteMaxLength = 10000;
+  const contextNoteTextarea = document.getElementById("context-note-textarea");
+  const contextNoteCounter = document.getElementById("context-note-counter");
+
+  function updateContextNoteCounter() {
+    if (!contextNoteTextarea || !contextNoteCounter) return;
+    const len = contextNoteTextarea.value.length;
+    contextNoteCounter.textContent = `${len.toLocaleString()} / ${contextNoteMaxLength.toLocaleString()}`;
+    contextNoteCounter.style.color = len > contextNoteMaxLength ? "var(--color-red)" : "";
+  }
+  if (contextNoteTextarea) {
+    contextNoteTextarea.addEventListener("input", updateContextNoteCounter);
+  }
+
+  async function fetchContextNote() {
+    if (!contextNoteTextarea) return;
+    try {
+      const res = await fetch("/api/context-note");
+      const data = await res.json();
+      if (data.success) {
+        contextNoteMaxLength = data.max_length || 10000;
+        contextNoteTextarea.value = data.content || "";
+        updateContextNoteCounter();
+      }
+    } catch (err) {
+      console.error("コンテキストノートの取得失敗:", err);
+    }
+  }
+
+  const contextNoteForm = document.getElementById("context-note-form");
+  if (contextNoteForm) {
+    contextNoteForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const content = contextNoteTextarea.value;
+      if (content.length > contextNoteMaxLength) {
+        alert(`コンテキストノートは最大 ${contextNoteMaxLength.toLocaleString()} 文字までです。`);
+        return;
+      }
+      try {
+        const res = await fetch("/api/context-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  async function fetchClipboardList() {
+    const container = document.getElementById("clipboard-list");
+    if (!container) return;
+    container.replaceChildren();
+
+    try {
+      const res = await fetch("/api/clipboard");
+      const data = await res.json();
+      if (!data.success || !data.entries || data.entries.length === 0) {
+        const empty = document.createElement("p");
+        empty.style.cssText = "font-size:0.8rem;color:var(--text-secondary);margin:0;";
+        empty.textContent = "クリップボードは空です。";
+        container.appendChild(empty);
+        return;
+      }
+
+      data.entries.forEach(entry => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--border-matte);border-radius:var(--radius);";
+
+        const left = document.createElement("div");
+        left.style.cssText = "flex:1;min-width:0;";
+
+        const content = document.createElement("div");
+        content.style.cssText = "font-size:0.85rem;color:var(--text-primary);word-break:break-all;";
+        content.textContent = entry.content;
+        left.appendChild(content);
+
+        const expires = document.createElement("div");
+        expires.style.cssText = "font-size:0.72rem;color:var(--color-zinc-muted);margin-top:2px;";
+        expires.textContent = entry.expires_at ? `期限: ${entry.expires_at}` : "無期限";
+        left.appendChild(expires);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-trash";
+        delBtn.innerHTML = `<span class="material-symbols-outlined">delete</span>`;
+        delBtn.addEventListener("click", async () => {
+          if (!confirm("このメモを削除しますか？")) return;
+          try {
+            const r = await fetch("/api/clipboard/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: entry.id })
+            });
+            const d = await r.json();
+            if (d.success) fetchClipboardList();
+          } catch (err) {
+            console.error(err);
+          }
+        });
+
+        row.appendChild(left);
+        row.appendChild(delBtn);
+        container.appendChild(row);
+      });
+    } catch (err) {
+      console.error("クリップボードの取得失敗:", err);
+    }
+  }
+
+  // ── 連絡先 ──
+  const modalContact = document.getElementById("modal-contact");
+  const contactForm = document.getElementById("contact-form");
+
+  function openContactModal(contact) {
+    document.getElementById("contact-id").value = contact ? contact.id : "";
+    document.getElementById("contact-name").value = contact ? contact.name : "";
+    document.getElementById("contact-birthday").value = contact ? (contact.birthday || "") : "";
+    document.getElementById("contact-relationship").value = contact ? (contact.relationship || "") : "";
+    document.getElementById("contact-info").value = contact ? (contact.contact_info || "") : "";
+    document.getElementById("contact-tags").value = contact ? (contact.tags || []).join(", ") : "";
+    document.getElementById("contact-notes").value = contact ? (contact.notes || "") : "";
+    document.getElementById("contact-modal-title").textContent = contact ? `連絡先の編集: ${contact.name}` : "連絡先の追加";
+    openModal(modalContact);
+  }
+
+  const btnNewContact = document.getElementById("btn-new-contact");
+  if (btnNewContact) {
+    btnNewContact.addEventListener("click", () => openContactModal(null));
+  }
+
+  if (contactForm) {
+    contactForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const idVal = document.getElementById("contact-id").value;
+      const tagsRaw = document.getElementById("contact-tags").value.trim();
+      const payload = {
+        ...(idVal ? { id: Number(idVal) } : {}),
+        name: document.getElementById("contact-name").value.trim(),
+        birthday: document.getElementById("contact-birthday").value.trim(),
+        relationship: document.getElementById("contact-relationship").value.trim(),
+        contactInfo: document.getElementById("contact-info").value.trim(),
+        notes: document.getElementById("contact-notes").value.trim(),
+        tags: tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(t => t.length > 0) : []
+      };
+
+      try {
+        const res = await fetch("/api/contacts/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeModal(modalContact);
+          contactForm.reset();
+          fetchContactsList();
+        } else {
+          alert(data.message || "保存に失敗しました。");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  async function fetchContactsList() {
+    const tbody = document.getElementById("contacts-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    try {
+      const res = await fetch("/api/contacts");
+      const data = await res.json();
+      if (!data.success || !data.contacts || data.contacts.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 6;
+        td.style.textAlign = "center";
+        td.style.padding = "16px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "連絡先は登録されていません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      data.contacts.forEach(contact => {
+        const tr = document.createElement("tr");
+
+        const tdName = document.createElement("td");
+        tdName.style.fontWeight = "600";
+        tdName.textContent = contact.name;
+        tr.appendChild(tdName);
+
+        const tdBirthday = document.createElement("td");
+        tdBirthday.style.fontFamily = "var(--font-family-mono)";
+        tdBirthday.style.fontSize = "0.8rem";
+        tdBirthday.textContent = contact.birthday || "—";
+        tr.appendChild(tdBirthday);
+
+        const tdRel = document.createElement("td");
+        tdRel.textContent = contact.relationship || "—";
+        tr.appendChild(tdRel);
+
+        const tdInfo = document.createElement("td");
+        tdInfo.style.fontSize = "0.8rem";
+        tdInfo.textContent = contact.contact_info || "—";
+        tr.appendChild(tdInfo);
+
+        const tdTags = document.createElement("td");
+        (contact.tags || []).forEach(tag => {
+          const chip = document.createElement("span");
+          chip.className = "tag-chip";
+          chip.textContent = `#${tag}`;
+          tdTags.appendChild(chip);
+        });
+        if (!contact.tags || contact.tags.length === 0) tdTags.textContent = "—";
+        tr.appendChild(tdTags);
+
+        const tdActions = document.createElement("td");
+        tdActions.style.textAlign = "right";
+
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "btn btn-secondary btn-sm";
+        editBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;margin-right:4px;";
+        editBtn.textContent = "編集";
+        editBtn.addEventListener("click", () => openContactModal(contact));
+        tdActions.appendChild(editBtn);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn btn-secondary btn-sm";
+        delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;";
+        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">delete</span>`;
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`連絡先「${contact.name}」を削除しますか？`)) return;
+          try {
+            const r = await fetch("/api/contacts/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: contact.id })
+            });
+            const d = await r.json();
+            if (d.success) fetchContactsList();
+          } catch (err) {
+            console.error(err);
+          }
+        });
+        tdActions.appendChild(delBtn);
+        tr.appendChild(tdActions);
+
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("連絡先の取得失敗:", err);
+    }
+  }
+
+  // ==========================================
+  // DELIVERY: 朝報・日報・週報 (§3.8, §3.9)
+  // ==========================================
+  let briefingFeeds = [];
+
+  function renderBriefingFeeds() {
+    const list = document.getElementById("briefing-feeds-list");
+    if (!list) return;
+    list.replaceChildren();
+
+    if (briefingFeeds.length === 0) {
+      const empty = document.createElement("p");
+      empty.style.cssText = "font-size:0.78rem;color:var(--text-secondary);margin:0;";
+      empty.textContent = "フィードは登録されていません。";
+      list.appendChild(empty);
+      return;
+    }
+
+    briefingFeeds.forEach((feed, idx) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border:1px solid var(--border-matte);border-radius:var(--radius);";
+
+      const urlSpan = document.createElement("span");
+      urlSpan.style.cssText = "font-size:0.8rem;font-family:var(--font-family-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;";
+      urlSpan.title = feed;
+      urlSpan.textContent = feed;
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "btn-trash";
+      removeBtn.style.cssText = "width:26px;height:26px;flex-shrink:0;";
+      removeBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:15px;">close</span>`;
+      removeBtn.addEventListener("click", () => {
+        briefingFeeds.splice(idx, 1);
+        renderBriefingFeeds();
+      });
+
+      row.appendChild(urlSpan);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  const btnAddBriefingFeed = document.getElementById("btn-add-briefing-feed");
+  if (btnAddBriefingFeed) {
+    btnAddBriefingFeed.addEventListener("click", () => {
+      const input = document.getElementById("briefing-feed-input");
+      const url = input.value.trim();
+      if (!url) return;
+      if (briefingFeeds.includes(url)) {
+        alert("同じフィードが既に登録されています。");
+        return;
+      }
+      briefingFeeds.push(url);
+      input.value = "";
+      renderBriefingFeeds();
+    });
+  }
+
+  async function fetchBriefingConfig() {
+    try {
+      const res = await fetch("/api/briefing-config");
+      const data = await res.json();
+      if (!data.success) return;
+
+      const c = data.config;
+      document.getElementById("briefing-enabled").checked = !!(c && c.enabled);
+      document.getElementById("briefing-cron").value = c && c.schedule_cron ? c.schedule_cron : "";
+      document.getElementById("briefing-target-type").value = c && c.target_type === "channel" ? "channel" : "dm";
+      document.getElementById("briefing-target-id").value = (c && c.target_id) || "";
+      document.getElementById("briefing-location-name").value = (c && c.location_name) || "";
+      document.getElementById("briefing-weather-lat").value = c && c.weather_lat != null ? c.weather_lat : "";
+      document.getElementById("briefing-weather-lng").value = c && c.weather_lng != null ? c.weather_lng : "";
+      document.getElementById("briefing-keywords").value = c && Array.isArray(c.news_keywords) ? c.news_keywords.join(", ") : "";
+      briefingFeeds = c && Array.isArray(c.news_feeds) ? c.news_feeds.slice() : [];
+      renderBriefingFeeds();
+    } catch (err) {
+      console.error("朝報設定の取得失敗:", err);
+    }
+  }
+
+  const briefingConfigForm = document.getElementById("briefing-config-form");
+  if (briefingConfigForm) {
+    briefingConfigForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const keywordsRaw = document.getElementById("briefing-keywords").value.trim();
+      const latVal = document.getElementById("briefing-weather-lat").value;
+      const lngVal = document.getElementById("briefing-weather-lng").value;
+      const cronVal = document.getElementById("briefing-cron").value.trim();
+
+      const payload = {
+        enabled: document.getElementById("briefing-enabled").checked,
+        ...(cronVal ? { schedule_cron: cronVal } : {}),
+        target_type: document.getElementById("briefing-target-type").value,
+        target_id: document.getElementById("briefing-target-id").value.trim(),
+        weather_lat: latVal === "" ? null : Number(latVal),
+        weather_lng: lngVal === "" ? null : Number(lngVal),
+        location_name: document.getElementById("briefing-location-name").value.trim(),
+        news_feeds: briefingFeeds,
+        news_keywords: keywordsRaw ? keywordsRaw.split(",").map(k => k.trim()).filter(k => k.length > 0) : []
+      };
+
+      try {
+        const res = await fetch("/api/briefing-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  const btnBriefingTest = document.getElementById("btn-briefing-test");
+  if (btnBriefingTest) {
+    btnBriefingTest.addEventListener("click", async () => {
+      btnBriefingTest.disabled = true;
+      try {
+        const res = await fetch("/api/briefing/test", { method: "POST" });
+        const data = await res.json();
+        alert(data.message || (data.success ? "テスト配信しました。" : "配信に失敗しました。"));
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      } finally {
+        btnBriefingTest.disabled = false;
+      }
+    });
+  }
+
+  async function fetchReportConfigs() {
+    try {
+      const res = await fetch("/api/report-configs");
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.configs)) return;
+
+      data.configs.forEach(c => {
+        if (c.type !== "daily" && c.type !== "weekly") return;
+        const enabledEl = document.getElementById(`report-${c.type}-enabled`);
+        const cronEl = document.getElementById(`report-${c.type}-cron`);
+        if (enabledEl) enabledEl.checked = !!c.enabled;
+        if (cronEl) cronEl.value = c.schedule_cron || "";
+      });
+    } catch (err) {
+      console.error("レポート設定の取得失敗:", err);
+    }
+  }
+
+  function bindReportForm(type) {
+    const form = document.getElementById(`report-${type}-form`);
+    if (form) {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const cronVal = document.getElementById(`report-${type}-cron`).value.trim();
+        const payload = {
+          type,
+          enabled: document.getElementById(`report-${type}-enabled`).checked,
+          ...(cronVal ? { schedule_cron: cronVal } : {})
+        };
+        try {
+          const res = await fetch("/api/report-configs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+        } catch (err) {
+          alert("通信エラーが発生しました。");
+        }
+      });
+    }
+
+    const testBtn = document.getElementById(`btn-report-${type}-test`);
+    if (testBtn) {
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        try {
+          const res = await fetch("/api/report-configs/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type })
+          });
+          const data = await res.json();
+          alert(data.message || (data.success ? "テスト配信しました。" : "配信に失敗しました。"));
+        } catch (err) {
+          alert("通信エラーが発生しました。");
+        } finally {
+          testBtn.disabled = false;
+        }
+      });
+    }
+  }
+  bindReportForm("daily");
+  bindReportForm("weekly");
+
+  // ==========================================
+  // WEBHOOKS MANAGEMENT (§3.13)
+  // ==========================================
+  const modalWebhook = document.getElementById("modal-webhook");
+  const btnNewWebhook = document.getElementById("btn-new-webhook");
+  if (btnNewWebhook && modalWebhook) {
+    btnNewWebhook.addEventListener("click", () => openModal(modalWebhook));
+  }
+
+  const webhookForm = document.getElementById("webhook-form");
+  if (webhookForm) {
+    webhookForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        name: document.getElementById("webhook-name").value.trim(),
+        notifyTargetType: document.getElementById("webhook-notify-type").value,
+        notifyTargetId: document.getElementById("webhook-notify-id").value.trim(),
+        createTodo: document.getElementById("webhook-create-todo").checked,
+        createReminder: document.getElementById("webhook-create-reminder").checked
+      };
+      const secret = document.getElementById("webhook-secret").value;
+      const template = document.getElementById("webhook-template").value.trim();
+      const filterKeyword = document.getElementById("webhook-filter").value.trim();
+      if (secret) payload.secret = secret;
+      if (template) payload.template = template;
+      if (filterKeyword) payload.filterKeyword = filterKeyword;
+
+      try {
+        const res = await fetch("/api/webhooks/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeModal(modalWebhook);
+          webhookForm.reset();
+          alert(data.message || "Webhookを作成しました。");
+          fetchWebhooksList();
+        } else {
+          alert(data.message || "作成に失敗しました。");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  async function fetchWebhooksList() {
+    const container = document.getElementById("webhooks-list");
+    if (!container) return;
+    container.replaceChildren();
+
+    try {
+      const res = await fetch("/api/webhooks");
+      const data = await res.json();
+      if (!data.success || !data.endpoints || data.endpoints.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "glass";
+        empty.style.cssText = "padding:16px;text-align:center;color:var(--color-zinc-muted);font-size:0.85rem;";
+        empty.textContent = "Webhookエンドポイントはありません。「＋ Webhook作成」から発行できます。";
+        container.appendChild(empty);
+        return;
+      }
+
+      data.endpoints.forEach(ep => {
+        const card = document.createElement("div");
+        card.className = "card-item glass";
+        card.style.cssText = "flex-direction:column;align-items:stretch;gap:8px;padding:14px 16px;";
+
+        const topRow = document.createElement("div");
+        topRow.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const title = document.createElement("span");
+        title.className = "card-title";
+        title.style.fontSize = "0.95rem";
+        title.textContent = ep.name;
+        titleWrap.appendChild(title);
+
+        const enabledBadge = document.createElement("span");
+        enabledBadge.className = `status-badge ${ep.enabled ? "status-sent" : "status-cancelled"}`;
+        enabledBadge.textContent = ep.enabled ? "有効" : "無効";
+        titleWrap.appendChild(enabledBadge);
+
+        if (ep.has_secret) {
+          const secretBadge = document.createElement("span");
+          secretBadge.className = "status-badge status-pending";
+          secretBadge.textContent = "署名検証";
+          titleWrap.appendChild(secretBadge);
+        }
+
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;";
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = `btn ${ep.enabled ? "btn-secondary" : "btn-primary"} btn-sm`;
+        toggleBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+        toggleBtn.textContent = ep.enabled ? "無効化" : "有効化";
+        toggleBtn.addEventListener("click", async () => {
+          try {
+            const r = await fetch("/api/webhooks/update", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: ep.id, enabled: !ep.enabled })
+            });
+            const d = await r.json();
+            if (d.success) fetchWebhooksList();
+            else alert(d.message || "更新に失敗しました。");
+          } catch (err) {
+            alert("通信エラーが発生しました。");
+          }
+        });
+        actions.appendChild(toggleBtn);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn btn-secondary btn-sm";
+        delBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+        delBtn.textContent = "削除";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`Webhook「${ep.name}」を削除しますか？\n発行済みURLは無効になります。`)) return;
+          try {
+            const r = await fetch("/api/webhooks/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: ep.id })
+            });
+            const d = await r.json();
+            if (d.success) {
+              fetchWebhooksList();
+              fetchWebhookDeliveries();
+            } else {
+              alert(d.message || "削除に失敗しました。");
+            }
+          } catch (err) {
+            alert("通信エラーが発生しました。");
+          }
+        });
+        actions.appendChild(delBtn);
+
+        topRow.appendChild(titleWrap);
+        topRow.appendChild(actions);
+
+        // URL コピー行
+        const urlRow = document.createElement("div");
+        urlRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+        const urlInput = document.createElement("input");
+        urlInput.type = "text";
+        urlInput.readOnly = true;
+        urlInput.value = ep.url;
+        urlInput.style.cssText = "flex:1;font-family:var(--font-family-mono);font-size:0.78rem;";
+        urlInput.addEventListener("focus", () => urlInput.select());
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "btn btn-secondary btn-sm";
+        copyBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;white-space:nowrap;";
+        copyBtn.textContent = "URLコピー";
+        copyBtn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(ep.url);
+            copyBtn.textContent = "コピーしました";
+            setTimeout(() => { copyBtn.textContent = "URLコピー"; }, 1500);
+          } catch (err) {
+            urlInput.select();
+            alert("コピーに失敗しました。手動で選択してコピーしてください。");
+          }
+        });
+
+        urlRow.appendChild(urlInput);
+        urlRow.appendChild(copyBtn);
+
+        // メタ情報
+        const meta = document.createElement("div");
+        meta.style.cssText = "font-size:0.75rem;color:var(--color-zinc-muted);display:flex;gap:14px;flex-wrap:wrap;";
+        const metaItems = [];
+        metaItems.push(ep.notify_target_type === "channel" ? `通知先: チャンネル${ep.notify_target_id ? ` (${ep.notify_target_id})` : ""}` : "通知先: DM");
+        if (ep.filter_keyword) metaItems.push(`フィルタ: ${ep.filter_keyword}`);
+        if (ep.create_todo) metaItems.push("ToDo自動作成");
+        if (ep.create_reminder) metaItems.push("リマインダー自動作成");
+        metaItems.forEach(item => {
+          const span = document.createElement("span");
+          span.textContent = item;
+          meta.appendChild(span);
+        });
+
+        card.appendChild(topRow);
+        card.appendChild(urlRow);
+        card.appendChild(meta);
+        container.appendChild(card);
+      });
+    } catch (err) {
+      console.error("Webhook一覧の取得失敗:", err);
+    }
+  }
+
+  async function fetchWebhookDeliveries() {
+    const tbody = document.getElementById("webhook-deliveries-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    try {
+      const res = await fetch("/api/webhooks/deliveries");
+      const data = await res.json();
+      if (!data.success || !data.deliveries || data.deliveries.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 3;
+        td.style.textAlign = "center";
+        td.style.padding = "16px";
+        td.style.color = "var(--color-zinc-muted)";
+        td.style.fontSize = "0.8rem";
+        td.textContent = "受信履歴はありません。";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      const statusLabels = {
+        received: "受信",
+        notified: "通知済み",
+        filtered: "フィルタ済み",
+        failed: "失敗"
+      };
+
+      data.deliveries.forEach(del => {
+        const tr = document.createElement("tr");
+
+        const tdDate = document.createElement("td");
+        tdDate.style.whiteSpace = "nowrap";
+        tdDate.style.fontSize = "0.8rem";
+        tdDate.textContent = del.created_at;
+        tr.appendChild(tdDate);
+
+        const tdStatus = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = `status-badge status-delivery-${del.status}`;
+        badge.textContent = statusLabels[del.status] || del.status;
+        tdStatus.appendChild(badge);
+        tr.appendChild(tdStatus);
+
+        const tdDetail = document.createElement("td");
+        tdDetail.style.fontSize = "0.78rem";
+        tdDetail.style.color = "var(--text-secondary)";
+        tdDetail.textContent = del.detail || "—";
+        tr.appendChild(tdDetail);
+
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("受信履歴の取得失敗:", err);
+    }
+  }
+
+  const btnRefreshDeliveries = document.getElementById("btn-refresh-deliveries");
+  if (btnRefreshDeliveries) {
+    btnRefreshDeliveries.addEventListener("click", fetchWebhookDeliveries);
+  }
+
+  // ==========================================
+  // MCP SERVERS MANAGEMENT (§4.4)
+  // ==========================================
+  async function fetchMcpServersList() {
+    // Adminの場合のみスコープ選択を表示
+    const scopeGroup = document.getElementById("mcp-scope-group");
+    if (scopeGroup) {
+      scopeGroup.style.display = activeUserRole === "admin" ? "" : "none";
+    }
+
+    const container = document.getElementById("mcp-servers-list");
+    if (!container) return;
+    container.replaceChildren();
+
+    try {
+      const res = await fetch("/api/mcp-servers");
+      const data = await res.json();
+      if (!data.success || !data.servers || data.servers.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "glass";
+        empty.style.cssText = "padding:16px;text-align:center;color:var(--color-zinc-muted);font-size:0.85rem;";
+        empty.textContent = "MCPサーバーは登録されていません。";
+        container.appendChild(empty);
+        return;
+      }
+
+      data.servers.forEach(server => {
+        const card = document.createElement("div");
+        card.className = "card-item glass";
+        card.style.cssText = "flex-direction:column;align-items:stretch;gap:8px;padding:14px 16px;";
+
+        const topRow = document.createElement("div");
+        topRow.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+
+        const title = document.createElement("span");
+        title.className = "card-title";
+        title.style.fontSize = "0.95rem";
+        title.textContent = server.name;
+        titleWrap.appendChild(title);
+
+        const scopeBadge = document.createElement("span");
+        scopeBadge.className = "badge badge-accent";
+        scopeBadge.style.fontSize = "0.65rem";
+        scopeBadge.textContent = server.scope === "system" ? "システム" : "ユーザー";
+        titleWrap.appendChild(scopeBadge);
+
+        const enabledBadge = document.createElement("span");
+        enabledBadge.className = `status-badge ${server.enabled ? "status-sent" : "status-cancelled"}`;
+        enabledBadge.textContent = server.enabled ? "有効" : "無効";
+        titleWrap.appendChild(enabledBadge);
+
+        if (server.requires_confirmation) {
+          const confirmBadge = document.createElement("span");
+          confirmBadge.className = "status-badge status-pending";
+          confirmBadge.textContent = "実行前確認";
+          titleWrap.appendChild(confirmBadge);
+        }
+
+        topRow.appendChild(titleWrap);
+
+        const url = document.createElement("div");
+        url.style.cssText = "font-size:0.78rem;font-family:var(--font-family-mono);color:var(--color-zinc-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        url.title = server.endpoint_url;
+        url.textContent = `${server.endpoint_url}${server.has_auth ? " 🔑" : ""}`;
+
+        // tools チップ一覧
+        const toolsRow = document.createElement("div");
+        toolsRow.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;";
+        if (server.tools && server.tools.length > 0) {
+          server.tools.forEach(tool => {
+            const chip = document.createElement("span");
+            chip.className = "tag-chip";
+            chip.title = tool.description || "";
+            chip.textContent = tool.name;
+            toolsRow.appendChild(chip);
+          });
+        } else {
+          const noTools = document.createElement("span");
+          noTools.style.cssText = "font-size:0.75rem;color:var(--color-zinc-muted);";
+          noTools.textContent = "Tool未取得（「再取得」をお試しください）";
+          toolsRow.appendChild(noTools);
+        }
+
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;";
+
+        const refreshBtn = document.createElement("button");
+        refreshBtn.type = "button";
+        refreshBtn.className = "btn btn-secondary btn-sm";
+        refreshBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+        refreshBtn.textContent = "Tool再取得";
+        refreshBtn.addEventListener("click", async () => {
+          refreshBtn.disabled = true;
+          try {
+            const r = await fetch("/api/mcp-servers/refresh", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: server.id })
+            });
+            const d = await r.json();
+            alert(d.message || (d.success ? "更新しました。" : "更新に失敗しました。"));
+            if (d.success) fetchMcpServersList();
+          } catch (err) {
+            alert("通信エラーが発生しました。");
+          } finally {
+            refreshBtn.disabled = false;
+          }
+        });
+        actions.appendChild(refreshBtn);
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = `btn ${server.enabled ? "btn-secondary" : "btn-primary"} btn-sm`;
+        toggleBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+        toggleBtn.textContent = server.enabled ? "無効化" : "有効化";
+        toggleBtn.addEventListener("click", async () => {
+          try {
+            const r = await fetch("/api/mcp-servers/toggle", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: server.id, enabled: !server.enabled })
+            });
+            const d = await r.json();
+            if (d.success) fetchMcpServersList();
+            else alert(d.message || "操作に失敗しました。");
+          } catch (err) {
+            alert("通信エラーが発生しました。");
+          }
+        });
+        actions.appendChild(toggleBtn);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn btn-secondary btn-sm";
+        delBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+        delBtn.textContent = "削除";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`MCPサーバー「${server.name}」を削除しますか？`)) return;
+          try {
+            const r = await fetch("/api/mcp-servers/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: server.id })
+            });
+            const d = await r.json();
+            if (d.success) fetchMcpServersList();
+            else alert(d.message || "削除に失敗しました。");
+          } catch (err) {
+            alert("通信エラーが発生しました。");
+          }
+        });
+        actions.appendChild(delBtn);
+
+        card.appendChild(topRow);
+        card.appendChild(url);
+        card.appendChild(toolsRow);
+        card.appendChild(actions);
+        container.appendChild(card);
+      });
+    } catch (err) {
+      console.error("MCPサーバー一覧の取得失敗:", err);
+    }
+  }
+
+  const mcpAddForm = document.getElementById("mcp-add-form");
+  if (mcpAddForm) {
+    mcpAddForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const submitBtn = mcpAddForm.querySelector("button[type=submit]");
+      const payload = {
+        name: document.getElementById("mcp-name").value.trim(),
+        endpointUrl: document.getElementById("mcp-endpoint-url").value.trim(),
+        requiresConfirmation: document.getElementById("mcp-requires-confirmation").checked
+      };
+      const authCredential = document.getElementById("mcp-auth-credential").value;
+      if (authCredential) payload.authCredential = authCredential;
+      if (activeUserRole === "admin") {
+        payload.scope = document.getElementById("mcp-scope").value === "system" ? "system" : "user";
+      }
+
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const res = await fetch("/api/mcp-servers/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "登録しました。" : "登録に失敗しました。"));
+        if (data.success) {
+          mcpAddForm.reset();
+          document.getElementById("mcp-requires-confirmation").checked = true;
+          fetchMcpServersList();
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
   }
 
   // Handle popstate event (back/forward browser buttons)

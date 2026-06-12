@@ -1,64 +1,86 @@
-import { google } from "googleapis";
+import { google, Auth } from "googleapis";
 import * as scheduleRepo from "../db/scheduleRepo.js";
-import { getBotGoogleConfig } from "../db/botRepo.js";
+import { getUserGoogleConfig } from "../db/userRepo.js";
+import { decryptText } from "../utils/crypto.js";
 import { config } from "../config.js";
 
-/**
- * Bot別の Google Calendar API クライアントを取得
- */
-function getCalendarClient(botId: string) {
-  const googleConfig = getBotGoogleConfig(botId);
-  if (!googleConfig) {
+// ─── Google Calendar 連携（§3.2.2: OAuth 2.0 によりユーザー毎に認証） ────────
+// v2: OAuth情報は users テーブル（ユーザー単位）から取得する。
+// Client ID / Secret はシステム共通設定（config.googleClientId/Secret）を使用する。
+
+/** ユーザーの復号済みリフレッシュトークンを取得する（未連携なら null） */
+function getDecryptedRefreshToken(userId: string): string | null {
+  const googleConfig = getUserGoogleConfig(userId);
+  if (
+    !googleConfig ||
+    !googleConfig.refreshTokenEncrypted ||
+    !googleConfig.refreshTokenIv ||
+    !googleConfig.refreshTokenTag
+  ) {
     return null;
   }
-
-  const clientId = googleConfig.clientId || config.googleClientId;
-  const clientSecret = googleConfig.clientSecret || config.googleClientSecret;
-
-  if (!clientId || !clientSecret || !googleConfig.refreshToken) {
-    return null;
-  }
-
   try {
-    // OAuth2 方式で認証クライアントを初期化
-    const auth = new google.auth.OAuth2(
-      clientId,
-      clientSecret
+    return decryptText(
+      googleConfig.refreshTokenEncrypted,
+      googleConfig.refreshTokenIv,
+      googleConfig.refreshTokenTag
     );
-    auth.setCredentials({
-      refresh_token: googleConfig.refreshToken,
-    });
-    return google.calendar({ version: "v3", auth });
-  } catch (error) {
-    console.error("Google Calendar 認証クライアントの初期化に失敗しました:", error);
+  } catch (err) {
+    console.error(`ユーザー ${userId} のGoogleリフレッシュトークンの復号に失敗しました:`, err);
+    return null;
   }
-
-  return null;
 }
 
 /**
- * BotのGoogleカレンダー連携が有効かどうかを判定
+ * ユーザー別の Google OAuth2 認証クライアントを取得（Calendar / Drive 共用）
  */
-export function isCalendarEnabled(botId: string): boolean {
-  return getCalendarClient(botId) !== null;
+export function getOAuthClientForUser(userId: string): Auth.OAuth2Client | null {
+  const refreshToken = getDecryptedRefreshToken(userId);
+  if (!config.googleClientId || !config.googleClientSecret || !refreshToken) {
+    return null;
+  }
+  try {
+    const auth = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret);
+    auth.setCredentials({ refresh_token: refreshToken });
+    return auth;
+  } catch (error) {
+    console.error("Google OAuth2 認証クライアントの初期化に失敗しました:", error);
+    return null;
+  }
 }
 
 /**
- * Botの利用可能なカレンダーの一覧をGoogle APIから取得する
+ * ユーザー別の Google Calendar API クライアントを取得
  */
-export async function fetchAvailableCalendars(botId: string): Promise<{ id: string; summary: string }[]> {
-  const calendar = getCalendarClient(botId);
+function getCalendarClient(userId: string) {
+  const auth = getOAuthClientForUser(userId);
+  if (!auth) return null;
+  return google.calendar({ version: "v3", auth });
+}
+
+/**
+ * ユーザーのGoogleカレンダー連携が有効かどうかを判定
+ */
+export function isCalendarEnabled(userId: string): boolean {
+  return getCalendarClient(userId) !== null;
+}
+
+/**
+ * ユーザーの利用可能なカレンダーの一覧をGoogle APIから取得する
+ */
+export async function fetchAvailableCalendars(userId: string): Promise<{ id: string; summary: string }[]> {
+  const calendar = getCalendarClient(userId);
   if (!calendar) return [];
 
-  const googleConfig = getBotGoogleConfig(botId);
+  const googleConfig = getUserGoogleConfig(userId);
   if (!googleConfig) return [];
 
-  // 1. Bot設定に GOOGLE_CALENDARS が指定されている場合はそちらを最優先
-  const envCalendarIds = googleConfig.calendars || [];
+  // 1. ユーザー設定に同期対象カレンダーが指定されている場合はそちらを最優先
+  const selectedCalendarIds = googleConfig.calendars || [];
 
-  if (envCalendarIds.length > 0) {
+  if (selectedCalendarIds.length > 0) {
     const list: { id: string; summary: string }[] = [];
-    for (const id of envCalendarIds) {
+    for (const id of selectedCalendarIds) {
       try {
         const response = await calendar.calendars.get({ calendarId: id });
         if (response.data.summary) {
@@ -78,7 +100,7 @@ export async function fetchAvailableCalendars(botId: string): Promise<{ id: stri
     const response = await calendar.calendarList.list({
       minAccessRole: "writer", // 書き込み権限があるもののみ（予定の追加・削除用）
     });
-    
+
     const list = (response.data.items || [])
       .filter((item) => item.id && item.summary)
       .map((item) => ({
@@ -106,22 +128,27 @@ export async function fetchAvailableCalendars(botId: string): Promise<{ id: stri
   }
 }
 
-// Bot別キャッシュ
+// ユーザー別キャッシュ
 const cachedCalendarsMap = new Map<string, { calendars: { id: string; summary: string }[]; lastFetched: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5分キャッシュ
 
 /**
- * Bot別のキャッシュ付きで利用可能なカレンダーの一覧を返す
+ * ユーザー別のキャッシュ付きで利用可能なカレンダーの一覧を返す
  */
-export async function getCachedCalendars(botId: string): Promise<{ id: string; summary: string }[]> {
+export async function getCachedCalendars(userId: string): Promise<{ id: string; summary: string }[]> {
   const now = Date.now();
-  const cached = cachedCalendarsMap.get(botId);
+  const cached = cachedCalendarsMap.get(userId);
   if (cached && cached.calendars.length > 0 && now - cached.lastFetched < CACHE_TTL) {
     return cached.calendars;
   }
-  const calendars = await fetchAvailableCalendars(botId);
-  cachedCalendarsMap.set(botId, { calendars, lastFetched: now });
+  const calendars = await fetchAvailableCalendars(userId);
+  cachedCalendarsMap.set(userId, { calendars, lastFetched: now });
   return calendars;
+}
+
+/** カレンダー一覧キャッシュを無効化する（OAuth再連携・同期対象変更時に呼ぶ） */
+export function invalidateCalendarCache(userId: string): void {
+  cachedCalendarsMap.delete(userId);
 }
 
 /**
@@ -154,24 +181,24 @@ function formatToISOString(localStr: string): string {
  * Googleカレンダーにイベントを作成
  */
 export async function createCalendarEvent(
-  botId: string,
+  userId: string,
   title: string,
   startAt: string,
   endAt?: string,
   description?: string,
   calendarId?: string
 ): Promise<{ eventId: string; calendarId: string } | null> {
-  const calendar = getCalendarClient(botId);
+  const calendar = getCalendarClient(userId);
   if (!calendar) return null;
 
-  const googleConfig = getBotGoogleConfig(botId);
+  const googleConfig = getUserGoogleConfig(userId);
   if (!googleConfig) return null;
 
   try {
     const isoStart = formatToISOString(startAt);
     // 終了時刻がない場合は開始から1時間後を設定
-    const isoEnd = endAt 
-      ? formatToISOString(endAt) 
+    const isoEnd = endAt
+      ? formatToISOString(endAt)
       : new Date(new Date(isoStart).getTime() + 60 * 60 * 1000).toISOString();
 
     const targetCalendarId = calendarId || googleConfig.calendarId || "";
@@ -206,11 +233,11 @@ export async function createCalendarEvent(
 /**
  * Googleカレンダーのイベントを削除
  */
-export async function deleteCalendarEvent(botId: string, eventId: string, calendarId?: string): Promise<boolean> {
-  const calendar = getCalendarClient(botId);
+export async function deleteCalendarEvent(userId: string, eventId: string, calendarId?: string): Promise<boolean> {
+  const calendar = getCalendarClient(userId);
   if (!calendar) return false;
 
-  const googleConfig = getBotGoogleConfig(botId);
+  const googleConfig = getUserGoogleConfig(userId);
 
   try {
     const targetCalendarId = calendarId || googleConfig?.calendarId || "";
@@ -232,15 +259,15 @@ export async function deleteCalendarEvent(botId: string, eventId: string, calend
  * すべての利用可能カレンダーとローカルDBの双方向同期を実行する
  */
 export async function syncGoogleCalendarToLocal(
-  botId: string,
+  userId: string,
   daysWindow: number = 30
 ): Promise<void> {
-  const calendar = getCalendarClient(botId);
+  const calendar = getCalendarClient(userId);
   if (!calendar) return;
 
   try {
-    const calendars = await getCachedCalendars(botId);
-    console.log(`🔄 Googleカレンダー同期中... (対象Bot: ${botId}, カレンダー数: ${calendars.length})`);
+    const calendars = await getCachedCalendars(userId);
+    console.log(`🔄 Googleカレンダー同期中... (対象ユーザー: ${userId}, カレンダー数: ${calendars.length})`);
 
     const now = new Date();
     // 1日前から同期ウィンドウの終わりまでを取得
@@ -248,7 +275,7 @@ export async function syncGoogleCalendarToLocal(
     const timeMax = new Date(now.getTime() + daysWindow * 24 * 60 * 60 * 1000).toISOString();
 
     // 1. ローカルの該当期間内の「Google同期済み予定」をマップとして取得
-    const localSchedules = scheduleRepo.listAllFutureSchedulesWithGoogleId(botId);
+    const localSchedules = scheduleRepo.listAllFutureSchedulesWithGoogleId(userId);
     const localMap = new Map<string, scheduleRepo.Schedule>();
     for (const s of localSchedules) {
       if (s.google_event_id) {
@@ -276,7 +303,7 @@ export async function syncGoogleCalendarToLocal(
 
           const title = event.summary || "無題の予定";
           const description = event.description || "";
-          
+
           const startDateTime = event.start?.dateTime || event.start?.date;
           const endDateTime = event.end?.dateTime || event.end?.date;
           if (!startDateTime) continue;
@@ -288,7 +315,7 @@ export async function syncGoogleCalendarToLocal(
 
           if (existingLocal) {
             // A. 既にローカルに存在する -> 差分があれば更新
-            const hasChanges = 
+            const hasChanges =
               existingLocal.title !== title ||
               existingLocal.start_at !== startAtLocal ||
               existingLocal.end_at !== endAtLocal ||
@@ -311,18 +338,18 @@ export async function syncGoogleCalendarToLocal(
             localMap.delete(googleEventId);
           } else {
             // B. ローカルに存在しない -> 新規作成、または未リンクのローカルイベントの紐付け
-            const unlinkedLocal = scheduleRepo.getScheduleByTitleAndStart(botId, title, startAtLocal);
-            
+            const unlinkedLocal = scheduleRepo.getScheduleByTitleAndStart(userId, title, startAtLocal);
+
             if (unlinkedLocal) {
               scheduleRepo.linkGoogleEventId(unlinkedLocal.id, googleEventId, cal.id);
               console.log(`🔗 [同期] 予定紐付け: ${title} -> ${cal.summary}`);
             } else {
               scheduleRepo.addSchedule(
-                botId,
+                userId,
                 title,
                 startAtLocal,
                 endAtLocal || undefined,
-                30,
+                undefined,
                 description,
                 googleEventId,
                 cal.id
@@ -337,8 +364,8 @@ export async function syncGoogleCalendarToLocal(
     }
 
     // 3. カレンダー側で削除されたため、マップに残ったローカル予定を削除
-    for (const [googleEventId, localEvent] of localMap.entries()) {
-      scheduleRepo.deleteSchedule(localEvent.id, botId);
+    for (const [, localEvent] of localMap.entries()) {
+      scheduleRepo.deleteSchedule(localEvent.id, userId);
       console.log(`🗑️ [同期] 削除検知: ${localEvent.title}`);
     }
 
