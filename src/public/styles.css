@@ -174,6 +174,13 @@
 
 [data-theme="light"] .modal { background-color: rgba(0, 0, 0, 0.5); }
 
+/* ハードコードされた白系ホバーはライト背景では見えないため置き換え */
+[data-theme="light"] .expense-table tr:hover td { background-color: rgba(0, 0, 0, 0.03); }
+[data-theme="light"] .sidebar-back-button:hover { background-color: rgba(0, 0, 0, 0.05); }
+[data-theme="light"] .btn-trash:hover,
+[data-theme="light"] .btn-credential-delete:hover { background-color: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .admin-btn-action:hover { background-color: rgba(0, 0, 0, 0.06); }
+
 /* Base Styles & Resets */
 * {
   box-sizing: border-box;
@@ -555,7 +562,8 @@ textarea:focus {
 
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* 置かれた場所の幅が狭い時は自動で1カラムに落ちる（狭いカラム内で入力欄が極小化するのを防ぐ） */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
 }
 
@@ -662,6 +670,11 @@ textarea:focus {
   flex-direction: column;
   flex-shrink: 0;
   z-index: 10;
+  /* メニュー項目が増えても画面外に溢れず内部スクロールする */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 /* Sidebar back button mimicking Discord's portal */
@@ -790,11 +803,17 @@ textarea:focus {
 /* Header Area */
 .top-header {
   display: flex;
+  flex-wrap: wrap; /* コントロール群が収まらない時はタイトルを潰さず折り返す */
   justify-content: space-between;
   align-items: center;
+  gap: 12px 16px;
   margin-bottom: 30px;
   border-bottom: 1px solid var(--border-matte);
   padding-bottom: 20px;
+}
+
+.header-title {
+  min-width: 0;
 }
 
 .header-title h2 {
@@ -811,8 +830,15 @@ textarea:focus {
 /* Integrated Header Controls */
 .header-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.header-controls .btn-icon {
+  flex-shrink: 0;
 }
 
 .profile-switch {
@@ -1873,7 +1899,8 @@ textarea:focus {
     gap: 16px;
   }
 
-  .dashboard-columns {
+  .dashboard-columns,
+  .expense-actions-columns {
     grid-template-columns: 1fr;
     gap: 20px;
   }
@@ -1888,6 +1915,7 @@ textarea:focus {
   /* Sidebar transforms into Bottom Nav Bar */
   .sidebar {
     position: fixed;
+    top: auto;
     bottom: 0;
     left: 0;
     width: 100vw;
@@ -1900,21 +1928,42 @@ textarea:focus {
     justify-content: space-around;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
     z-index: 1000;
+    overflow: hidden;
   }
 
-  .sidebar-brand {
-    display: none; /* Hide brand/logo on mobile bottom nav */
+  /* ボトムナビでは戻るボタンとアプリ情報ヘッダーを非表示にする */
+  .sidebar-brand,
+  .sidebar-back-button,
+  .app-sidebar-header {
+    display: none;
   }
 
+  /* メニュー項目が多いため横スクロール式ナビにする
+     （収まる場合は疑似要素の auto マージンで中央寄せ） */
   .sidebar-menu {
     width: 100%;
+    height: 100%;
     flex-direction: row;
-    justify-content: space-around;
+    justify-content: flex-start;
     align-items: center;
     gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .sidebar-menu::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar-menu::before,
+  .sidebar-menu::after {
+    content: '';
+    margin: auto;
   }
 
   .menu-item {
+    flex: 0 0 auto;
     flex-direction: column;
     align-items: center;
     gap: 2px;
@@ -1924,6 +1973,10 @@ textarea:focus {
     border: none !important;
     border-radius: var(--radius);
     color: var(--color-zinc-muted);
+  }
+
+  .menu-text {
+    white-space: nowrap; /* ラベルの一文字ずつの縦折れを防ぐ */
   }
 
   .menu-item .menu-icon {
@@ -1936,10 +1989,8 @@ textarea:focus {
     padding-left: 6px;
   }
 
-  .menu-item.active {
-    color: var(--color-white);
-    background-color: rgba(255, 255, 255, 0.05);
-  }
+  /* active 状態は各テーマ共通でベースのアクセント色スタイルを使う
+     （ここでハードコードするとテーマ間で挙動が揃わないため上書きしない） */
 
   /* Main Workspace adjustments */
   .main-content {
@@ -2340,6 +2391,15 @@ textarea:focus {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-white);
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 長いユーザーID表示はバッジ内で省略してレイアウトを押し広げない */
+.user-profile-badge #current-user-display {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .login-divider {
@@ -2582,6 +2642,14 @@ textarea:focus {
   gap: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.bot-context-badge #active-bot-display {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bot-context-badge:hover {
@@ -3012,8 +3080,9 @@ textarea:focus {
   line-height: 1.4;
 }
 
-/* PCレイアウト用のスプリットスクリーン（画面幅 768px 以上） */
-@media (min-width: 768px) {
+/* PCレイアウト用のスプリットスクリーン（画面幅 769px 以上）
+   ※ アプリシェルのモバイル切替（max-width: 768px）と境界を揃える */
+@media (min-width: 769px) {
   .landing-container {
     flex-direction: row;
     align-items: center;
@@ -3038,8 +3107,8 @@ textarea:focus {
   }
 }
 
-/* モバイル表示用の微調整（画面幅 767px 以下） */
-@media (max-width: 767px) {
+/* モバイル表示用の微調整（画面幅 768px 以下） */
+@media (max-width: 768px) {
   .landing-container {
     flex-direction: column-reverse; /* モバイルではログインフォームが上に来て、下スクロールで紹介 */
     gap: 24px;
@@ -3287,6 +3356,13 @@ textarea:focus {
 [data-theme="blue-archive"] .bot-item-card.default-bot { border-bottom-color: rgba(2, 211, 251, 0.3); }
 [data-theme="blue-archive"] .sidebar { box-shadow: none; }
 
+/* ハードコードされた白系ホバーはライト背景では見えないため置き換え */
+[data-theme="blue-archive"] .expense-table tr:hover td { background-color: var(--ba-cyan-faint); }
+[data-theme="blue-archive"] .sidebar-back-button:hover { background-color: var(--ba-cyan-faint); }
+[data-theme="blue-archive"] .btn-trash:hover,
+[data-theme="blue-archive"] .btn-credential-delete:hover { background-color: rgba(0, 0, 0, 0.04); }
+[data-theme="blue-archive"] .admin-btn-action:hover { background-color: var(--ba-cyan-faint); }
+
 [data-theme="blue-archive"] .modal { background-color: rgba(211, 232, 245, 0.8); }
 [data-theme="blue-archive"] .modal-content {
   background-color: var(--surface-0dp);
@@ -3323,6 +3399,22 @@ textarea:focus {
   [data-theme="blue-archive"] .menu-item.active {
     color: var(--ba-cyan);
     background-color: var(--ba-cyan-dim);
+  }
+}
+
+/* フルブリードヘッダーのネガティブマージンを .main-content のパディング縮小に追従させる
+   （ずれると横スクロールが発生する） */
+@media (max-width: 420px) {
+  [data-theme="blue-archive"] .top-header {
+    margin: -18px -12px 20px -12px;
+    padding: 14px 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  [data-theme="blue-archive"] .top-header {
+    margin: -16px -10px 16px -10px;
+    padding: 12px 10px;
   }
 }
 

@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Theme management
   const THEME_KEY = "yuuka-theme";
+  const THEME_META_COLORS = { dark: "#121212", light: "#FAFAFA", "blue-archive": "#FBFCFF" };
   const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
 
   const btnThemeToggle = document.getElementById("btn-theme-toggle");
@@ -60,6 +61,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem(THEME_KEY, theme);
     applyThemeIcon(theme);
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute("content", THEME_META_COLORS[theme] || THEME_META_COLORS.dark);
+    }
     document.querySelectorAll(".theme-option").forEach(btn => {
       btn.classList.toggle("active", btn.getAttribute("data-theme") === theme);
     });
