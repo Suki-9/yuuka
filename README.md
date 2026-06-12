@@ -52,6 +52,15 @@
 
 ---
 
+## 📦 動作要件
+
+*   **Node.js 20 以上** / **pnpm**
+*   **Rust ツールチェイン (stable)** — 検索クローラー (`src/rust_crawler`) のビルドに `cargo` を使用します（[rustup](https://rustup.rs/) でインストール可）
+*   **Redis** — 会話コンテキスト・セッション管理に使用します
+*   **Chromium 実行環境** — ブラウザ自動操作用。`pnpm install` 時に Puppeteer が Chromium を自動ダウンロードします。ヘッドレスな Linux サーバーでは Chromium の依存共有ライブラリが別途必要になる場合があります（システムにインストール済みの `/usr/bin/chromium` 等があればそちらも自動検出されます）。
+
+---
+
 ## 🚀 セットアップ手順
 
 ### 1. 依存関係のインストール
@@ -62,23 +71,27 @@ pnpm install
 
 ### 2. 設定ファイルの作成
 
-テンプレートファイル `example.yaml` をコピーして、`config.yaml` を作成します。
+テンプレートファイルをコピーして、`config.yaml`（一般設定）と `.env`（機密設定）を作成します。どちらも git 管理外です。
 
 ```bash
 cp example.yaml config.yaml
+cp .env.example .env
 ```
 
+`.env`（環境変数）の設定項目：
+*   **`YUUKA_ENCRYPTION_SECRET`** 【必須】: 保存時暗号化（APIキー・トークン・パスワードマネージャ）のマスターシークレット。未設定の場合は起動しません。十分に長いランダム文字列を設定してください（生成例: `openssl rand -base64 48`）。ローテーションは `YUUKA_ENCRYPTION_SECRET_NEW` を併設して起動（手順は .env.example 参照）。
+*   `.env` ファイルの代わりに、systemd の `Environment=` 等で直接環境変数として渡すこともできます。
+
 `config.yaml` の主な設定項目：
+*   **`INVITE_CODES`**: ユーザー登録に必須の招待コード。推測されにくい独自の値に変更してください。
 *   **`DB_PATH`**: SQLite データベースファイルの保存パス（デフォルト: `./data/yuuka.db`）。
-*   **`SECRET_KEY`**: 保存時暗号化（APIキー・トークン・パスワードマネージャ）のマスターシークレット。**必ず長いランダム文字列を設定してください**。ローテーションは `SECRET_KEY_NEW` を併設して起動（手順は example.yaml 参照）。
 *   **`REDIS_URL`**: 会話コンテキスト・セッション管理用の Redis 接続 URL。
-*   **`PORT` / `HOST`**: 管理画面サーバーがリスンするポートとホスト名。
-*   **`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`**: Google OAuth 認証情報（カレンダー/Drive連携用のシステム共通設定）。
+*   **`PORT` / `HOST`**: 管理画面サーバーがリスンするポートとホスト名。デフォルトはローカル接続のみ (`127.0.0.1`)。リバースプロキシ経由で公開する場合は `"0.0.0.0"` に変更します。
+*   **`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`**: Google OAuth 認証情報（カレンダー/Drive連携用のシステム共通設定、任意）。
 *   **`BASE_URL`**: 外部公開HTTPSベースURL（OAuthリダイレクト・Webhook URLの生成に使用）。
-*   **`INVITE_CODES`**: ユーザー登録用の招待コード。
 *   **`ADMIN_DISCORD_IDS`**: 初期Adminに昇格するDiscordユーザーID（任意。未設定なら最初の登録者がAdmin）。
 
-> ⚠️ **v1からの移行について**: v2はデータベーススキーマを全面再構築します。旧スキーマを検出すると自動で再作成され、**旧データは破棄されます**。
+> ⚠️ **プレリリース版（v1スキーマ）からの移行について**: 現行バージョンはデータベーススキーマを全面再構築しています。旧スキーマを検出すると自動で再作成され、**旧データは破棄されます**。また、プレリリース版を `YUUKA_ENCRYPTION_SECRET` なしで運用していた場合は、環境変数 `YUUKA_ENCRYPTION_SECRET_NEW` に新しい鍵を設定して一度起動すると、既存の暗号化データが新しい鍵で再暗号化されます。
 
 ### 3. ビルド・起動
 
@@ -108,9 +121,12 @@ pnpm start
 
 ## ⚙️ systemd による常時稼働 (Linux環境)
 
-同梱されている `yuuka.service` テンプレートを利用して、Linuxサーバー上でサービスとしてデーモン化できます。
+同梱されている `yuuka.service.example` テンプレートを利用して、Linuxサーバー上でサービスとしてデーモン化できます。
 
-1.  `yuuka.service` ファイルをお使いの環境のパス (例: `WorkingDirectory` や `ExecStart` のNode.jsパスなど) に合わせて編集します。
+1.  テンプレートをコピーし、お使いの環境に合わせて編集します (`User`、`WorkingDirectory`、`ExecStart` のNode.jsパスなど)：
+    ```bash
+    cp yuuka.service.example yuuka.service
+    ```
 2.  サービスファイルを配置します：
     ```bash
     sudo cp yuuka.service /etc/systemd/system/yuuka.service

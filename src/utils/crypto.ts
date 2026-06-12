@@ -7,6 +7,10 @@ import { config } from "../config.js";
 // 暗号鍵を導出するための固定ソルト（後方互換のため変更不可）
 const SYSTEM_SALT = "yuuka-seminar-accounting-salt";
 
+// プレリリース版が YUUKA_ENCRYPTION_SECRET 未設定時に使用していた鍵。
+// YUUKA_ENCRYPTION_SECRET_NEW によるローテーション（旧鍵からの移行）でのみ参照する。
+const LEGACY_FALLBACK_SECRET = "yuuka-seminar-2026-system-key";
+
 let systemKey: Buffer | null = null;
 
 function deriveSystemKey(secret: string): Buffer {
@@ -18,14 +22,12 @@ function deriveSystemKey(secret: string): Buffer {
  */
 function getEncryptionKey(): Buffer {
   if (!systemKey) {
-    if (config.secretKey) {
-      systemKey = deriveSystemKey(config.secretKey);
-    } else {
-      // フォールバック：固定値から導出（後方互換性維持）
-      // TODO(security): 本番環境では SECRET_KEY (YUUKA_ENCRYPTION_SECRET) を設定すること
-      console.warn("⚠️ SECRET_KEY が未設定です。フォールバック鍵を使用しています。");
-      systemKey = deriveSystemKey("yuuka-seminar-2026-system-key");
+    if (!config.secretKey) {
+      throw new Error(
+        "環境変数 YUUKA_ENCRYPTION_SECRET が設定されていません。十分に長いランダム文字列を設定してください（.env.example 参照）。"
+      );
     }
+    systemKey = deriveSystemKey(config.secretKey);
   }
   return systemKey;
 }
@@ -64,8 +66,8 @@ export function decryptText(encrypted: string, ivHex: string, authTagHex: string
 }
 
 // ─── ユーザー鍵（パスワードマネージャ §6.2） ─────────────────────────────────
-// SECRET_KEY + ユーザー固有ソルト を Argon2id に通して 32 バイト鍵を導出する。
-// DBが漏洩しても SECRET_KEY なしには復号できない構成。
+// YUUKA_ENCRYPTION_SECRET + ユーザー固有ソルト を Argon2id に通して 32 バイト鍵を導出する。
+// DBが漏洩しても YUUKA_ENCRYPTION_SECRET なしには復号できない構成。
 
 const userKeyCache = new Map<string, Buffer>();
 
@@ -79,7 +81,12 @@ const ARGON2_OPTS = {
 } as const;
 
 function deriveUserKey(userSaltHex: string, secret?: string): Buffer {
-  const material = secret ?? (config.secretKey || "yuuka-seminar-2026-system-key");
+  const material = secret ?? config.secretKey;
+  if (!material) {
+    throw new Error(
+      "環境変数 YUUKA_ENCRYPTION_SECRET が設定されていません。十分に長いランダム文字列を設定してください（.env.example 参照）。"
+    );
+  }
   const salt = Buffer.from(userSaltHex, "hex");
   if (salt.length < 8) {
     throw new Error("ユーザーソルトが不正です（8バイト以上のhexが必要）");
@@ -136,7 +143,7 @@ export function sha256Hex(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
-// ─── SECRET_KEY ローテーション（§6.2.1） ─────────────────────────────────────
+// ─── YUUKA_ENCRYPTION_SECRET ローテーション（§6.2.1） ─────────────────────────────────────
 
 interface EncryptedColumnSpec {
   table: string;
@@ -159,22 +166,24 @@ const ENCRYPTED_COLUMNS: EncryptedColumnSpec[] = [
 ];
 
 /**
- * SECRET_KEY_NEW が設定されている場合、全暗号化エントリを旧キーで復号→新キーで再暗号化する。
+ * YUUKA_ENCRYPTION_SECRET_NEW が設定されている場合、全暗号化エントリを旧キーで復号→新キーで再暗号化する。
  * 手順（仕様§6.2.1）:
- *   1. SECRET_KEY_NEW を環境変数/config に追加して起動 → 本関数が再暗号化を実行
- *   2. 完了後、SECRET_KEY_NEW の値を SECRET_KEY に昇格し、SECRET_KEY_NEW を削除して再起動
+ *   1. YUUKA_ENCRYPTION_SECRET_NEW を環境変数/config に追加して起動 → 本関数が再暗号化を実行
+ *   2. 完了後、YUUKA_ENCRYPTION_SECRET_NEW の値を YUUKA_ENCRYPTION_SECRET に昇格し、YUUKA_ENCRYPTION_SECRET_NEW を削除して再起動
  *
  * better-sqlite3 の Database インスタンスを引数に取る（循環import回避のため migrations 後に index.ts から呼ぶ）。
  */
 export function rotateSecretKey(db: import("better-sqlite3").Database): void {
   if (!config.secretKeyNew) return;
   if (config.secretKeyNew === config.secretKey) {
-    console.warn("⚠️ SECRET_KEY_NEW が SECRET_KEY と同一のため、ローテーションをスキップします。");
+    console.warn("⚠️ YUUKA_ENCRYPTION_SECRET_NEW が YUUKA_ENCRYPTION_SECRET と同一のため、ローテーションをスキップします。");
     return;
   }
 
-  console.log("🔄 SECRET_KEY ローテーションを開始します...");
-  const oldSystemKey = getEncryptionKey();
+  console.log("🔄 YUUKA_ENCRYPTION_SECRET ローテーションを開始します...");
+  // YUUKA_ENCRYPTION_SECRET が空の場合はプレリリース版のフォールバック鍵からの移行とみなす
+  const oldSecret = config.secretKey || LEGACY_FALLBACK_SECRET;
+  const oldSystemKey = deriveSystemKey(oldSecret);
   const newSystemKey = deriveSystemKey(config.secretKeyNew);
 
   // ユーザーソルトの一覧（ユーザー鍵スコープの再暗号化に使用）
@@ -208,7 +217,7 @@ export function rotateSecretKey(db: import("better-sqlite3").Database): void {
           const uid = row[spec.userScopedBy]!;
           const saltHex = userSalts.get(uid);
           if (!saltHex) continue;
-          const oldUserKey = deriveUserKey(saltHex, config.secretKey || "yuuka-seminar-2026-system-key");
+          const oldUserKey = deriveUserKey(saltHex, oldSecret);
           const newUserKey = deriveUserKey(saltHex, config.secretKeyNew!);
           plaintext = decryptWithKey(oldUserKey, enc, iv, tag);
           newEnc = encryptWithKey(newUserKey, plaintext);
@@ -229,12 +238,12 @@ export function rotateSecretKey(db: import("better-sqlite3").Database): void {
   try {
     rotateAll();
   } catch (err) {
-    console.error("❌ SECRET_KEY ローテーション中にエラーが発生しました。変更はロールバックされました:", err);
+    console.error("❌ YUUKA_ENCRYPTION_SECRET ローテーション中にエラーが発生しました。変更はロールバックされました:", err);
     throw err;
   }
 
-  console.log(`✅ SECRET_KEY ローテーション完了（${rotated}件を再暗号化）。`);
-  console.log("👉 次の手順: SECRET_KEY_NEW の値を SECRET_KEY に設定し、SECRET_KEY_NEW を削除して再起動してください。");
+  console.log(`✅ YUUKA_ENCRYPTION_SECRET ローテーション完了（${rotated}件を再暗号化）。`);
+  console.log("👉 次の手順: YUUKA_ENCRYPTION_SECRET_NEW の値を YUUKA_ENCRYPTION_SECRET に設定し、YUUKA_ENCRYPTION_SECRET_NEW を削除して再起動してください。");
 
   // 以後このプロセスは新キーで動作する
   systemKey = newSystemKey;

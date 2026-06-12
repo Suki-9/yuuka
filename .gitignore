@@ -1,8 +1,10 @@
 node_modules/
 dist/
 data/
+scratch/
 
 config.yaml
+.env
 
 *.db
 *.db-journal

@@ -1,9 +1,14 @@
 {
   "name": "yuuka",
   "version": "1.0.0",
-  "description": "Discord Gemini 秘書ボット",
+  "description": "Discord Gemini 秘書ボット & Web管理ダッシュボード",
+  "license": "MIT",
+  "private": true,
   "type": "module",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "cargo build --release --manifest-path src/rust_crawler/Cargo.toml && mkdir -p dist/bin dist/assets && cp src/rust_crawler/target/release/yuuka-crawler dist/bin/ && cp -r src/assets/. dist/assets/ && tsc",

@@ -1079,18 +1079,18 @@ User {
 | 項目 | 仕様 |
 |------|------|
 | 暗号化アルゴリズム | AES-256-GCM |
-| 暗号化鍵の導出 | **環境変数のシークレット（`SECRET_KEY`）+ ユーザー固有のソルト** をArgon2idに通して導出 |
+| 暗号化鍵の導出 | **環境変数のシークレット（`YUUKA_ENCRYPTION_SECRET`）+ ユーザー固有のソルト** をArgon2idに通して導出 |
 | ソルト | ユーザー登録時にCSPRNGで生成、SQLiteに保存 |
-| シークレット管理 | `SECRET_KEY` は環境変数で注入し、コードやDBには含めない |
+| シークレット管理 | `YUUKA_ENCRYPTION_SECRET` は環境変数で注入し、コードやDBには含めない |
 | データの暗号化単位 | 認証情報エントリ（サービス名・URL・ユーザー名・パスワード）ごとに個別のIVで暗号化 |
 | IV（初期化ベクタ） | エントリ作成・更新ごとにCSPRNGで生成し、暗号文と共に保存 |
 
-> **シークレットスクランブル方式の設計根拠:** Bot Application Serverがブラウザ操作を担うため完全なゼロ知識は実現困難であるが、`SECRET_KEY` を環境変数で管理することでDBが漏洩しても平文パスワードを取得できない構成とする。
+> **シークレットスクランブル方式の設計根拠:** Bot Application Serverがブラウザ操作を担うため完全なゼロ知識は実現困難であるが、`YUUKA_ENCRYPTION_SECRET` を環境変数で管理することでDBが漏洩しても平文パスワードを取得できない構成とする。
 
-> **`SECRET_KEY` ローテーション手順:**
-> 1. 新しい `SECRET_KEY` を生成し、環境変数 `SECRET_KEY_NEW` として追加設定する
+> **`YUUKA_ENCRYPTION_SECRET` ローテーション手順:**
+> 1. 新しい `YUUKA_ENCRYPTION_SECRET` を生成し、環境変数 `YUUKA_ENCRYPTION_SECRET_NEW` として追加設定する
 > 2. Bot起動時に移行スクリプトを実行: 全暗号化エントリを旧キーで復号 → 新キーで再暗号化 → SQLiteに書き戻す
-> 3. 移行完了後、`SECRET_KEY_NEW` を `SECRET_KEY` に昇格し、`SECRET_KEY_NEW` を削除する
+> 3. 移行完了後、`YUUKA_ENCRYPTION_SECRET_NEW` を `YUUKA_ENCRYPTION_SECRET` に昇格し、`YUUKA_ENCRYPTION_SECRET_NEW` を削除する
 > 4. ローテーションのタイミングは運用判断とする（漏洩疑い時は即時、定期ローテーションは年1回を推奨）
 
 #### 6.2.2 転送時暗号化（Encryption in Transit）

@@ -6,7 +6,7 @@ import { addAuditLog } from "../db/auditRepo.js";
 
 // ─── パスワードマネージャ サービス層（§6） ───────────────────────────────────
 //
-// 暗号化方式（§6.2.1）: SECRET_KEY + ユーザー固有ソルト（users.salt）を Argon2id に通して
+// 暗号化方式（§6.2.1）: YUUKA_ENCRYPTION_SECRET + ユーザー固有ソルト（users.salt）を Argon2id に通して
 // 導出したユーザー鍵で AES-256-GCM 暗号化する（crypto.ts の encryptForUser / decryptForUser）。
 // 全アクセス（読取・書込・削除）は監査ログに記録する（§6.3.3）。
 // 監査ログ・コンソールログ・例外メッセージにパスワード本体を含めることは絶対に禁止。
@@ -145,9 +145,9 @@ export function getDecryptedCredential(userId: string, serviceName: string): Dec
   try {
     password = decryptForUser(userId, salt, record.encrypted_password, record.iv, record.auth_tag);
   } catch (err) {
-    // 復号失敗（SECRET_KEY変更等）。エラー詳細に秘密値は含まれない
+    // 復号失敗（YUUKA_ENCRYPTION_SECRET変更等）。エラー詳細に秘密値は含まれない
     console.error(`❌ [PWマネージャ] 認証情報 [${cleanServiceName}] の復号に失敗しました:`, (err as Error).message);
-    throw new Error(`認証情報 [${cleanServiceName}] の復号に失敗しました。SECRET_KEY が変更された可能性があります。`);
+    throw new Error(`認証情報 [${cleanServiceName}] の復号に失敗しました。YUUKA_ENCRYPTION_SECRET が変更された可能性があります。`);
   }
 
   addAuditLog(userId, "credential.read", cleanServiceName);

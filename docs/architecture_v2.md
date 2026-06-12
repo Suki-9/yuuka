@@ -100,10 +100,10 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 
 ## 3. 暗号（src/utils/crypto.ts v2 — 変更禁止、利用のみ）
 
-- `encryptText / decryptText`: システム鍵（scrypt(SECRET_KEY)）。**用途: APIキー・Discordトークン・OAuthトークン・Webhookシークレット・MCP認証情報**。
-- `encryptForUser(userId, text)` / `decryptForUser(userId, enc, iv, tag)`: **Argon2id(SECRET_KEY, user.salt)** から導出した32byte鍵 + AES-256-GCM。**用途: パスワードマネージャ（credentials テーブル）のみ**。鍵はメモリ内キャッシュ。
-- SECRET_KEY は `config.secretKey`（環境変数/設定 `SECRET_KEY`、後方互換で `YUUKA_ENCRYPTION_SECRET`）。
-- `SECRET_KEY_NEW` が設定されている場合、起動時に `rotateSecretKey()` が全暗号化データを再暗号化する（crypto.ts 実装済）。
+- `encryptText / decryptText`: システム鍵（scrypt(YUUKA_ENCRYPTION_SECRET)）。**用途: APIキー・Discordトークン・OAuthトークン・Webhookシークレット・MCP認証情報**。
+- `encryptForUser(userId, text)` / `decryptForUser(userId, enc, iv, tag)`: **Argon2id(YUUKA_ENCRYPTION_SECRET, user.salt)** から導出した32byte鍵 + AES-256-GCM。**用途: パスワードマネージャ（credentials テーブル）のみ**。鍵はメモリ内キャッシュ。
+- YUUKA_ENCRYPTION_SECRET は `config.secretKey`（環境変数/設定 `YUUKA_ENCRYPTION_SECRET`、後方互換で `SECRET_KEY`）。
+- `YUUKA_ENCRYPTION_SECRET_NEW` が設定されている場合、起動時に `rotateSecretKey()` が全暗号化データを再暗号化する（crypto.ts 実装済）。
 
 ## 4. 認証・セッション
 

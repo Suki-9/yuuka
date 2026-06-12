@@ -1,3 +1,4 @@
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { parseYaml } from "./utils/yamlParser.js";
@@ -53,13 +54,23 @@ export const config = {
 
   /**
    * 保存時暗号化のマスターシークレット（§6.2）
-   * SECRET_KEY を推奨。後方互換のため YUUKA_ENCRYPTION_SECRET も受け付ける。
+   * 環境変数 YUUKA_ENCRYPTION_SECRET で設定する（.env / systemd の Environment 等）。
+   * 後方互換のため SECRET_KEY と config.yaml も受け付けるが、
+   * config.yaml の空文字エントリが環境変数を隠さないよう環境変数を優先する。
    * ローテーション中のみ書き換わるため mutable。
    */
-  secretKey: getSetting("SECRET_KEY", "") || getSetting("YUUKA_ENCRYPTION_SECRET", ""),
+  secretKey:
+    process.env.YUUKA_ENCRYPTION_SECRET ||
+    process.env.SECRET_KEY ||
+    getSetting("YUUKA_ENCRYPTION_SECRET", "") ||
+    getSetting("SECRET_KEY", ""),
 
-  /** SECRET_KEY ローテーション用の新キー（設定されている場合、起動時に再暗号化が走る） */
-  secretKeyNew: getSetting("SECRET_KEY_NEW", ""),
+  /** YUUKA_ENCRYPTION_SECRET ローテーション用の新キー（設定されている場合、起動時に再暗号化が走る） */
+  secretKeyNew:
+    process.env.YUUKA_ENCRYPTION_SECRET_NEW ||
+    process.env.SECRET_KEY_NEW ||
+    getSetting("YUUKA_ENCRYPTION_SECRET_NEW", "") ||
+    getSetting("SECRET_KEY_NEW", ""),
 
   /** 返信チェーン解決の最大遡り深度（§3.1.4 無限ループ防止） */
   replyChainMaxDepth: parseInt(getSetting("REPLY_CHAIN_MAX_DEPTH", "10"), 10),

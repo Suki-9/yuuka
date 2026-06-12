@@ -18,10 +18,23 @@ import { startBackupScheduler, stopBackupScheduler } from "./services/backupServ
 async function main() {
   console.log("🚀 Yuuka 起動中...");
 
+  // 保存時暗号化シークレットの必須チェック（§6.2）
+  // YUUKA_ENCRYPTION_SECRET_NEW のみが設定されている場合は旧鍵からのローテーションとして起動を許可する
+  if (!config.secretKey && !config.secretKeyNew) {
+    console.error(
+      "❌ 環境変数 YUUKA_ENCRYPTION_SECRET が設定されていません。十分に長いランダム文字列を設定してください。\n" +
+      "   設定方法: .env ファイル（.env.example 参照）または systemd の Environment 等\n" +
+      "   生成例: openssl rand -base64 48\n" +
+      "   ※ プレリリース版をシークレット未設定で運用していた場合は、YUUKA_ENCRYPTION_SECRET_NEW に\n" +
+      "     新しい鍵を設定して起動すると既存データが再暗号化されます（手順は .env.example / 仕様書 §6.2.1 参照）。"
+    );
+    process.exit(1);
+  }
+
   // データベース初期化（スキーマv2）
   await runMigrations();
 
-  // SECRET_KEY ローテーション（SECRET_KEY_NEW 設定時のみ実行 §6.2.1）
+  // 暗号化シークレットのローテーション（YUUKA_ENCRYPTION_SECRET_NEW 設定時のみ実行 §6.2.1）
   if (config.secretKeyNew) {
     rotateSecretKey(getDb());
   }
