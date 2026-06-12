@@ -48,16 +48,19 @@ export async function initRedis(): Promise<void> {
     const connecting = client.connect().catch((err) => {
       console.error("❌ Redis 接続エラー（バックグラウンドで再接続を継続します）:", err);
     });
+    let warnTimer: NodeJS.Timeout | undefined;
     await Promise.race([
       connecting,
       new Promise<void>((resolve) => {
-        const t = setTimeout(() => {
+        warnTimer = setTimeout(() => {
           console.warn("⚠️ Redis 初回接続が5秒以内に確立しませんでした。SQLite フォールバックで起動を続行します。");
           resolve();
         }, 5000);
-        t.unref();
+        warnTimer.unref();
       }),
     ]);
+    // Promise.race は負けた側のタイマーを取り消さないため、接続成功後に誤警告が出ないよう明示的に解除する
+    clearTimeout(warnTimer);
   } catch (err) {
     console.error("❌ Redis クライアントの初期化に失敗しました。SQLite のみで動作します。:", err);
     client = null;
