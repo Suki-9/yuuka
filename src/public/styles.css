@@ -319,6 +319,9 @@ button, input, select, textarea {
   border-radius: 0;
   padding: 24px 0;
   transition: var(--transition-smooth);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .hover-lift:hover {
@@ -475,6 +478,14 @@ button, input, select, textarea {
   margin-bottom: 16px;
 }
 
+.login-avatar-img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 50%;
+  margin-bottom: 12px;
+}
+
 .login-header h1 {
   font-size: 1.6rem;
   font-weight: 800;
@@ -575,6 +586,7 @@ textarea:focus {
   border: none;
   outline: none;
   transition: background-color 0.15s ease-in-out;
+  white-space: nowrap;
 }
 
 .btn-block {
@@ -817,6 +829,8 @@ textarea:focus {
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-weight: bold;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .user-select-dropdown {
@@ -871,11 +885,16 @@ textarea:focus {
   position: relative;
   width: 80px;
   height: 80px;
+  flex-shrink: 0;
 }
 
-.avatar-svg {
+.avatar-img {
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  aspect-ratio: 1 / 1;
 }
 
 .avatar-badge {
@@ -975,13 +994,16 @@ textarea:focus {
 
 .stat-card-header {
   margin-bottom: 8px;
+  padding-right: 72px; /* 絶対配置のトレンドバッジとラベルの重なりを防ぐ */
 }
 
 .stat-label {
+  display: block;
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-medium);
+  line-height: 1.25;
 }
 
 .stat-card .stat-value {
@@ -1303,12 +1325,16 @@ textarea:focus {
   border-bottom: 1px solid var(--border-divider);
   border-radius: 0;
   padding: 16px 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .card-content-left {
   display: flex;
   align-items: flex-start;
   gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .checkbox-custom {
@@ -1343,6 +1369,9 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
 }
 
 .card-title {
@@ -1833,8 +1862,29 @@ textarea:focus {
    RESPONSIVE SMARTPHONE UI (Adaptive Layouts)
    ============================================================================= */
 
+/* Tablet adjustments (between 768 and 1024) */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .main-content {
+    padding: 28px 24px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .dashboard-columns {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .stat-card {
+    padding: 18px 0;
+  }
+}
+
 @media (max-width: 768px) {
-  
+
   /* Sidebar transforms into Bottom Nav Bar */
   .sidebar {
     position: fixed;
@@ -1902,26 +1952,49 @@ textarea:focus {
   .top-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 16px;
+    gap: 12px;
     border-bottom: 1px solid var(--border-matte);
     padding-bottom: 16px;
   }
 
+  .header-title {
+    min-width: 0;
+  }
+
   .header-controls {
+    flex-direction: row;
     flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 10px;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
     width: 100%;
   }
 
   .profile-switch {
-    flex-grow: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     justify-content: space-between;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .user-select-dropdown {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 0;
   }
 
   #btn-logout {
     padding: 8px 12px;
     font-size: 0.8rem;
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  /* モバイルではログアウトボタンのアイコンを非表示にしてテキストのみ */
+  #btn-logout .icon-button-left {
+    display: none;
   }
 
   /* Layout Grids Stacking to 1 Column */
@@ -1972,9 +2045,15 @@ textarea:focus {
 
   .welcome-card {
     flex-direction: column;
+    align-items: center;
     text-align: center;
     gap: 14px;
-    padding: 16px;
+    padding: 16px 0;
+  }
+
+  .speech-bubble-container {
+    width: 100%;
+    min-width: 0;
   }
 
   .speech-bubble::before {
@@ -2003,6 +2082,156 @@ textarea:focus {
   .expense-table th, .expense-table td {
     padding: 10px 8px;
     font-size: 0.75rem;
+  }
+
+  /* Card paddings tightened (フラットデザインのため縦のみ詰める) */
+  .card {
+    padding: 16px 0;
+  }
+
+  /* Header title scaling */
+  .header-title h2 {
+    font-size: 1.3rem;
+  }
+
+  .header-title p {
+    font-size: 0.72rem;
+  }
+
+  .column-header h3 {
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  /* Stat values shrink slightly */
+  .stat-card .stat-value {
+    font-size: 1.7rem;
+  }
+
+  .hud-card h2 {
+    font-size: 1.7rem;
+  }
+
+  /* View actions card may overflow with many filter buttons */
+  .view-actions-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 0;
+  }
+
+  .filters-group {
+    flex-wrap: wrap;
+  }
+
+  /* Card item content stack to prevent action button overflow */
+  .card-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 0;
+  }
+
+  .card-actions-right {
+    justify-content: flex-end;
+  }
+
+  /* Form row to single column to prevent narrow inputs */
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* Sub-details under chart wrap nicely */
+  .chart-sub-details {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  /* Modal padding/width adjustments */
+  .modal {
+    padding: 16px;
+  }
+
+  .modal-content {
+    max-width: 100%;
+  }
+
+  .wide-modal {
+    max-width: 100%;
+  }
+
+  /* Theme options - allow wrapping & full width */
+  .theme-option {
+    flex: 1 1 130px;
+  }
+}
+
+@media (max-width: 420px) {
+  .main-content {
+    padding: 18px 12px 88px 12px;
+  }
+
+  .card {
+    padding: 14px 0;
+  }
+
+  .header-title h2 {
+    font-size: 1.2rem;
+  }
+
+  .stat-card .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .stat-card-badge-trend {
+    top: 14px;
+    right: 14px;
+    font-size: 0.6rem;
+  }
+
+  .welcome-card {
+    padding: 14px 0;
+  }
+
+  .menu-item {
+    font-size: 0.6rem;
+  }
+
+  .column-header h3 {
+    font-size: 0.88rem;
+  }
+}
+
+/* 360px 以下: ボトムナビはアイコンのみ・ラベル非表示でナビ高さを抑える */
+@media (max-width: 360px) {
+  .menu-text {
+    display: none;
+  }
+
+  .menu-item {
+    padding: 8px 4px;
+  }
+
+  .sidebar {
+    height: 54px;
+  }
+
+  .main-content {
+    padding: 16px 10px 74px 10px;
+  }
+
+  .login-card {
+    padding: 28px 20px;
+  }
+
+  .header-title h2 {
+    font-size: 1.1rem;
+  }
+
+  .header-title p {
+    font-size: 0.7rem;
   }
 }
 
@@ -2918,4 +3147,376 @@ textarea:focus {
 [data-theme="light"] .status-badge.status-delivery-failed {
   background-color: rgba(180, 35, 24, 0.08);
   color: #b42318;
+}
+
+/* ==============================================================================
+   BLUE ARCHIVE LIGHT THEME TOKENS
+   実際のゲームUI配色を再現
+   Sources: Blue Archive Wiki (#02D3FB), MomoTalk Discord theme
+            (#F2F7F8 sidebar / #E7F0F7 header / #DDE6ED border)
+   ============================================================================== */
+[data-theme="blue-archive"] {
+  /* BA公式シアン (#02D3FB は wiki confirmed, #00AED8 は hover用) */
+  --ba-cyan:       #02D3FB;
+  --ba-cyan-hover: #00AED8;
+  --ba-cyan-dim:   rgba(2, 211, 251, 0.12);
+  --ba-cyan-faint: rgba(2, 211, 251, 0.06);
+
+  /* 追加アクセント — ゲーム本編の MomoTalk / 優先度 / 警告色を再現 */
+  --ba-pink:     #FB90A4;  /* MomoTalk バナー・優先度高 */
+  --ba-pink-dim: rgba(251, 144, 164, 0.15);
+  --ba-lavender: #A3BAFF;  /* ゲーム内リンク色 */
+  --ba-yellow:   #FFD966;  /* 警告/注意 */
+  --ba-yellow-dim: rgba(255, 217, 102, 0.15);
+
+  /* 背景 — 公式ゲーム画面に近い色 */
+  --bg-primary:   #FBFCFF; /* ほぼ白・微青みがかった main content */
+  --bg-secondary: #FBFCFF;
+  --bg-sidebar:   #F2F7F8; /* MomoTalkソース sidebar 値そのまま */
+  --bg-body:      #FBFCFF;
+
+  --surface-0dp: #FFFFFF;
+  --surface-1dp: #F5FAFE;
+  --surface-2dp: #EFF6FB;
+  --surface-3dp: #E9F2F9;
+  --surface-4dp: #E7F0F7;
+  --surface-6dp: #DFEBF4;
+  --surface-8dp: #DBE8F2;
+  --surface-12dp: #D5E4EF;
+  --surface-16dp: #D0E0EC;
+  --surface-24dp: #C8DCEA;
+
+  --color-primary: var(--ba-cyan);
+  --color-primary-variant: var(--ba-cyan-hover);
+  --color-secondary: var(--ba-pink);
+  --color-error: #dc2626;
+
+  --color-on-primary: #FFFFFF;
+  --color-on-secondary: #1B2B3A;
+  --color-on-error: #FFFFFF;
+
+  /* テキスト — ダークネイビー系 */
+  --text-high: #1B2B3A;
+  --text-medium: #5A7A95;
+  --text-disabled: #9DB4C6;
+
+  --card-matte: transparent;
+  --card-matte-hover: rgba(2, 211, 251, 0.04);
+  --border-matte: #DDE6ED; /* MomoTalkソース値そのまま */
+  --border-divider: #DDE6ED;
+  --border-focus: var(--ba-cyan);
+
+  --color-white: #1B2B3A;
+  --color-zinc-light: #2E4A62;
+  --color-zinc-muted: #7A9BB0;
+  --color-green: #16a34a;
+  --color-red: var(--color-error);
+
+  --text-primary: #1B2B3A;
+  --text-secondary: #5A7A95;
+
+  --discord-blurple: var(--ba-cyan);
+  --discord-blurple-hover: var(--ba-cyan-hover);
+  --discord-blurple-active: #0095BD;
+  --discord-grey-secondary: var(--surface-4dp);
+  --discord-grey-secondary-hover: var(--surface-8dp);
+}
+
+/* BA component overrides (ライトテーマ同様、ハードコードされたダーク値の上書き) */
+[data-theme="blue-archive"] ::-webkit-scrollbar-track { background: var(--bg-primary); }
+[data-theme="blue-archive"] ::-webkit-scrollbar-thumb { background: #C8DCEA; }
+[data-theme="blue-archive"] ::-webkit-scrollbar-thumb:hover { background: var(--ba-cyan); }
+
+[data-theme="blue-archive"] .checkbox-custom { border-color: #9DB4C6; }
+[data-theme="blue-archive"] .checkbox-custom:checked {
+  background-color: var(--ba-cyan);
+  border-color: var(--ba-cyan);
+}
+
+[data-theme="blue-archive"] .badge-normal {
+  background-color: #EFF6FB;
+  color: var(--ba-lavender);
+  border-color: #C8DCEA;
+}
+
+[data-theme="blue-archive"] .spinner {
+  border-color: rgba(2, 211, 251, 0.18);
+  border-top-color: var(--ba-cyan);
+}
+
+[data-theme="blue-archive"] .btn-primary:hover { background-color: var(--ba-cyan-hover); }
+[data-theme="blue-archive"] .btn-primary:active { background-color: #0095BD; }
+[data-theme="blue-archive"] .btn-secondary:hover { background-color: var(--ba-cyan-faint); }
+[data-theme="blue-archive"] .btn-filter:hover { background-color: var(--ba-cyan-faint); }
+[data-theme="blue-archive"] .btn-filter.active { background-color: var(--ba-cyan); border-color: var(--ba-cyan); color: #FFFFFF; }
+[data-theme="blue-archive"] .btn-icon:hover { background-color: var(--ba-cyan-faint); border-color: var(--ba-cyan); }
+
+[data-theme="blue-archive"] .menu-item:hover { background-color: var(--ba-cyan-faint); color: #1B2B3A; }
+[data-theme="blue-archive"] .menu-item.active { color: var(--ba-cyan); background-color: var(--ba-cyan-dim); font-weight: 700; }
+
+[data-theme="blue-archive"] .bot-context-badge {
+  background-color: rgba(2, 211, 251, 0.08);
+  border-color: rgba(2, 211, 251, 0.3);
+  color: var(--ba-cyan-hover);
+}
+[data-theme="blue-archive"] .bot-context-badge:hover {
+  background-color: rgba(2, 211, 251, 0.16);
+  border-color: rgba(2, 211, 251, 0.6);
+}
+
+[data-theme="blue-archive"] .stat-card-badge-trend {
+  color: var(--ba-cyan);
+  border-color: #C8DCEA;
+}
+[data-theme="blue-archive"] .stat-card-badge-trend.positive {
+  color: var(--ba-cyan-hover);
+  border-color: rgba(2, 211, 251, 0.3);
+}
+
+/* SVG チャート */
+[data-theme="blue-archive"] #trend-area-path { fill: rgba(2, 211, 251, 0.08) !important; }
+[data-theme="blue-archive"] #donut-segment { stroke: var(--ba-cyan) !important; }
+[data-theme="blue-archive"] #trend-line-path { stroke: var(--ba-cyan) !important; }
+[data-theme="blue-archive"] #dashboard-trend-chart line { stroke: #C8DCEA; }
+[data-theme="blue-archive"] .donut-chart circle:not(#donut-segment) { stroke: #DDE6ED; }
+[data-theme="blue-archive"] #schedules-sparkline-path,
+[data-theme="blue-archive"] #expenses-sparkline-path { stroke: var(--ba-cyan); }
+
+[data-theme="blue-archive"] .urgent-item:hover { color: var(--ba-cyan-hover); }
+[data-theme="blue-archive"] .bot-item-card:hover { border-bottom-color: var(--ba-cyan); }
+[data-theme="blue-archive"] .bot-item-card.default-bot { border-bottom-color: rgba(2, 211, 251, 0.3); }
+[data-theme="blue-archive"] .sidebar { box-shadow: none; }
+
+[data-theme="blue-archive"] .modal { background-color: rgba(211, 232, 245, 0.8); }
+[data-theme="blue-archive"] .modal-content {
+  background-color: var(--surface-0dp);
+  box-shadow: 0 10px 25px rgba(27, 43, 58, 0.12);
+}
+
+/* ヘッダーエリア: ゲームのパネル上部の薄青を再現 */
+[data-theme="blue-archive"] .top-header {
+  background-color: #E7F0F7; /* MomoTalkソース channeltopbar 値 */
+  border-bottom-color: #C8DCEA;
+  margin: -40px -40px 30px -40px;
+  padding: 20px 40px;
+}
+
+@media (max-width: 1024px) and (min-width: 769px) {
+  [data-theme="blue-archive"] .top-header {
+    margin: -28px -24px 30px -24px;
+    padding: 16px 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  [data-theme="blue-archive"] .top-header {
+    margin: -24px -16px 20px -16px;
+    padding: 14px 16px;
+  }
+
+  [data-theme="blue-archive"] .sidebar {
+    background-color: var(--bg-sidebar);
+    border-top-color: #DDE6ED;
+    box-shadow: 0 -2px 12px rgba(2, 211, 251, 0.1);
+  }
+
+  [data-theme="blue-archive"] .menu-item.active {
+    color: var(--ba-cyan);
+    background-color: var(--ba-cyan-dim);
+  }
+}
+
+/* 各種パーツ */
+[data-theme="blue-archive"] .budget-progress-bar { background-color: var(--ba-cyan); }
+[data-theme="blue-archive"] .hud-pulse-dot { background-color: var(--ba-cyan); }
+[data-theme="blue-archive"] .avatar-badge {
+  background-color: var(--ba-cyan);
+  color: #ffffff;
+}
+[data-theme="blue-archive"] .hud-tag {
+  color: var(--ba-cyan);
+  border-color: #C8DCEA;
+  background-color: #F2F7F8;
+}
+
+[data-theme="blue-archive"] .dropzone:hover,
+[data-theme="blue-archive"] .dropzone.dragover {
+  border-color: var(--ba-cyan);
+  background-color: var(--ba-cyan-faint);
+}
+
+[data-theme="blue-archive"] .text-highlight { color: var(--ba-cyan-hover); }
+
+/* リンク色：ゲーム内リンク色 (ラベンダー) */
+[data-theme="blue-archive"] a:not(.menu-item):not(.btn) { color: var(--ba-lavender); }
+[data-theme="blue-archive"] a:not(.menu-item):not(.btn):hover { color: var(--ba-cyan); }
+
+/* 緊急/期限切れバッジ — ピンク */
+[data-theme="blue-archive"] .badge-urgent {
+  background-color: var(--ba-pink-dim);
+  color: var(--ba-pink);
+  border: 1px solid var(--ba-pink);
+}
+
+/* アクセントバッジ — シアン */
+[data-theme="blue-archive"] .badge-accent {
+  color: var(--ba-cyan);
+  border-color: var(--ba-cyan);
+  background-color: var(--ba-cyan-faint);
+}
+
+/* 警告ボックス — ウォームイエロー */
+[data-theme="blue-archive"] .alert-box {
+  border-left-color: var(--ba-yellow);
+  background-color: #FFFBEC;
+}
+
+/* フォームフォーカスリング */
+[data-theme="blue-archive"] .form-group input:focus,
+[data-theme="blue-archive"] .form-group select:focus,
+[data-theme="blue-archive"] .form-group textarea:focus {
+  border-color: var(--ba-cyan);
+  box-shadow: 0 0 0 2px rgba(2, 211, 251, 0.15);
+}
+
+/* ソースバッジを色分け */
+[data-theme="blue-archive"] .source-discord { color: var(--ba-lavender); }
+[data-theme="blue-archive"] .source-manual  { color: var(--ba-cyan); }
+[data-theme="blue-archive"] .source-web     { color: var(--ba-pink); }
+
+/* 配信ステータスバッジ (ライトテーマと同値) */
+[data-theme="blue-archive"] .status-badge.status-pending,
+[data-theme="blue-archive"] .status-badge.status-delivery-received {
+  background-color: rgba(180, 130, 0, 0.1);
+  color: #9a6700;
+}
+
+[data-theme="blue-archive"] .status-badge.status-sent,
+[data-theme="blue-archive"] .status-badge.status-delivery-notified {
+  background-color: rgba(34, 134, 58, 0.1);
+  color: #1a7f37;
+}
+
+[data-theme="blue-archive"] .status-badge.status-delivery-failed {
+  background-color: rgba(180, 35, 24, 0.08);
+  color: #b42318;
+}
+
+/* ==============================================================================
+   THEME SELECTOR UI (設定タブ)
+   ============================================================================== */
+.theme-options {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 2px solid var(--border-matte);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-family-sans);
+}
+
+.theme-option:hover {
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.theme-option.active {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+}
+
+.theme-preview {
+  width: 88px;
+  height: 56px;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  border: 1px solid var(--border-matte);
+}
+
+.preview-sidebar {
+  width: 22px;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.preview-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  justify-content: center;
+}
+
+.preview-card {
+  height: 14px;
+  border-radius: 2px;
+}
+
+/* Dark theme preview (Material 2 Dark) */
+.dark-preview {
+  background-color: #121212;
+}
+
+.dark-preview .preview-sidebar {
+  background-color: #1d1d1d;
+}
+
+.dark-preview .preview-card {
+  background-color: #2c2c2c;
+}
+
+.dark-preview .preview-card:first-child {
+  background-color: #BB86FC;
+}
+
+/* Light theme preview (Material 2 Light) */
+.light-preview {
+  background-color: #FAFAFA;
+}
+
+.light-preview .preview-sidebar {
+  background-color: #F5F5F5;
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.light-preview .preview-card {
+  background-color: #EEEEEE;
+}
+
+.light-preview .preview-card:first-child {
+  background-color: #6200EE;
+}
+
+/* Blue Archive theme preview */
+.ba-preview {
+  background-color: #FBFCFF;
+}
+
+.ba-preview .preview-sidebar {
+  background-color: #F2F7F8;
+  border-right: 1px solid #DDE6ED;
+}
+
+.ba-preview .preview-card {
+  background-color: #E7F0F7;
+}
+
+.ba-preview .preview-card:first-child {
+  background-color: #02D3FB;
 }

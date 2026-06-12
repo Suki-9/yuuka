@@ -43,24 +43,38 @@ document.addEventListener("DOMContentLoaded", () => {
   // Theme management
   const THEME_KEY = "yuuka-theme";
   const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
-  document.documentElement.setAttribute("data-theme", savedTheme);
 
   const btnThemeToggle = document.getElementById("btn-theme-toggle");
   const themeIcon = document.getElementById("theme-icon");
+
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") || "dark";
+  }
 
   function applyThemeIcon(theme) {
     themeIcon.textContent = theme === "dark" ? "light_mode" : "dark_mode";
     btnThemeToggle.title = theme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え";
   }
 
-  applyThemeIcon(savedTheme);
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(THEME_KEY, theme);
+    applyThemeIcon(theme);
+    document.querySelectorAll(".theme-option").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-theme") === theme);
+    });
+  }
 
+  applyTheme(savedTheme);
+
+  // ヘッダーのトグルはダーク⇔ライトを切り替え（BAテーマからはダークへ戻る）
   btnThemeToggle.addEventListener("click", () => {
-    const current = document.documentElement.getAttribute("data-theme");
-    const next = current === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem(THEME_KEY, next);
-    applyThemeIcon(next);
+    applyTheme(currentTheme() === "dark" ? "light" : "dark");
+  });
+
+  // 設定タブのテーマセレクタ（ダーク / ライト / ブルーアーカイブ）
+  document.querySelectorAll(".theme-option").forEach(btn => {
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme")));
   });
 
   // State management
@@ -1116,7 +1130,9 @@ document.addEventListener("DOMContentLoaded", () => {
           const priorities = statusData.stats.pendingPriorities || { 0: 0, 1: 0, 2: 0 };
           const maxPrioCount = Math.max(priorities[0], priorities[1], priorities[2], 1);
 
-          const colors = ["#4f545c", "#fbbf24", "#da373c"]; // Low: Muted Grey, Medium: Warning Yellow, High: Discord Red
+          const colors = currentTheme() === "blue-archive"
+            ? ["#B8E8F8", "#51C8E8", "#02D3FB"]  // BA: light/mid/full cyan
+            : ["#4f545c", "#fbbf24", "#da373c"]; // Low: Muted Grey, Medium: Warning Yellow, High: Discord Red
           const labels = ["低", "中", "高"];
 
           [0, 1, 2].forEach(p => {
@@ -1244,7 +1260,14 @@ document.addEventListener("DOMContentLoaded", () => {
     donutSegment.setAttribute("stroke-dasharray", `${strokeDash} 251.2`);
     chartCenterPercentage.textContent = `${entPct}%`;
 
-    const colors = {
+    // 凡例ドットの配色（BAテーマ時はゲーム配色に切り替え）
+    const colors = currentTheme() === "blue-archive" ? {
+      食費: "#02D3FB",   // BAシアン
+      日用品: "#A3BAFF", // ラベンダー
+      交通費: "#FB90A4", // MomoTalk ピンク
+      娯楽: "#FFD966",   // ウォームイエロー
+      その他: "#7A9BB0"  // ミュートグレー
+    } : {
       食費: "#5865F2", // Discord Blurple
       日用品: "#248046", // Success green
       交通費: "#fbbf24", // Warning yellow
