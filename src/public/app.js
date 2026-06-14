@@ -3480,6 +3480,9 @@ document.addEventListener("DOMContentLoaded", () => {
         tdAction.style.textAlign = "right";
 
         if (user.discord_id !== activeUserId) {
+          const actionGroup = document.createElement("div");
+          actionGroup.className = "admin-action-group";
+
           const btn = document.createElement("button");
           btn.className = `admin-btn-action ${user.role === "admin" ? "" : "btn-promote"}`;
           btn.type = "button";
@@ -3508,13 +3511,12 @@ document.addEventListener("DOMContentLoaded", () => {
               console.error("Role change failed");
             }
           });
-          tdAction.appendChild(btn);
+          actionGroup.appendChild(btn);
 
           // ユーザー削除ボタン（§5.3.2）
           const btnDelete = document.createElement("button");
           btnDelete.className = "admin-btn-action btn-danger";
           btnDelete.type = "button";
-          btnDelete.style.marginLeft = "6px";
           btnDelete.textContent = "削除";
           btnDelete.addEventListener("click", async () => {
             if (!confirm(`ユーザー「${user.username}」を完全に削除しますか？\nタスク・家計簿・ペルソナ等の関連データも全て削除され、元に戻せません。`)) return;
@@ -3538,7 +3540,8 @@ document.addEventListener("DOMContentLoaded", () => {
               alert("削除処理中にエラーが発生しました。");
             }
           });
-          tdAction.appendChild(btnDelete);
+          actionGroup.appendChild(btnDelete);
+          tdAction.appendChild(actionGroup);
         } else {
           const selfLabel = document.createElement("span");
           selfLabel.style.fontSize = "0.75rem";

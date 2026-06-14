@@ -2867,6 +2867,14 @@ textarea:focus {
 }
 
 /* Admin Action Buttons */
+.admin-action-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .admin-btn-action {
   display: inline-flex;
   align-items: center;
