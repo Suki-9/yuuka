@@ -485,7 +485,7 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalCredential);
       closeModal(modalCreateBot);
       ["modal-expense-plan", "modal-budget-settings", "modal-persona-edit",
-        "modal-persona-preview", "modal-contact", "modal-webhook"].forEach(id => {
+        "modal-persona-preview", "modal-contact", "modal-webhook", "modal-audit"].forEach(id => {
         const m = document.getElementById(id);
         if (m) closeModal(m);
       });
@@ -3772,73 +3772,119 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Admin: 監査ログ（§5.3.2）
+  const AUDIT_PREVIEW_LIMIT = 5; // インラインで表示する直近件数
+  const AUDIT_PAGE_SIZE = 20;    // モーダルの1ページあたり件数
+  let auditModalPage = 0;        // 0始まりのページ番号
+  let auditModalAction = "";     // モーダルで適用中のフィルタ
+
+  // 監査ログ1件分の行を生成（インライン・モーダル共通）
+  function buildAuditRow(log) {
+    const tr = document.createElement("tr");
+
+    const tdDate = document.createElement("td");
+    tdDate.className = "admin-table-td";
+    tdDate.style.fontSize = "0.78rem";
+    tdDate.style.whiteSpace = "nowrap";
+    tdDate.style.color = "var(--color-zinc-muted)";
+    tdDate.textContent = log.created_at;
+    tr.appendChild(tdDate);
+
+    const tdUser = document.createElement("td");
+    tdUser.className = "admin-table-td admin-discord-id";
+    tdUser.textContent = maskDiscordId(log.user_id);
+    tr.appendChild(tdUser);
+
+    const tdAction = document.createElement("td");
+    tdAction.className = "admin-table-td";
+    tdAction.style.fontFamily = "var(--font-family-mono)";
+    tdAction.style.fontSize = "0.78rem";
+    tdAction.textContent = log.action;
+    tr.appendChild(tdAction);
+
+    const tdTarget = document.createElement("td");
+    tdTarget.className = "admin-table-td";
+    tdTarget.style.fontSize = "0.78rem";
+    tdTarget.style.color = "var(--color-zinc-muted)";
+    tdTarget.textContent = log.target || "—";
+    tr.appendChild(tdTarget);
+
+    const tdDetail = document.createElement("td");
+    tdDetail.className = "admin-table-td";
+    tdDetail.style.fontSize = "0.78rem";
+    tdDetail.style.color = "var(--color-zinc-muted)";
+    tdDetail.textContent = log.detail || "—";
+    tr.appendChild(tdDetail);
+
+    return tr;
+  }
+
+  function renderAuditEmptyRow(tbody) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.style.textAlign = "center";
+    td.style.padding = "20px";
+    td.style.color = "var(--color-zinc-muted)";
+    td.style.fontSize = "0.8rem";
+    td.textContent = "監査ログはありません。";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  // インラインの直近プレビュー
   async function fetchAdminAuditLogs() {
     const tbody = document.getElementById("admin-audit-tbody");
     if (!tbody) return;
     tbody.replaceChildren();
 
-    const actionInput = document.getElementById("admin-audit-action-input");
-    const action = actionInput ? actionInput.value.trim() : "";
-
     try {
-      const url = `/api/admin/audit-logs?limit=100${action ? `&action=${encodeURIComponent(action)}` : ""}`;
-      const res = await originalFetch(url);
+      const res = await originalFetch(`/api/admin/audit-logs?limit=${AUDIT_PREVIEW_LIMIT}`);
       const data = await res.json();
       if (!data.success || !data.logs || !data.logs.length) {
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 5;
-        td.style.textAlign = "center";
-        td.style.padding = "20px";
-        td.style.color = "var(--color-zinc-muted)";
-        td.style.fontSize = "0.8rem";
-        td.textContent = "監査ログはありません。";
-        tr.appendChild(td);
-        tbody.appendChild(tr);
+        renderAuditEmptyRow(tbody);
+        return;
+      }
+      data.logs.forEach(log => tbody.appendChild(buildAuditRow(log)));
+    } catch (err) {
+      console.error("Admin audit logs fetch error", err);
+    }
+  }
+
+  // モーダルの全件ページネーション表示
+  async function fetchAdminAuditLogsModal() {
+    const tbody = document.getElementById("admin-audit-modal-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    const pageInfo = document.getElementById("admin-audit-page-info");
+    const btnPrev = document.getElementById("btn-audit-prev");
+    const btnNext = document.getElementById("btn-audit-next");
+
+    try {
+      const offset = auditModalPage * AUDIT_PAGE_SIZE;
+      const url = `/api/admin/audit-logs?limit=${AUDIT_PAGE_SIZE}&offset=${offset}${auditModalAction ? `&action=${encodeURIComponent(auditModalAction)}` : ""}`;
+      const res = await originalFetch(url);
+      const data = await res.json();
+
+      if (!data.success || !data.logs || !data.logs.length) {
+        renderAuditEmptyRow(tbody);
+        if (pageInfo) pageInfo.textContent = "0 件";
+        if (btnPrev) btnPrev.disabled = auditModalPage === 0;
+        if (btnNext) btnNext.disabled = true;
         return;
       }
 
-      data.logs.forEach(log => {
-        const tr = document.createElement("tr");
+      data.logs.forEach(log => tbody.appendChild(buildAuditRow(log)));
 
-        const tdDate = document.createElement("td");
-        tdDate.className = "admin-table-td";
-        tdDate.style.fontSize = "0.78rem";
-        tdDate.style.whiteSpace = "nowrap";
-        tdDate.style.color = "var(--color-zinc-muted)";
-        tdDate.textContent = log.created_at;
-        tr.appendChild(tdDate);
-
-        const tdUser = document.createElement("td");
-        tdUser.className = "admin-table-td admin-discord-id";
-        tdUser.textContent = maskDiscordId(log.user_id);
-        tr.appendChild(tdUser);
-
-        const tdAction = document.createElement("td");
-        tdAction.className = "admin-table-td";
-        tdAction.style.fontFamily = "var(--font-family-mono)";
-        tdAction.style.fontSize = "0.78rem";
-        tdAction.textContent = log.action;
-        tr.appendChild(tdAction);
-
-        const tdTarget = document.createElement("td");
-        tdTarget.className = "admin-table-td";
-        tdTarget.style.fontSize = "0.78rem";
-        tdTarget.style.color = "var(--color-zinc-muted)";
-        tdTarget.textContent = log.target || "—";
-        tr.appendChild(tdTarget);
-
-        const tdDetail = document.createElement("td");
-        tdDetail.className = "admin-table-td";
-        tdDetail.style.fontSize = "0.78rem";
-        tdDetail.style.color = "var(--color-zinc-muted)";
-        tdDetail.textContent = log.detail || "—";
-        tr.appendChild(tdDetail);
-
-        tbody.appendChild(tr);
-      });
+      const total = typeof data.total === "number" ? data.total : 0;
+      const totalPages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
+      const from = offset + 1;
+      const to = offset + data.logs.length;
+      if (pageInfo) pageInfo.textContent = `${from}–${to} 件 / 全 ${total} 件（${auditModalPage + 1} / ${totalPages} ページ）`;
+      if (btnPrev) btnPrev.disabled = auditModalPage === 0;
+      if (btnNext) btnNext.disabled = auditModalPage + 1 >= totalPages;
     } catch (err) {
-      console.error("Admin audit logs fetch error", err);
+      console.error("Admin audit logs modal fetch error", err);
     }
   }
 
@@ -3846,7 +3892,40 @@ document.addEventListener("DOMContentLoaded", () => {
   if (adminAuditFilterForm) {
     adminAuditFilterForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      fetchAdminAuditLogs();
+      const actionInput = document.getElementById("admin-audit-action-input");
+      auditModalAction = actionInput ? actionInput.value.trim() : "";
+      auditModalPage = 0;
+      fetchAdminAuditLogsModal();
+    });
+  }
+
+  const btnOpenAuditModal = document.getElementById("btn-open-audit-modal");
+  const modalAudit = document.getElementById("modal-audit");
+  if (btnOpenAuditModal && modalAudit) {
+    btnOpenAuditModal.addEventListener("click", () => {
+      auditModalPage = 0;
+      const actionInput = document.getElementById("admin-audit-action-input");
+      auditModalAction = actionInput ? actionInput.value.trim() : "";
+      openModal(modalAudit);
+      fetchAdminAuditLogsModal();
+    });
+  }
+
+  const btnAuditPrev = document.getElementById("btn-audit-prev");
+  if (btnAuditPrev) {
+    btnAuditPrev.addEventListener("click", () => {
+      if (auditModalPage > 0) {
+        auditModalPage -= 1;
+        fetchAdminAuditLogsModal();
+      }
+    });
+  }
+
+  const btnAuditNext = document.getElementById("btn-audit-next");
+  if (btnAuditNext) {
+    btnAuditNext.addEventListener("click", () => {
+      auditModalPage += 1;
+      fetchAdminAuditLogsModal();
     });
   }
 

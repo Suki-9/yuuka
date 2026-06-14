@@ -2084,12 +2084,7 @@
               </span>
               <span class="hud-tag">AUDIT</span>
             </div>
-            <p class="description-text">セキュリティ関連の操作履歴です。action名でフィルタできます（例: auth.password_change）。</p>
-            <form id="admin-audit-filter-form" style="display: flex; gap: 12px; margin-top: 16px; margin-bottom: 16px;">
-              <input type="text" id="admin-audit-action-input" placeholder="action でフィルタ (空欄で全件)"
-                style="flex-grow: 1; font-family: var(--font-family-mono);">
-              <button type="submit" class="btn btn-secondary" style="white-space: nowrap;">絞り込み</button>
-            </form>
+            <p class="description-text">セキュリティ関連の操作履歴です。直近の数件を表示しています。全件の閲覧・絞り込みは「すべて表示」から行えます。</p>
             <div class="table-responsive">
               <table class="expense-table" style="width: 100%;">
                 <thead>
@@ -2103,6 +2098,11 @@
                 </thead>
                 <tbody id="admin-audit-tbody"></tbody>
               </table>
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+              <button type="button" id="btn-open-audit-modal" class="btn btn-secondary" style="white-space: nowrap;">
+                <span class="material-symbols-outlined">open_in_full</span>すべて表示
+              </button>
             </div>
           </div>
 
@@ -2363,6 +2363,48 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">設定を保存</button>
       </form>
+    </div>
+  </div>
+
+  <!-- Audit Logs Modal (全件・ページネーション) -->
+  <div id="modal-audit" class="modal">
+    <div class="modal-content wide-modal">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">receipt_long</span>監査ログ（全件）</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="admin-audit-filter-form" style="display: flex; gap: 12px; margin-top: 8px; margin-bottom: 16px;">
+        <input type="text" id="admin-audit-action-input" placeholder="action でフィルタ (空欄で全件)"
+          style="flex-grow: 1; font-family: var(--font-family-mono);">
+        <button type="submit" class="btn btn-secondary" style="white-space: nowrap;">絞り込み</button>
+      </form>
+      <div class="table-responsive">
+        <table class="expense-table" style="width: 100%;">
+          <thead>
+            <tr>
+              <th class="admin-table-th">日時</th>
+              <th class="admin-table-th">ユーザー</th>
+              <th class="admin-table-th">Action</th>
+              <th class="admin-table-th">対象</th>
+              <th class="admin-table-th">詳細</th>
+            </tr>
+          </thead>
+          <tbody id="admin-audit-modal-tbody"></tbody>
+        </table>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px;">
+        <span id="admin-audit-page-info" class="description-text" style="margin: 0;"></span>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="btn-audit-prev" class="btn btn-secondary" style="white-space: nowrap;">
+            <span class="material-symbols-outlined">chevron_left</span>前へ
+          </button>
+          <button type="button" id="btn-audit-next" class="btn btn-secondary" style="white-space: nowrap;">
+            次へ<span class="material-symbols-outlined">chevron_right</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 

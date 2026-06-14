@@ -9,7 +9,7 @@ import {
   deleteUser,
 } from "../../db/userRepo.js";
 import { destroyAllSessionsForUser } from "../../services/sessionService.js";
-import { addAuditLog, listAuditLogs } from "../../db/auditRepo.js";
+import { addAuditLog, listAuditLogs, countAuditLogs } from "../../db/auditRepo.js";
 import { listAllBots, suspendBot, unsuspendBot } from "../../db/botRepo.js";
 import { stopCustomBot, customClients, restartDefaultBot } from "../../bot.js";
 import { listInviteCodes, createInviteCode } from "../../db/inviteRepo.js";
@@ -197,7 +197,12 @@ export const adminRoutes: RouteDef[] = [
     async handler(ctx) {
       const action = ctx.url.searchParams.get("action") || undefined;
       const limit = Math.min(parseInt(ctx.url.searchParams.get("limit") || "200", 10), 500);
-      sendJson(ctx.res, 200, { success: true, logs: listAuditLogs(limit, action) });
+      const offset = Math.max(parseInt(ctx.url.searchParams.get("offset") || "0", 10), 0);
+      sendJson(ctx.res, 200, {
+        success: true,
+        logs: listAuditLogs(limit, action, offset),
+        total: countAuditLogs(action),
+      });
     },
   },
 

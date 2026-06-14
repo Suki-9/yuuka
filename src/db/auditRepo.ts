@@ -31,15 +31,32 @@ export function addAuditLog(
   ).run(userId, action, target ?? null, detail ?? null);
 }
 
-/** 監査ログの一覧取得（Admin専用画面用） */
-export function listAuditLogs(limit: number = 200, action?: string): AuditLogRecord[] {
+/** 監査ログの一覧取得（Admin専用画面用、ページネーション対応） */
+export function listAuditLogs(
+  limit: number = 200,
+  action?: string,
+  offset: number = 0
+): AuditLogRecord[] {
   const db = getDb();
   if (action) {
     return db
-      .prepare("SELECT * FROM audit_logs WHERE action LIKE ? ORDER BY id DESC LIMIT ?")
-      .all(`${action}%`, limit) as AuditLogRecord[];
+      .prepare("SELECT * FROM audit_logs WHERE action LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?")
+      .all(`${action}%`, limit, offset) as AuditLogRecord[];
   }
   return db
-    .prepare("SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?")
-    .all(limit) as AuditLogRecord[];
+    .prepare("SELECT * FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?")
+    .all(limit, offset) as AuditLogRecord[];
+}
+
+/** 監査ログの総件数（ページネーションの総ページ算出用） */
+export function countAuditLogs(action?: string): number {
+  const db = getDb();
+  if (action) {
+    const row = db
+      .prepare("SELECT COUNT(*) AS c FROM audit_logs WHERE action LIKE ?")
+      .get(`${action}%`) as { c: number };
+    return row.c;
+  }
+  const row = db.prepare("SELECT COUNT(*) AS c FROM audit_logs").get() as { c: number };
+  return row.c;
 }
