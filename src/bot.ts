@@ -35,6 +35,7 @@ import { getBotGenAI } from "./services/llmClient.js";
 import { consumeRateLimit, rateLimitMessage } from "./services/botRateLimit.js";
 import { importPersona, getPersonaById } from "./db/personaRepo.js";
 import { decryptText } from "./utils/crypto.js";
+import { toDiscordMarkdown } from "./utils/discordMarkdown.js";
 
 const DISCORD_CLIENT_OPTIONS = {
   intents: [
@@ -482,8 +483,11 @@ async function handleAssistantMessage(
       ...(result.files.length > 0 ? { files: result.files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
     };
 
-    if (result.text.length > 2000) {
-      const chunks = splitMessage(result.text, 2000);
+    // Discord非対応Markdownを互換表現へ変換（分割前の全文に適用）
+    const replyText = toDiscordMarkdown(result.text);
+
+    if (replyText.length > 2000) {
+      const chunks = splitMessage(replyText, 2000);
       for (let i = 0; i < chunks.length; i++) {
         const isLast = i === chunks.length - 1;
         const sent = await safeReply(message, {
@@ -493,7 +497,7 @@ async function handleAssistantMessage(
         if (!sent) break;
       }
     } else {
-      await safeReply(message, { content: result.text, ...attachOptions });
+      await safeReply(message, { content: replyText, ...attachOptions });
     }
   } catch (error) {
     if (typingInterval) {
@@ -696,8 +700,11 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         ...(responseFiles.length > 0 ? { files: responseFiles.map(f => ({ attachment: f.attachment, name: f.name })) } : {}),
       };
 
-      if (responseText.length > 2000) {
-        const chunks = splitMessage(responseText, 2000);
+      // Discord非対応Markdownを互換表現へ変換（分割前の全文に適用）
+      const replyText = toDiscordMarkdown(responseText);
+
+      if (replyText.length > 2000) {
+        const chunks = splitMessage(replyText, 2000);
         for (let i = 0; i < chunks.length; i++) {
           const isLast = i === chunks.length - 1;
           const sent = await safeReply(message, {
@@ -707,7 +714,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
           if (!sent) break; // 送信不能（トークン喪失等）なら以降のチャンクは諦める
         }
       } else {
-        await safeReply(message, { content: responseText, ...attachOptions });
+        await safeReply(message, { content: replyText, ...attachOptions });
       }
     } catch (error) {
       if (typingInterval) {

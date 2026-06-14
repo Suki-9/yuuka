@@ -3,6 +3,7 @@ import { client, customClients } from "../bot.js";
 import { listBotsForUser } from "../db/botRepo.js";
 import { getUserNotifyTarget } from "../db/userRepo.js";
 import { isGuildAssistantBot } from "./botCapabilities.js";
+import { toDiscordMarkdown } from "../utils/discordMarkdown.js";
 
 export interface NotifyPayload {
   content?: string;
@@ -65,7 +66,7 @@ export async function sendToUser(
   }
 
   const messageOptions = {
-    ...(payload.content ? { content: payload.content } : {}),
+    ...(payload.content ? { content: toDiscordMarkdown(payload.content) } : {}),
     ...(payload.embeds && payload.embeds.length > 0 ? { embeds: payload.embeds } : {}),
     ...(payload.files && payload.files.length > 0 ? { files: payload.files } : {}),
   };
