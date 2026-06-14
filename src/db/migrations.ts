@@ -664,9 +664,11 @@ export async function runMigrations(): Promise<void> {
       created_by TEXT,
       used_by TEXT,
       used_at TEXT,
+      revoked_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
   `);
+  ensureColumns(db, "invite_codes", [{ name: "revoked_at", ddl: "revoked_at TEXT" }]);
 
   // スキーマバージョンを記録
   db.prepare(

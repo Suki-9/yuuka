@@ -3694,7 +3694,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!data.success || !data.codes.length) {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 4;
+        td.colSpan = 5;
         td.style.textAlign = "center";
         td.style.padding = "20px";
         td.style.color = "var(--color-zinc-muted)";
@@ -3723,6 +3723,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (code.used_by) {
           statusSpan.className = "invite-status-used";
           statusSpan.textContent = "使用済み";
+        } else if (code.revoked_at) {
+          statusSpan.className = "invite-status-revoked";
+          statusSpan.textContent = "無効";
         } else {
           statusSpan.className = "invite-status-available";
           statusSpan.textContent = "利用可能";
@@ -3744,6 +3747,56 @@ document.addEventListener("DOMContentLoaded", () => {
         tdDate.style.color = "var(--color-zinc-muted)";
         tdDate.textContent = code.created_at;
         tr.appendChild(tdDate);
+
+        // 操作（未使用コードのみ無効化／削除可）
+        const tdAction = document.createElement("td");
+        tdAction.className = "admin-table-td";
+        if (!code.used_by) {
+          if (!code.revoked_at) {
+            const btnRevoke = document.createElement("button");
+            btnRevoke.className = "admin-btn-action";
+            btnRevoke.type = "button";
+            btnRevoke.textContent = "無効化";
+            btnRevoke.addEventListener("click", async () => {
+              if (!confirm(`招待コード「${code.code}」を無効化しますか？\n記録は残りますが、登録には使用できなくなります。`)) return;
+              try {
+                const r = await originalFetch(`/api/admin/invite-codes/${encodeURIComponent(code.code)}/revoke`, { method: "POST" });
+                const d = await r.json();
+                if (d.success) { fetchAdminInviteCodes(); fetchAdminStats(); }
+                else alert(d.message || "無効化に失敗しました。");
+              } catch (e) {
+                console.error("Invite code revoke failed");
+                alert("無効化処理中にエラーが発生しました。");
+              }
+            });
+            tdAction.appendChild(btnRevoke);
+          }
+
+          const btnDelete = document.createElement("button");
+          btnDelete.className = "admin-btn-action btn-danger";
+          btnDelete.type = "button";
+          btnDelete.style.marginLeft = "6px";
+          btnDelete.textContent = "削除";
+          btnDelete.addEventListener("click", async () => {
+            if (!confirm(`招待コード「${code.code}」を完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+            try {
+              const r = await originalFetch(`/api/admin/invite-codes/${encodeURIComponent(code.code)}`, { method: "DELETE" });
+              const d = await r.json();
+              if (d.success) { fetchAdminInviteCodes(); fetchAdminStats(); }
+              else alert(d.message || "削除に失敗しました。");
+            } catch (e) {
+              console.error("Invite code delete failed");
+              alert("削除処理中にエラーが発生しました。");
+            }
+          });
+          tdAction.appendChild(btnDelete);
+        } else {
+          const dash = document.createElement("span");
+          dash.style.color = "var(--color-zinc-muted)";
+          dash.textContent = "—";
+          tdAction.appendChild(dash);
+        }
+        tr.appendChild(tdAction);
 
         tbody.appendChild(tr);
       });

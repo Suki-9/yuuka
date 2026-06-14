@@ -1808,6 +1808,8 @@ textarea:focus {
 .modal-content {
   width: 100%;
   max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
   transform: translateY(12px);
   transition: var(--transition-smooth);
   border: 1px solid var(--border-matte);
@@ -2934,6 +2936,11 @@ textarea:focus {
 
 .invite-status-used {
   color: var(--color-zinc-muted);
+}
+
+.invite-status-revoked {
+  color: #ef4444;
+  font-weight: 700;
 }
 
 /* Discord ID masking style */
