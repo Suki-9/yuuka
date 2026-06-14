@@ -213,6 +213,7 @@ async function buildSystemInstruction(userId: string, richReplyEnabled: boolean)
 - レシート画像を受け取った場合、各商品を適切なカテゴリに分類し、'addExpense'関数（source: receipt_ocr）を使って記録してください。記録前に読み取り内容のプレビューを提示し、対応する支払い予定が存在しそうなら findSettlementCandidates で消込候補を確認してください（§3.4.2）。
 - 機能に関係ない雑談にもペルソナ設定に沿って自然に応じてください。
 - **エラー・失敗時の対応:** ブラウザ操作などのツール実行中にエラーが発生した場合、あるいはユーザーが求めた結果が最終的に得られなかった場合は、絶対に「処理が完了しました」のように正常終了したと誤解させる応答をしないでください。必ず「失敗しました」または「求めた結果が得られませんでした」と明記し、その具体的な理由やどの段階で失敗したかを論理的・客観的に伝えてください。
+- **【最重要】未実行の完了報告の禁止:** 「登録しました」「追加しました」「削除しました」「設定しました」「リマインドしておきました」のような操作完了の報告は、このターンで実際に対応するツール（関数）を呼び出し、その実行結果を受け取った場合に限り行ってください。ツールを呼び出さずに、頭の中で実行したつもりになって完了を報告することは固く禁止します。操作を行うと述べる場合は、必ずその場で対応する関数を呼び出してください。呼び出していない操作について「やっておきました」「しておきますね」と述べてはいけません。
 ${calendarInfo}`,
     contextNoteSection,
   ];
@@ -349,6 +350,28 @@ interface LoopResult {
 }
 
 /**
+ * 操作の「完了」を主張するテキストかどうかを判定する（完了ハルシネーション検知用）。
+ * Gemini が functionCall を出さず自然文だけで「登録しました」等と返した場合、
+ * 実際には何も実行されていないため、これを検知して1度だけ是正を促す。
+ * 誤検知を抑えるため、Bot のツール操作に紐づく強い過去形・意思表明パターンに限定する。
+ */
+function claimsActionCompleted(text: string): boolean {
+  if (!text) return false;
+  // 「登録しました」「追加しておきました」「設定しておきますね」等
+  const done = /(登録|追加|削除|設定|記録|保存|作成|更新|消込|予約|同期|変更|オン|オフ|有効化|無効化)(し(ました|ておきました|ておきます|ますね?))/;
+  // 「やっておきました」「しておきますね」等の汎用的な実行表明
+  const generic = /(やって|して)おき(ました|ます(ね)?)/;
+  return done.test(text) || generic.test(text);
+}
+
+/** 未実行の完了報告を検知した際に注入する是正プロンプト */
+const COMPLETION_CORRECTION_PROMPT =
+  "【システム検証】あなたは今回のやり取りで一度もツール（関数）を呼び出していません。" +
+  "そのため、上記で報告した操作は実際には一切実行されていません。" +
+  "本当にその操作を行うのであれば、今すぐ対応する関数を呼び出してください。" +
+  "操作する必要がない、あるいは実行できない場合は、完了したかのように装わず、その旨を正直に伝えてください。";
+
+/**
  * Function Calling ループを実行し、最終テキスト応答を返す（最大10回）。
  * 秘書・汎用モードで共通。マクロ用の操作履歴記録（actionRecorder）は秘書のみ有効化する。
  */
@@ -370,6 +393,8 @@ async function runFunctionCallingLoop(
 
   let iterations = 0;
   const maxIterations = 10;
+  let totalFunctionCalls = 0;
+  let correctionAttempted = false;
 
   while (iterations < maxIterations) {
     const candidate = response.candidates?.[0];
@@ -379,7 +404,30 @@ async function runFunctionCallingLoop(
       (p): p is Part & { functionCall: FunctionCall } => "functionCall" in p
     );
 
-    if (functionCalls.length === 0) break;
+    if (functionCalls.length === 0) {
+      // 完了ハルシネーション検知: このターンで一度も関数を呼ばずに操作完了を主張している場合、
+      // 実際には何も実行されていないため、1度だけ是正を促して再生成する（無限ループ防止のため1回限り）。
+      if (totalFunctionCalls === 0 && !correctionAttempted) {
+        let currentText = "";
+        try {
+          currentText = response.text();
+        } catch {}
+        if (claimsActionCompleted(currentText)) {
+          console.log("⚠️ 未実行の完了報告を検知。是正プロンプトを注入して再生成します。");
+          correctionAttempted = true;
+          contents.push(candidate.content);
+          contents.push({ role: "user", parts: [{ text: COMPLETION_CORRECTION_PROMPT }] });
+          onStatusChange?.("thinking");
+          result = await generateWithRetry(ai, systemInstruction, registry.declarations, contents, 3);
+          response = result.response;
+          iterations++;
+          continue;
+        }
+      }
+      break;
+    }
+
+    totalFunctionCalls += functionCalls.length;
 
     // 各function callを実行
     const functionResponseParts: Part[] = [];
@@ -760,6 +808,7 @@ function buildGuildSystemInstruction(
 - 「先週」「昨日」などの相対的な日時表現は、上記の現在日時を基準に正確に解釈してください。
 - 確認必須（要承認）と明記された外部ツール（MCP拡張）は、実行内容（ツール名・引数）を発話者へ提示して承認を得てから呼び出してください。
 - 不確かな情報を事実のように伝えないでください。ツール実行に失敗した場合や求められた結果が得られなかった場合は、正常終了したと誤解させる応答をせず、必ず失敗したことと理由を明記してください。
+- **【最重要】未実行の完了報告の禁止:** 操作の完了報告（「登録しました」「追加しました」「設定しました」「やっておきました」等）は、このターンで実際に対応するツール（関数）を呼び出し、その実行結果を受け取った場合に限り行ってください。ツールを呼ばずに完了したかのように装うことは固く禁止します。操作を行うなら必ずその場で関数を呼び出してください。
 - 機能に関係ない雑談にもペルソナ設定に沿って自然に応じてください。`;
 
   // 共有ノート（要件 §4.6.2: ギルド会話のみ。ペルソナの後に注入）
