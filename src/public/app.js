@@ -2008,12 +2008,12 @@ document.addEventListener("DOMContentLoaded", () => {
       tdAmount.textContent = `¥${plan.amount.toLocaleString()}`;
 
       const tdActions = document.createElement("td");
-      tdActions.style.textAlign = "right";
+      tdActions.style.cssText = "display:flex;justify-content:flex-end;align-items:center;gap:4px;";
 
       if (isPending) {
         const payBtn = document.createElement("button");
         payBtn.className = "btn btn-primary btn-sm";
-        payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;margin-right:4px;";
+        payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;line-height:1;";
         payBtn.textContent = "支払う";
         payBtn.addEventListener("click", async () => {
           if (!confirm(`「${plan.title}」¥${plan.amount.toLocaleString()} の支払いを完了しますか？\n家計簿に自動記録（消込）されます。`)) return;
@@ -2032,9 +2032,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const delBtn = document.createElement("button");
         delBtn.className = "btn btn-secondary btn-sm";
-        delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;";
+        delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;line-height:1;display:inline-flex;align-items:center;";
         delBtn.title = "支払い予定をキャンセル";
-        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">delete</span>`;
+        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:15px;line-height:1;">delete</span>`;
         delBtn.addEventListener("click", async () => {
           if (!confirm(`「${plan.title}」をキャンセルしますか？`)) return;
           try {
