@@ -13,6 +13,11 @@ export interface ToolContext {
   botId: string;
   /** DiscordユーザーID（データ分離キー。全リポジトリ呼び出しに必須） */
   userId: string;
+  /**
+   * 発話ギルドID（MCPアシスタント等のギルド常駐Botでのみ設定。DM・秘書利用では undefined）。
+   * bot_id × guild_id スコープのFunction（共有ノート・メンバー管理等）が参照する。
+   */
+  guildId?: string;
   /** リッチ返信キュー（push すると返信メッセージに添付される） */
   embeds: EmbedBuilder[];
   /** ファイル添付キュー（グラフPNG等） */

@@ -35,6 +35,7 @@ import {
 import { startCustomBot, stopCustomBot, restartDefaultBot } from "../../bot.js";
 import { encryptText, decryptText } from "../../utils/crypto.js";
 import { getCachedCalendars, invalidateCalendarCache } from "../../services/googleCalendarService.js";
+import { extractDriveFolderId } from "../../services/googleDriveService.js";
 
 // ─── ユーザー設定・ステータス HTTPルート ─────────────────────────────────────
 
@@ -488,11 +489,26 @@ export const settingsRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       const { enabled, folderId, intervalHours, generations } = ctx.body as Record<string, unknown>;
+
+      // フォルダ指定はフォルダID単体・Google DriveのフォルダURLのどちらも受け付ける
+      let normalizedFolderId: string | undefined = undefined;
+      if (typeof folderId === "string" && folderId.trim()) {
+        const extracted = extractDriveFolderId(folderId);
+        if (!extracted) {
+          sendJson(ctx.res, 400, {
+            success: false,
+            message: "バックアップ先フォルダの指定が不正です。フォルダIDまたはGoogle DriveのフォルダURLを入力してください。",
+          });
+          return;
+        }
+        normalizedFolderId = extracted;
+      }
+
       updateUserBackupSettings(ctx.user!.discordId, {
         enabled: enabled === true,
         intervalHours: Number(intervalHours) || 24,
         generations: Number(generations) || 7,
-        folderId: typeof folderId === "string" && folderId.trim() ? folderId.trim() : undefined,
+        folderId: normalizedFolderId,
       });
       sendJson(ctx.res, 200, { success: true, message: "バックアップ設定を保存しました。" });
     },

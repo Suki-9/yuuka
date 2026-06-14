@@ -3,6 +3,7 @@ import { SchemaType } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
   listServersForUser,
+  listServersForBot,
   parseToolsCache,
   type McpServerRecord,
   type McpToolDef,
@@ -104,20 +105,15 @@ async function ensureFreshToolsCache(server: McpServerRecord): Promise<McpToolDe
 }
 
 /**
- * ユーザーが利用可能なMCP Toolを FunctionModule として動的生成する。
- * gemini.ts が processMessage 毎に呼び出し、静的モジュールとマージする。
+ * MCPサーバー群から FunctionModule を構築する共通処理。
+ * @param isStillAvailable 呼び出し時点の利用可能性の再検証（スコープ毎に異なる §4.4.3 / §4.5）
  */
-export async function getMcpFunctionModuleForUser(userId: string): Promise<FunctionModule> {
+async function buildMcpFunctionModule(
+  servers: McpServerRecord[],
+  isStillAvailable: (ctx: ToolContext, serverId: number) => boolean
+): Promise<FunctionModule> {
   const declarations: FunctionDeclaration[] = [];
   const handlers: FunctionModule["handlers"] = {};
-
-  let servers: McpServerRecord[];
-  try {
-    servers = listServersForUser(userId).filter((s) => s.enabled === 1);
-  } catch (err) {
-    console.error("[MCP] サーバー一覧の取得に失敗しました:", err);
-    return { declarations, handlers };
-  }
 
   if (servers.length === 0) {
     return { declarations, handlers };
@@ -162,10 +158,8 @@ export async function getMcpFunctionModuleForUser(userId: string): Promise<Funct
       const serverId = server.id;
       const serverName = server.name;
       handlers[fnName] = async (ctx: ToolContext, args: Record<string, unknown>): Promise<string> => {
-        // セキュリティ: 呼び出し時点でも利用可能性（本人 or システムレベル）を再検証する（§4.4.3）
-        const available = listServersForUser(ctx.userId).some(
-          (s) => s.id === serverId && s.enabled === 1
-        );
+        // セキュリティ: 呼び出し時点でも利用可能性を再検証する（§4.4.3）
+        const available = isStillAvailable(ctx, serverId);
         if (!available) {
           return JSON.stringify({
             success: false,
@@ -199,4 +193,42 @@ export async function getMcpFunctionModuleForUser(userId: string): Promise<Funct
   }
 
   return { declarations, handlers };
+}
+
+/**
+ * ユーザーが利用可能なMCP Toolを FunctionModule として動的生成する。
+ * gemini.ts が processMessage 毎に呼び出し、静的モジュールとマージする。
+ */
+export async function getMcpFunctionModuleForUser(userId: string): Promise<FunctionModule> {
+  let servers: McpServerRecord[];
+  try {
+    servers = listServersForUser(userId).filter((s) => s.enabled === 1);
+  } catch (err) {
+    console.error("[MCP] サーバー一覧の取得に失敗しました:", err);
+    return { declarations: [], handlers: {} };
+  }
+
+  return buildMcpFunctionModule(servers, (ctx, serverId) =>
+    listServersForUser(ctx.userId).some((s) => s.id === serverId && s.enabled === 1)
+  );
+}
+
+/**
+ * Botインスタンスが利用可能なMCP Toolを FunctionModule として動的生成する
+ * （bot_attributes_requirements.md §4.5: bot_mcp_links で紐付けたサーバー + システムレベルのみ。
+ *   発話ユーザー個人のMCPサーバーは参照しない）。
+ * 監査ログは既存方針どおり発話ユーザーを actor として記録される（要件 §6）。
+ */
+export async function getMcpFunctionModuleForBot(botId: string): Promise<FunctionModule> {
+  let servers: McpServerRecord[];
+  try {
+    servers = listServersForBot(botId).filter((s) => s.enabled === 1);
+  } catch (err) {
+    console.error(`[MCP] Bot ${botId} のサーバー一覧の取得に失敗しました:`, err);
+    return { declarations: [], handlers: {} };
+  }
+
+  return buildMcpFunctionModule(servers, (ctx, serverId) =>
+    listServersForBot(ctx.botId).some((s) => s.id === serverId && s.enabled === 1)
+  );
 }

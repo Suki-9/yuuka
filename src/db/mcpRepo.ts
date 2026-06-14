@@ -76,6 +76,23 @@ export function listServersForUser(userId: string): McpServerRecord[] {
     .all(userId) as McpServerRecord[];
 }
 
+/**
+ * Botが利用可能なMCPサーバー一覧（bot_attributes_requirements.md §4.5）。
+ * 「bot_mcp_links で紐付けられたサーバー + システムレベル(user_id IS NULL)サーバー」のみ。
+ * 発話ユーザー個人のMCPサーバーは参照しない（秘書プリセットとの差分）。
+ */
+export function listServersForBot(botId: string): McpServerRecord[] {
+  const db = getDb();
+  return db
+    .prepare(
+      `SELECT DISTINCT s.* FROM mcp_servers s
+       LEFT JOIN bot_mcp_links l ON l.mcp_server_id = s.id AND l.bot_id = ?
+       WHERE l.id IS NOT NULL OR s.user_id IS NULL
+       ORDER BY s.created_at ASC`
+    )
+    .all(botId) as McpServerRecord[];
+}
+
 /** 管理画面用の一覧（scope: 自分のもの or システムレベル） */
 export function listServers(userId: string | null): McpServerRecord[] {
   const db = getDb();

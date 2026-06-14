@@ -9,6 +9,7 @@ import { registerRoutes, dispatchRoute } from "./server/routeRegistry.js";
 import { authRoutes } from "./server/routes/authRoutes.js";
 import { settingsRoutes } from "./server/routes/settingsRoutes.js";
 import { botRoutes } from "./server/routes/botRoutes.js";
+import { botAttributeRoutes } from "./server/routes/botAttributeRoutes.js";
 import { todoRoutes } from "./server/routes/todoRoutes.js";
 import { scheduleRoutes } from "./server/routes/scheduleRoutes.js";
 import { financeRoutes } from "./server/routes/financeRoutes.js";
@@ -25,6 +26,7 @@ import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
 registerRoutes(authRoutes);      // 認証・登録（§5.4）
 registerRoutes(settingsRoutes);  // ユーザー設定・ステータス・Google OAuth
 registerRoutes(botRoutes);       // Botインスタンス・共有（§5.1, §5.2）
+registerRoutes(botAttributeRoutes); // Bot属性・汎用モード設定（bot_attributes_requirements.md）
 registerRoutes(todoRoutes);      // ToDo（§3.2）
 registerRoutes(scheduleRoutes);  // 予定（§3.2）
 registerRoutes(financeRoutes);   // 家計・予算・支払い予定（§3.4）

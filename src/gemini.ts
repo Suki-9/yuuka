@@ -6,23 +6,36 @@ import {
 import type { EmbedBuilder } from "discord.js";
 import fs from "node:fs";
 import path from "node:path";
-import { getBaseFunctionModules } from "./functions/index.js";
+import {
+  getFunctionModulesForCapabilities,
+  getGuildAssistantFunctionModules,
+} from "./functions/index.js";
 import { buildFunctionRegistry } from "./functions/registry.js";
-import { getMcpFunctionModuleForUser } from "./functions/mcpDynamic.js";
+import { getMcpFunctionModuleForUser, getMcpFunctionModuleForBot } from "./functions/mcpDynamic.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import {
   addMessageLog,
   getRecentContext,
   resolveReplyChain,
+  addGuildMessageLog,
+  getGuildContext,
+  resolveGuildReplyChain,
+  addBotDmMessageLog,
+  getBotDmContext,
+  GUILD_CONTEXT_LIMIT,
+  type ContextEntry,
 } from "./db/messageLogRepo.js";
-import { getActivePersonaPrompt } from "./db/personaRepo.js";
+import { getActivePersonaPrompt, getPersonaById } from "./db/personaRepo.js";
 import { getContextNote } from "./db/contextNoteRepo.js";
+import { getBotUserNote, getBotGuildNote } from "./db/botNoteRepo.js";
+import { getBotById, type BotRecord } from "./db/botRepo.js";
+import { resolveBotCapabilities } from "./services/botCapabilities.js";
 import { recordFunctionCall } from "./services/actionRecorder.js";
 import {
   getUserGoogleConfig,
   getUserRichReplyEnabled,
 } from "./db/userRepo.js";
-import { getUserGenAI } from "./services/llmClient.js";
+import { getUserGenAI, getBotGenAI } from "./services/llmClient.js";
 import { config } from "./config.js";
 import type { ToolContext, FunctionModule } from "./types/contracts.js";
 
@@ -200,6 +213,7 @@ async function buildSystemInstruction(userId: string, richReplyEnabled: boolean)
 - レシート画像を受け取った場合、各商品を適切なカテゴリに分類し、'addExpense'関数（source: receipt_ocr）を使って記録してください。記録前に読み取り内容のプレビューを提示し、対応する支払い予定が存在しそうなら findSettlementCandidates で消込候補を確認してください（§3.4.2）。
 - 機能に関係ない雑談にもペルソナ設定に沿って自然に応じてください。
 - **エラー・失敗時の対応:** ブラウザ操作などのツール実行中にエラーが発生した場合、あるいはユーザーが求めた結果が最終的に得られなかった場合は、絶対に「処理が完了しました」のように正常終了したと誤解させる応答をしないでください。必ず「失敗しました」または「求めた結果が得られませんでした」と明記し、その具体的な理由やどの段階で失敗したかを論理的・客観的に伝えてください。
+- **【最重要】未実行の完了報告の禁止:** 「登録しました」「追加しました」「削除しました」「設定しました」「リマインドしておきました」のような操作完了の報告は、このターンで実際に対応するツール（関数）を呼び出し、その実行結果を受け取った場合に限り行ってください。ツールを呼び出さずに、頭の中で実行したつもりになって完了を報告することは固く禁止します。操作を行うと述べる場合は、必ずその場で対応する関数を呼び出してください。呼び出していない操作について「やっておきました」「しておきますね」と述べてはいけません。
 ${calendarInfo}`,
     contextNoteSection,
   ];
@@ -269,21 +283,20 @@ function sanitizeArgsForLog(name: string, args: Record<string, unknown>): string
   return JSON.stringify(masked).slice(0, 500);
 }
 
+/** GenAI ハンドル（getUserGenAI / getBotGenAI の戻り値） */
+type GenAiHandle = NonNullable<ReturnType<typeof getUserGenAI>>;
+
 /**
- * リトライ付きでGemini APIを呼び出す（ユーザー個別のAPIキー §4.2）
+ * リトライ付きでGemini APIを呼び出す。
+ * 実行キーは呼び出し側が解決する（秘書: ユーザー個別キー §4.2 / 汎用モード: Bot専用キー）。
  */
 async function generateWithRetry(
-  userId: string,
+  ai: GenAiHandle,
   systemInstruction: string,
   declarations: import("@google/generative-ai").FunctionDeclaration[],
   contents: Content[],
   maxRetries: number = 3
 ): Promise<import("@google/generative-ai").GenerateContentResult> {
-  const ai = getUserGenAI(userId);
-  if (!ai) {
-    throw new Error("Gemini API Keyが設定されていません。管理画面からあなた専用のAPIキーを設定してください。");
-  }
-
   const model = ai.genAI.getGenerativeModel(
     {
       model: ai.model,
@@ -326,6 +339,176 @@ async function generateWithRetry(
     }
   }
   throw new Error("リトライ上限に達しました");
+}
+
+// ─── Function Calling ループ（秘書・汎用モード共通） ─────────────────────────
+
+interface LoopResult {
+  text: string;
+  browserToolCalled: boolean;
+  browserToolFailed: boolean;
+}
+
+/**
+ * 操作の「完了」を主張するテキストかどうかを判定する（完了ハルシネーション検知用）。
+ * Gemini が functionCall を出さず自然文だけで「登録しました」等と返した場合、
+ * 実際には何も実行されていないため、これを検知して1度だけ是正を促す。
+ * 誤検知を抑えるため、Bot のツール操作に紐づく強い過去形・意思表明パターンに限定する。
+ */
+function claimsActionCompleted(text: string): boolean {
+  if (!text) return false;
+  // 「登録しました」「追加しておきました」「設定しておきますね」等
+  const done = /(登録|追加|削除|設定|記録|保存|作成|更新|消込|予約|同期|変更|オン|オフ|有効化|無効化)(し(ました|ておきました|ておきます|ますね?))/;
+  // 「やっておきました」「しておきますね」等の汎用的な実行表明
+  const generic = /(やって|して)おき(ました|ます(ね)?)/;
+  return done.test(text) || generic.test(text);
+}
+
+/** 未実行の完了報告を検知した際に注入する是正プロンプト */
+const COMPLETION_CORRECTION_PROMPT =
+  "【システム検証】あなたは今回のやり取りで一度もツール（関数）を呼び出していません。" +
+  "そのため、上記で報告した操作は実際には一切実行されていません。" +
+  "本当にその操作を行うのであれば、今すぐ対応する関数を呼び出してください。" +
+  "操作する必要がない、あるいは実行できない場合は、完了したかのように装わず、その旨を正直に伝えてください。";
+
+/**
+ * Function Calling ループを実行し、最終テキスト応答を返す（最大10回）。
+ * 秘書・汎用モードで共通。マクロ用の操作履歴記録（actionRecorder）は秘書のみ有効化する。
+ */
+async function runFunctionCallingLoop(
+  ai: GenAiHandle,
+  systemInstruction: string,
+  registry: ReturnType<typeof buildFunctionRegistry>,
+  contents: Content[],
+  ctx: ToolContext,
+  onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+  options: { recordActions?: boolean } = {}
+): Promise<LoopResult> {
+  let browserToolCalled = false;
+  let browserToolFailed = false;
+
+  onStatusChange?.("thinking");
+  let result = await generateWithRetry(ai, systemInstruction, registry.declarations, contents, 3);
+  let response = result.response;
+
+  let iterations = 0;
+  const maxIterations = 10;
+  let totalFunctionCalls = 0;
+  let correctionAttempted = false;
+
+  while (iterations < maxIterations) {
+    const candidate = response.candidates?.[0];
+    if (!candidate) break;
+
+    const functionCalls = candidate.content.parts.filter(
+      (p): p is Part & { functionCall: FunctionCall } => "functionCall" in p
+    );
+
+    if (functionCalls.length === 0) {
+      // 完了ハルシネーション検知: このターンで一度も関数を呼ばずに操作完了を主張している場合、
+      // 実際には何も実行されていないため、1度だけ是正を促して再生成する（無限ループ防止のため1回限り）。
+      if (totalFunctionCalls === 0 && !correctionAttempted) {
+        let currentText = "";
+        try {
+          currentText = response.text();
+        } catch {}
+        if (claimsActionCompleted(currentText)) {
+          console.log("⚠️ 未実行の完了報告を検知。是正プロンプトを注入して再生成します。");
+          correctionAttempted = true;
+          contents.push(candidate.content);
+          contents.push({ role: "user", parts: [{ text: COMPLETION_CORRECTION_PROMPT }] });
+          onStatusChange?.("thinking");
+          result = await generateWithRetry(ai, systemInstruction, registry.declarations, contents, 3);
+          response = result.response;
+          iterations++;
+          continue;
+        }
+      }
+      break;
+    }
+
+    totalFunctionCalls += functionCalls.length;
+
+    // 各function callを実行
+    const functionResponseParts: Part[] = [];
+
+    for (const fc of functionCalls) {
+      const { name, args } = fc.functionCall;
+      console.log(`🔧 Function Call: ${name}`, sanitizeArgsForLog(name, (args ?? {}) as Record<string, unknown>));
+
+      const functionResult = await registry.dispatch(ctx, name, (args ?? {}) as Record<string, unknown>);
+      console.log(`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`);
+
+      // マクロ登録用に操作履歴を記録（§3.6 実行ベース登録。秘匿系は記録側で除外される）
+      if (options.recordActions) {
+        recordFunctionCall(ctx.userId, name, (args ?? {}) as Record<string, unknown>).catch(() => {});
+      }
+
+      // ブラウザツールの実行と成否判定
+      if (
+        name.startsWith("browserInteractive") ||
+        name === "browserFillCredential" ||
+        ["fetchDynamicPage", "takePageScreenshot", "searchWeb"].includes(name)
+      ) {
+        browserToolCalled = true;
+        try {
+          const parsed = JSON.parse(functionResult);
+          if (parsed && parsed.success === false) {
+            browserToolFailed = true;
+          }
+        } catch {
+          browserToolFailed = true;
+        }
+      }
+
+      let parsedResult: object;
+      try {
+        parsedResult = JSON.parse(functionResult) as object;
+      } catch {
+        parsedResult = { result: functionResult };
+      }
+
+      functionResponseParts.push({
+        functionResponse: {
+          name,
+          response: parsedResult,
+        },
+      });
+    }
+
+    // Function結果を含めて再度Geminiに送信
+    contents.push(candidate.content);
+    contents.push({ role: "user", parts: functionResponseParts });
+
+    // 最後のテキスト生成の直前で書き込み中ステータスに変更
+    onStatusChange?.("writing");
+
+    result = await generateWithRetry(ai, systemInstruction, registry.declarations, contents, 3);
+    response = result.response;
+    iterations++;
+  }
+
+  if (iterations >= maxIterations) {
+    browserToolFailed = true;
+  }
+
+  // ステータス表示の自然な演出のための遅延
+  if (iterations === 0) {
+    onStatusChange?.("writing");
+    await sleep(1000);
+  } else {
+    await sleep(800);
+  }
+
+  // 最終テキスト応答を取得
+  let text = "";
+  try {
+    text = response.text();
+  } catch (e) {
+    console.warn("response.text() retrieval failed:", e);
+  }
+
+  return { text, browserToolCalled, browserToolFailed };
 }
 
 // ─── メッセージ処理本体 ──────────────────────────────────────────────────────
@@ -430,116 +613,38 @@ export async function processMessage(
     }
   }
 
-  // 6. Function レジストリの構築（静的モジュール + ユーザーのMCP動的ツール §4.4）
+  // 6. Function レジストリの構築（属性ゲート §4.2: 保持ケーパビリティのモジュールのみ + MCP動的 §4.4）
+  //    秘書プリセット（既存Bot・system_default 含む）では従来のフルセットと完全に一致する。
+  const caps = resolveBotCapabilities(botId);
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
-  try {
-    mcpModule = await getMcpFunctionModuleForUser(userId);
-  } catch (err) {
-    console.error("MCP動的ツールの取得に失敗しました（スキップ）:", err);
+  if (caps.has("mcp")) {
+    try {
+      mcpModule = await getMcpFunctionModuleForUser(userId);
+    } catch (err) {
+      console.error("MCP動的ツールの取得に失敗しました（スキップ）:", err);
+    }
   }
-  const registry = buildFunctionRegistry([...getBaseFunctionModules(), mcpModule]);
+  const registry = buildFunctionRegistry([...getFunctionModulesForCapabilities(caps), mcpModule]);
 
   const systemInstruction = await buildSystemInstruction(userId, richReplyEnabled);
 
-  let browserToolCalled = false;
-  let browserToolFailed = false;
-
   try {
-    onStatusChange?.("thinking");
-    let result = await generateWithRetry(userId, systemInstruction, registry.declarations, contents, 3);
-    let response = result.response;
-
-    // Function Calling ループ（最大10回まで）
-    let iterations = 0;
-    const maxIterations = 10;
-
-    while (iterations < maxIterations) {
-      const candidate = response.candidates?.[0];
-      if (!candidate) break;
-
-      const functionCalls = candidate.content.parts.filter(
-        (p): p is Part & { functionCall: FunctionCall } => "functionCall" in p
-      );
-
-      if (functionCalls.length === 0) break;
-
-      // 各function callを実行
-      const functionResponseParts: Part[] = [];
-
-      for (const fc of functionCalls) {
-        const { name, args } = fc.functionCall;
-        console.log(`🔧 Function Call: ${name}`, sanitizeArgsForLog(name, (args ?? {}) as Record<string, unknown>));
-
-        const functionResult = await registry.dispatch(ctx, name, (args ?? {}) as Record<string, unknown>);
-        console.log(`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`);
-
-        // マクロ登録用に操作履歴を記録（§3.6 実行ベース登録。秘匿系は記録側で除外される）
-        recordFunctionCall(userId, name, (args ?? {}) as Record<string, unknown>).catch(() => {});
-
-        // ブラウザツールの実行と成否判定
-        if (
-          name.startsWith("browserInteractive") ||
-          name === "browserFillCredential" ||
-          ["fetchDynamicPage", "takePageScreenshot", "searchWeb"].includes(name)
-        ) {
-          browserToolCalled = true;
-          try {
-            const parsed = JSON.parse(functionResult);
-            if (parsed && parsed.success === false) {
-              browserToolFailed = true;
-            }
-          } catch {
-            browserToolFailed = true;
-          }
-        }
-
-        let parsedResult: object;
-        try {
-          parsedResult = JSON.parse(functionResult) as object;
-        } catch {
-          parsedResult = { result: functionResult };
-        }
-
-        functionResponseParts.push({
-          functionResponse: {
-            name,
-            response: parsedResult,
-          },
-        });
-      }
-
-      // Function結果を含めて再度Geminiに送信
-      contents.push(candidate.content);
-      contents.push({ role: "user", parts: functionResponseParts });
-
-      // 最後のテキスト生成の直前で書き込み中ステータスに変更
-      onStatusChange?.("writing");
-
-      result = await generateWithRetry(userId, systemInstruction, registry.declarations, contents, 3);
-      response = result.response;
-      iterations++;
+    const ai = getUserGenAI(userId);
+    if (!ai) {
+      throw new Error("Gemini API Keyが設定されていません。管理画面からあなた専用のAPIキーを設定してください。");
     }
 
-    if (iterations >= maxIterations) {
-      browserToolFailed = true;
-    }
+    const { text, browserToolCalled, browserToolFailed } = await runFunctionCallingLoop(
+      ai,
+      systemInstruction,
+      registry,
+      contents,
+      ctx,
+      onStatusChange,
+      { recordActions: true }
+    );
 
-    // ステータス表示の自然な演出のための遅延
-    if (iterations === 0) {
-      onStatusChange?.("writing");
-      await sleep(1000);
-    } else {
-      await sleep(800);
-    }
-
-    // 最終テキスト応答を取得して永続ログへ保存
-    let text = "";
-    try {
-      text = response.text();
-    } catch (e) {
-      console.warn("response.text() retrieval failed:", e);
-    }
-
+    // 最終テキスト応答を永続ログへ保存
     if (text && text.trim()) {
       await addMessageLog(userId, botId, "assistant", text);
       return { text, embeds: ctx.embeds, files: ctx.files };
@@ -563,5 +668,378 @@ export async function processMessage(
     }
     console.error("Gemini API エラー:", error);
     throw error;
+  }
+}
+
+// ─── 汎用モード（MCPアシスタント）のメッセージ処理 ───────────────────────────
+// bot_attributes_requirements.md §4.3: ギルド常駐の簡易Bot（MCP + ペルソナ + メモリのみ）。
+// LLM呼び出しは Bot専用キー（getBotGenAI）で実行し、発話ユーザーの個人キーは使用しない。
+
+/** ギルド会話の発話者情報（メンバー制 §4.3.3: Webアカウント未登録のDiscordユーザーも可） */
+export interface GuildSpeaker {
+  userId: string;
+  displayName: string;
+}
+
+/** 履歴・返信チェーン・添付を Gemini Contents 形式へ組み立てる（汎用モード共通） */
+function buildContentsFromHistory(
+  history: ContextEntry[],
+  message: ChatMessage,
+  replyChainText?: string
+): Content[] {
+  const contents: Content[] = [];
+
+  if (replyChainText) {
+    contents.push({
+      role: "user",
+      parts: [{ text: `[返信チェーン（このメッセージは以下のやり取りへの返信です。古い順）]\n${replyChainText}\n[返信チェーンここまで]` }],
+    });
+    contents.push({ role: "model", parts: [{ text: "（返信チェーンの文脈を把握しました）" }] });
+  }
+
+  // 履歴をGeminiのContents形式へ変換（同ロール連続は結合して交互にする）
+  for (const entry of history) {
+    const role = entry.role === "assistant" ? "model" : "user";
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) {
+      const lastPart = last.parts[0];
+      if ("text" in lastPart) {
+        lastPart.text += "\n" + entry.content;
+      }
+    } else {
+      contents.push({ role, parts: [{ text: entry.content }] });
+    }
+  }
+
+  if (contents.length === 0) {
+    contents.push({ role: "user", parts: [{ text: message.text || "" }] });
+  }
+
+  // 最新メッセージの画像・音声を直近のユーザーコンテンツへ添付
+  const inlineParts: Part[] = [];
+  if (message.imageData) {
+    inlineParts.push({ inlineData: { data: message.imageData.data, mimeType: message.imageData.mimeType } });
+  }
+  if (message.audioData) {
+    inlineParts.push({ inlineData: { data: message.audioData.data, mimeType: message.audioData.mimeType } });
+  }
+  if (inlineParts.length > 0) {
+    const lastContent = contents[contents.length - 1];
+    if (lastContent && lastContent.role === "user") {
+      lastContent.parts.push(...inlineParts);
+    } else {
+      contents.push({ role: "user", parts: [{ text: "" }, ...inlineParts] });
+    }
+  }
+
+  return contents;
+}
+
+/**
+ * 汎用モードのシステムプロンプトを構築する。
+ * 注入順は要件 §4.6.2 のとおり: ペルソナ → 共有ノート → 発話者の個人ノート。
+ */
+function buildGuildSystemInstruction(
+  bot: BotRecord,
+  scope: "guild" | "dm",
+  guildId: string | null,
+  speaker: GuildSpeaker
+): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][now.getDay()];
+  const dateTimeStr = `${year}年${month}月${date}日 (${dayOfWeek}) ${hours}時${minutes}分${seconds}秒`;
+
+  // ペルソナ（要件 §4.4: Bot単位ペルソナ。未設定・削除済みは既存デフォルトへフォールバック）
+  let personaSection = DEFAULT_PERSONA;
+  if (bot.persona_id) {
+    try {
+      const persona = getPersonaById(bot.persona_id);
+      if (persona?.prompt?.trim()) {
+        personaSection = `# あなたの役割・キャラクター設定（ペルソナ）\n${persona.prompt.trim()}`;
+      }
+    } catch (err) {
+      console.error("Bot単位ペルソナの取得に失敗しました:", err);
+    }
+  }
+
+  const modeSection =
+    scope === "guild"
+      ? `
+# あなたの動作モード（サーバー常駐アシスタント）
+あなたはDiscordサーバーに常駐し、登録された利用メンバーをサポートするアシスタントBotです。
+- 会話のコンテキストはこのサーバーの利用メンバー全員で共有されています。過去の発言には「[名前]: 」の形式で発話者名が付いています。
+- 返信は今あなたにメンションした発話者に向けて行ってください。
+- 接続されたMCP拡張ツール・共有ノート・個人ノート・過去会話の検索を活用して、サーバー運用を支援してください。
+- タスク管理・家計簿・ブラウザ操作などの秘書機能はこのBotにはありません。求められた場合は、その機能を持たないことを丁寧に伝えてください。
+
+# 利用メンバー管理のルール
+- メンバーから「@xx を追加して」と依頼されたら addBotMember で新しい利用メンバーを追加できます（メンバーなら誰でも依頼可能）。
+- メンバーの削除は「本人による自己削除（私を外して）」と「Bot作成者」のみが行えます。他人の削除依頼には応じないでください。
+- 「誰が使えるの？」には listBotMembers で答えてください。
+
+# 記憶（ノート）の使い分けルール（重要）
+- **個人ノート（appendMyNote）**: 発話者本人に関する長期的な情報。本人との会話でのみ参照されます。
+- **共有ノート（appendGuildNote）**: サーバー全体で共有すべき知識（ルール・用語・運用手順）。メンバー全員との会話で参照されます。
+- どちらに保存すべきか曖昧な場合は発話者に確認してください。`
+      : `
+# あなたの動作モード（owner との動作確認DM）
+あなたはDiscordサーバー常駐型のアシスタントBotで、現在はBot作成者（owner）とのダイレクトメッセージで動作確認・管理用途の会話をしています。
+- このDMの会話コンテキストはサーバーでの会話とは分離されています。
+- 接続されたMCP拡張ツールと個人ノートを利用できます。サーバー（ギルド）スコープの機能（共有ノート・メンバー管理・会話検索）はDMでは利用できません。
+- タスク管理・家計簿・ブラウザ操作などの秘書機能はこのBotにはありません。`;
+
+  const richReplySection = `
+# リッチ返信の使い分け
+返信の性質に応じてプレーンテキストとリッチ形式を使い分けてください。
+- 単純な一問一答 → プレーンテキスト
+- データの一覧・サマリ・手順の整理 → showRichContent（Embed）
+- エラー・警告の通知 → showRichContent（colorに error / warning を指定）
+リッチ形式を使った場合も、本文テキストで要点を簡潔に添えてください。`;
+
+  const systemRuleSection = `
+# 重要なシステムルール
+- 現在の日時: ${dateTimeStr}
+- 「先週」「昨日」などの相対的な日時表現は、上記の現在日時を基準に正確に解釈してください。
+- 確認必須（要承認）と明記された外部ツール（MCP拡張）は、実行内容（ツール名・引数）を発話者へ提示して承認を得てから呼び出してください。
+- 不確かな情報を事実のように伝えないでください。ツール実行に失敗した場合や求められた結果が得られなかった場合は、正常終了したと誤解させる応答をせず、必ず失敗したことと理由を明記してください。
+- **【最重要】未実行の完了報告の禁止:** 操作の完了報告（「登録しました」「追加しました」「設定しました」「やっておきました」等）は、このターンで実際に対応するツール（関数）を呼び出し、その実行結果を受け取った場合に限り行ってください。ツールを呼ばずに完了したかのように装うことは固く禁止します。操作を行うなら必ずその場で関数を呼び出してください。
+- 機能に関係ない雑談にもペルソナ設定に沿って自然に応じてください。`;
+
+  // 共有ノート（要件 §4.6.2: ギルド会話のみ。ペルソナの後に注入）
+  let guildNoteSection = "";
+  if (scope === "guild" && guildId) {
+    try {
+      const note = getBotGuildNote(bot.id, guildId);
+      if (note.trim()) {
+        guildNoteSection = `\n# 共有ノート（このサーバーの利用メンバー全員と共有している知識）\nサーバーのルール・用語・運用手順などの共有知識です。会話・判断の際に常に考慮してください。\n${note.trim()}`;
+      }
+    } catch (err) {
+      console.error("共有ノートの取得に失敗しました:", err);
+    }
+  }
+
+  // 発話者の個人ノート（要件 §4.6.2: 本人のプロンプトにのみ注入。他メンバーには注入しない）
+  let personalNoteSection = "";
+  try {
+    const note = getBotUserNote(bot.id, speaker.userId);
+    if (note.trim()) {
+      personalNoteSection = `\n# 発話者の個人ノート（${speaker.displayName} さん専用の記憶）\n以下は現在の発話者本人に関する情報です。他のメンバーには開示しないでください。\n${note.trim()}`;
+    }
+  } catch (err) {
+    console.error("個人ノートの取得に失敗しました:", err);
+  }
+
+  const speakerSection = `
+# 現在の発話者
+- 名前: ${speaker.displayName}
+- メンション表記: <@${speaker.userId}>`;
+
+  const parts = [
+    personaSection,
+    modeSection,
+    richReplySection,
+    systemRuleSection,
+    guildNoteSection,
+    personalNoteSection,
+    speakerSection,
+  ];
+
+  return parts.filter((p) => p !== "").join("\n");
+}
+
+/** 汎用モード共通のLLMエラー → ユーザー向けメッセージ変換 */
+function guildErrorResult(error: unknown): ProcessResult {
+  if (isRateLimitError(error)) {
+    console.error("Gemini API レート制限 (Bot専用キー):", error);
+    return { text: "⚠️ 現在APIの利用制限に達しています。しばらく待ってからもう一度お試しください。", embeds: [], files: [] };
+  }
+  if (isServerError(error)) {
+    console.error("Gemini API サーバーエラー (Bot専用キー):", error);
+    return { text: "⚠️ AIサーバーが現在混み合っているか、一時的なエラーが発生しています。しばらく待ってからもう一度お試しください。", embeds: [], files: [] };
+  }
+  console.error("Gemini API エラー (汎用モード):", error);
+  return { text: "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。", embeds: [], files: [] };
+}
+
+/**
+ * 許可ギルド内の利用メンバーからのメッセージを処理する（汎用モード本体）。
+ * 呼び出し前提（bot.ts が検証済み）: ギルド許可リスト・利用メンバー判定・レート制限・Bot専用キーの存在。
+ */
+export async function processGuildMessage(
+  botId: string,
+  guildId: string,
+  speaker: GuildSpeaker,
+  message: ChatMessage,
+  onStatusChange?: (status: "thinking" | "writing" | "idle") => void
+): Promise<ProcessResult> {
+  const bot = getBotById(botId);
+  if (!bot) {
+    return { text: "", embeds: [], files: [] };
+  }
+
+  const ctx: ToolContext = {
+    botId,
+    userId: speaker.userId,
+    guildId,
+    embeds: [],
+    files: [],
+    richReplyEnabled: true, // ギルド利用メンバーはユーザー設定を持たないため常に有効
+  };
+
+  // 1. 発話をギルドコンテキストへ記録（発話者を「[名前]: 」プレフィックスで区別 §4.6.1）
+  const logText =
+    message.text?.trim() ||
+    (message.audioData ? "[音声メッセージ]" : message.imageData ? "[画像]" : "");
+  if (logText) {
+    await addGuildMessageLog(
+      botId,
+      guildId,
+      speaker.userId,
+      "user",
+      `[${speaker.displayName}]: ${logText}`,
+      message.discordMsgId,
+      message.replyToMsgId
+    );
+  }
+
+  // 2. ギルドコンテキスト（直近30件）+ 返信チェーン（bot × guild スコープ）
+  const history = await getGuildContext(botId, guildId, GUILD_CONTEXT_LIMIT);
+
+  let replyChainText: string | undefined;
+  if (message.replyToMsgId) {
+    try {
+      const chain = resolveGuildReplyChain(botId, guildId, message.replyToMsgId, config.replyChainMaxDepth);
+      if (chain.length > 0) {
+        replyChainText = chain
+          .map((m) => (m.role === "user" ? m.content : `あなた: ${m.content}`))
+          .join("\n");
+      }
+    } catch (err) {
+      console.error("ギルド返信チェーンの解決に失敗しました:", err);
+    }
+  }
+
+  const contents = buildContentsFromHistory(history, message, replyChainText);
+
+  // 3. Function レジストリ（汎用モード: core + memory の静的モジュール + Bot紐付けMCP §4.3.1）
+  const caps = resolveBotCapabilities(botId);
+  let mcpModule: FunctionModule = { declarations: [], handlers: {} };
+  if (caps.has("mcp")) {
+    try {
+      mcpModule = await getMcpFunctionModuleForBot(botId);
+    } catch (err) {
+      console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
+    }
+  }
+  const registry = buildFunctionRegistry([...getGuildAssistantFunctionModules("guild", caps), mcpModule]);
+
+  const systemInstruction = buildGuildSystemInstruction(bot, "guild", guildId, speaker);
+
+  try {
+    // Bot専用キーで実行（要件 §4.3.3: 本人キーは使用しない。未設定はbot.tsが事前に弾く）
+    const ai = getBotGenAI(botId);
+    if (!ai) {
+      console.warn(`[汎用モード] Bot ${botId} のGemini APIキーが未設定のため応答できません。`);
+      return { text: "", embeds: [], files: [] };
+    }
+
+    const { text } = await runFunctionCallingLoop(ai, systemInstruction, registry, contents, ctx, onStatusChange);
+
+    if (text && text.trim()) {
+      await addGuildMessageLog(botId, guildId, speaker.userId, "assistant", text);
+      return { text, embeds: ctx.embeds, files: ctx.files };
+    }
+    return { text: "処理が完了しました。", embeds: ctx.embeds, files: ctx.files };
+  } catch (error) {
+    return guildErrorResult(error);
+  }
+}
+
+/**
+ * owner との動作確認DM を処理する（要件 §4.3.2: DMは owner のみ・専用コンテキストで分離）。
+ */
+export async function processBotDmMessage(
+  botId: string,
+  owner: GuildSpeaker,
+  message: ChatMessage,
+  onStatusChange?: (status: "thinking" | "writing" | "idle") => void
+): Promise<ProcessResult> {
+  const bot = getBotById(botId);
+  if (!bot) {
+    return { text: "", embeds: [], files: [] };
+  }
+
+  const ctx: ToolContext = {
+    botId,
+    userId: owner.userId,
+    embeds: [],
+    files: [],
+    richReplyEnabled: true,
+  };
+
+  const logText =
+    message.text?.trim() ||
+    (message.audioData ? "[音声メッセージ]" : message.imageData ? "[画像]" : "");
+  if (logText) {
+    await addBotDmMessageLog(botId, owner.userId, "user", logText, message.discordMsgId, message.replyToMsgId);
+  }
+
+  const history = await getBotDmContext(botId, owner.userId);
+
+  let replyChainText: string | undefined;
+  if (message.replyToMsgId) {
+    try {
+      const chain = resolveReplyChain(owner.userId, message.replyToMsgId, config.replyChainMaxDepth);
+      if (chain.length > 0) {
+        replyChainText = chain
+          .map((m) => `${m.role === "user" ? "ユーザー" : "あなた"}: ${m.content}`)
+          .join("\n");
+      }
+    } catch (err) {
+      console.error("owner DM 返信チェーンの解決に失敗しました:", err);
+    }
+  }
+
+  const contents = buildContentsFromHistory(history, message, replyChainText);
+
+  const caps = resolveBotCapabilities(botId);
+  let mcpModule: FunctionModule = { declarations: [], handlers: {} };
+  if (caps.has("mcp")) {
+    try {
+      mcpModule = await getMcpFunctionModuleForBot(botId);
+    } catch (err) {
+      console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
+    }
+  }
+  const registry = buildFunctionRegistry([...getGuildAssistantFunctionModules("dm", caps), mcpModule]);
+
+  const systemInstruction = buildGuildSystemInstruction(bot, "dm", null, owner);
+
+  try {
+    const ai = getBotGenAI(botId);
+    if (!ai) {
+      // owner への動作確認DMでは未設定理由を明示する（管理用途のため）
+      return {
+        text: "⚠️ このBotにはBot専用のGemini APIキーが設定されていません。管理画面の「Bot設定」→「汎用モード設定」から設定してください。",
+        embeds: [],
+        files: [],
+      };
+    }
+
+    const { text } = await runFunctionCallingLoop(ai, systemInstruction, registry, contents, ctx, onStatusChange);
+
+    if (text && text.trim()) {
+      await addBotDmMessageLog(botId, owner.userId, "assistant", text);
+      return { text, embeds: ctx.embeds, files: ctx.files };
+    }
+    return { text: "処理が完了しました。", embeds: ctx.embeds, files: ctx.files };
+  } catch (error) {
+    return guildErrorResult(error);
   }
 }

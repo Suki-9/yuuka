@@ -17,6 +17,25 @@ const LEGACY_TABLES = [
   "playbook_runs", "bot_memories",
 ];
 
+/**
+ * 既存テーブルへ後付け列を追加する（冪等）。
+ * テーブルが未作成の場合は何もしない（CREATE TABLE 側の定義に列が含まれる前提）。
+ */
+function ensureColumns(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  defs: Array<{ name: string; ddl: string }>
+): void {
+  const cols = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (cols.length === 0) return;
+  for (const def of defs) {
+    if (!cols.some((c) => c.name === def.name)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${def.ddl}`);
+      console.log(`🔧 ${table} へ列を追加しました: ${def.name}`);
+    }
+  }
+}
+
 function getCurrentSchemaVersion(db: ReturnType<typeof getDb>): string {
   try {
     const row = db
@@ -111,7 +130,7 @@ export async function runMigrations(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
   `);
 
-  // ─── Botインスタンス（§5.1）と共有（§5.2） ─────────────────────────────
+  // ─── Botインスタンス（§5.1）と共有（§5.2）、Bot属性（bot_attributes_requirements.md §5） ─
   db.exec(`
     CREATE TABLE IF NOT EXISTS bots (
       id TEXT PRIMARY KEY,
@@ -124,6 +143,13 @@ export async function runMigrations(): Promise<void> {
       discord_username TEXT,
       discord_avatar_url TEXT,
       suspended INTEGER NOT NULL DEFAULT 0,
+      -- Bot属性（要件 §3: ケーパビリティ集合。core は全Bot必須のため記載しない）
+      capabilities TEXT NOT NULL DEFAULT '["persona","memory","mcp","secretary"]',
+      persona_id INTEGER,                      -- 要件 §4.4: Bot単位ペルソナ（汎用モード用）
+      -- 要件 §4.3.3: Bot専用Gemini APIキー（システム鍵で暗号化。汎用モードでは設定必須）
+      gemini_api_key_encrypted TEXT,
+      gemini_api_key_iv TEXT,
+      gemini_api_key_tag TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
@@ -144,6 +170,73 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_bot_shares_user ON bot_shares(shared_user_id, status);
   `);
 
+  // 既存DBの bots へ属性列を後付け（既存行はDEFAULTにより秘書相当の capabilities が付与され、
+  // 動作・プロンプト・Functionセットは現行と完全に一致する。要件 §7 後方互換）
+  ensureColumns(db, "bots", [
+    { name: "capabilities", ddl: `capabilities TEXT NOT NULL DEFAULT '["persona","memory","mcp","secretary"]'` },
+    { name: "persona_id", ddl: "persona_id INTEGER" },
+    { name: "gemini_api_key_encrypted", ddl: "gemini_api_key_encrypted TEXT" },
+    { name: "gemini_api_key_iv", ddl: "gemini_api_key_iv TEXT" },
+    { name: "gemini_api_key_tag", ddl: "gemini_api_key_tag TEXT" },
+  ]);
+
+  // ─── Bot属性 関連テーブル（bot_attributes_requirements.md §5） ──────────────
+  db.exec(`
+    -- BotとMCPサーバーの紐付け（要件 §4.5: owner所有サーバーのみ。検証はアプリ層）
+    CREATE TABLE IF NOT EXISTS bot_mcp_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id TEXT NOT NULL,
+      mcp_server_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      UNIQUE(bot_id, mcp_server_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
+      FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bot_mcp_links_bot ON bot_mcp_links(bot_id);
+
+    -- 個人ノート（要件 §4.6.2: bot_id × ユーザー単位。context_notes は秘書用に現状維持）
+    -- データ分離原則（architecture_v2.md §0-1）の正式な例外パターン: bot_id × user_id 複合スコープ。
+    -- user_id はWebアカウント未登録のDiscordユーザーIDも可のため users へのFKは張らない。
+    CREATE TABLE IF NOT EXISTS bot_context_notes (
+      bot_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (bot_id, user_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+
+    -- ギルド共有ノート（要件 §4.6.2: bot_id × ギルド単位）
+    CREATE TABLE IF NOT EXISTS bot_guild_notes (
+      bot_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (bot_id, guild_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+
+    -- 応答許可ギルド（要件 §4.3.3 / §6: 未許可ギルドでは応答も記録もしない防衛線）
+    CREATE TABLE IF NOT EXISTS bot_guilds (
+      bot_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (bot_id, guild_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+
+    -- 利用メンバー（要件 §4.3.3: DiscordユーザーIDのみで管理。Webアカウント不要）
+    CREATE TABLE IF NOT EXISTS bot_members (
+      bot_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      added_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (bot_id, guild_id, user_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+  `);
+
   // ─── ペルソナ（§4.1） ────────────────────────────────────────────────────
   db.exec(`
     CREATE TABLE IF NOT EXISTS personas (
@@ -161,6 +254,8 @@ export async function runMigrations(): Promise<void> {
   `);
 
   // ─── 会話履歴の永続化（§7）+ 全文検索（§3.12） ──────────────────────────
+  // 注意: user_id に users への FK は張らない。汎用モード（Bot属性要件 §4.3.3 / §6）では
+  // Webアカウント未登録のDiscordユーザー（利用メンバー）の発話も記録するため。
   db.exec(`
     CREATE TABLE IF NOT EXISTS message_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,11 +265,55 @@ export async function runMigrations(): Promise<void> {
       role TEXT NOT NULL,                      -- 'user' | 'assistant'
       content TEXT NOT NULL,
       reply_to_msg_id TEXT,                    -- 返信元DiscordメッセージID（チェーン解決用）
-      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      guild_id TEXT,                           -- 発話ギルド（NULL = DM・秘書利用。要件 §4.6.1）
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
+  `);
+
+  // 既存DBの message_logs へ guild_id 列を後付け（要件 §5）
+  ensureColumns(db, "message_logs", [{ name: "guild_id", ddl: "guild_id TEXT" }]);
+
+  // 既存DBに users へのFK付き旧定義が残っている場合は、FKを撤廃する再構築を行う
+  // （未登録メンバーの発話が FOREIGN KEY constraint failed で記録できないため）。
+  // id を明示コピーするため FTS（外部コンテンツ表）の rowid 整合は保たれる。
+  const messageLogsFkRemains = (() => {
+    try {
+      return (db.pragma("foreign_key_list(message_logs)") as unknown[]).length > 0;
+    } catch {
+      return false;
+    }
+  })();
+  if (messageLogsFkRemains) {
+    console.log("🔧 message_logs を再構築しています（未登録メンバー記録のためFKを撤廃）...");
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.exec(`
+      DROP TRIGGER IF EXISTS message_logs_ai;
+      DROP TRIGGER IF EXISTS message_logs_ad;
+      DROP TRIGGER IF EXISTS message_logs_au;
+      CREATE TABLE message_logs_rebuilt (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL DEFAULT 'system_default',
+        discord_msg_id TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        reply_to_msg_id TEXT,
+        guild_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+      INSERT INTO message_logs_rebuilt (id, user_id, bot_id, discord_msg_id, role, content, reply_to_msg_id, guild_id, created_at)
+        SELECT id, user_id, bot_id, discord_msg_id, role, content, reply_to_msg_id, guild_id, created_at FROM message_logs;
+      DROP TABLE message_logs;
+      ALTER TABLE message_logs_rebuilt RENAME TO message_logs;
+    `);
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  // インデックス・FTS・トリガーは再構築後に作成する（IF NOT EXISTS のため新規・既存とも安全）
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_message_logs_user ON message_logs(user_id, id);
     CREATE INDEX IF NOT EXISTS idx_message_logs_discord_msg ON message_logs(discord_msg_id);
+    CREATE INDEX IF NOT EXISTS idx_message_logs_bot_guild ON message_logs(bot_id, guild_id, id);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS message_logs_fts USING fts5(
       content,
@@ -525,9 +664,11 @@ export async function runMigrations(): Promise<void> {
       created_by TEXT,
       used_by TEXT,
       used_at TEXT,
+      revoked_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
   `);
+  ensureColumns(db, "invite_codes", [{ name: "revoked_at", ddl: "revoked_at TEXT" }]);
 
   // スキーマバージョンを記録
   db.prepare(

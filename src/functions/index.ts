@@ -17,6 +17,12 @@ import { contactFunctions } from "./contactFunctions.js";
 import { conversationFunctions } from "./conversationFunctions.js";
 import { briefingFunctions } from "./briefingFunctions.js";
 import { chartFunctions } from "./chartFunctions.js";
+import {
+  botMemberFunctions,
+  botPersonalNoteFunctions,
+  botGuildMemoryFunctions,
+} from "./botAssistantFunctions.js";
+import type { BotCapability } from "../services/botCapabilities.js";
 
 // ─── ブラウザ操作 FunctionModule（§3.5: 既存実装のアダプタ） ──────────────────
 // browserFunctions.ts（既存・変更禁止）は (userId, args) 形式のため、
@@ -216,29 +222,66 @@ const richContentModule: FunctionModule = {
 };
 
 // ─── 静的モジュールの集約 ────────────────────────────────────────────────────
+//
+// Bot属性（bot_attributes_requirements.md §3.2 / §4.2）: 各モジュールを対応する
+// ケーパビリティへマップし、Botが保持しないケーパビリティのモジュールは
+// declarations / dispatch の両方から除外する（LLMに宣言自体を見せない）。
+// 配列順は従来の BASE_MODULES と同一に保ち、秘書プリセットでは現行と完全一致させる。
 
-const BASE_MODULES: FunctionModule[] = [
-  todoFunctions,
-  scheduleFunctions,
-  reminderFunctions,
-  financeFunctions,
-  browserModule,
-  credentialFunctions,
-  playbookFunctions,
-  noteFunctions,
-  clipboardFunctions,
-  contactFunctions,
-  conversationFunctions,
-  briefingFunctions,
-  chartFunctions,
-  richContentModule,
+const MODULE_CAPABILITY_MAP: Array<{ module: FunctionModule; cap: "core" | BotCapability }> = [
+  { module: todoFunctions, cap: "secretary" },
+  { module: scheduleFunctions, cap: "secretary" },
+  { module: reminderFunctions, cap: "secretary" },
+  { module: financeFunctions, cap: "secretary" },
+  { module: browserModule, cap: "secretary" },
+  { module: credentialFunctions, cap: "secretary" },
+  { module: playbookFunctions, cap: "secretary" },
+  { module: noteFunctions, cap: "memory" },
+  { module: clipboardFunctions, cap: "secretary" },
+  { module: contactFunctions, cap: "secretary" },
+  { module: conversationFunctions, cap: "memory" },
+  { module: briefingFunctions, cap: "secretary" },
+  { module: chartFunctions, cap: "secretary" },
+  { module: richContentModule, cap: "core" },
 ];
 
 /**
- * 静的な FunctionModule 群を返す。
+ * 静的な FunctionModule 群を返す（秘書相当のフルセット。後方互換用）。
  * gemini.ts はこれに加えて MCP動的モジュール（getMcpFunctionModuleForUser）をマージし、
  * functions/registry.ts の buildFunctionRegistry でレジストリを構築する。
  */
 export function getBaseFunctionModules(): FunctionModule[] {
-  return BASE_MODULES;
+  return MODULE_CAPABILITY_MAP.map((entry) => entry.module);
+}
+
+/**
+ * Botのケーパビリティに応じた静的 FunctionModule 群を返す（秘書系の対話パス用）。
+ * core は全Bot必須のため常に含める。mcp は動的モジュールのため呼び出し側でマージする。
+ */
+export function getFunctionModulesForCapabilities(caps: ReadonlySet<string>): FunctionModule[] {
+  return MODULE_CAPABILITY_MAP.filter((entry) => entry.cap === "core" || caps.has(entry.cap)).map(
+    (entry) => entry.module
+  );
+}
+
+/**
+ * 汎用モード（MCPアシスタント）の静的 FunctionModule 群を返す。
+ * 秘書系モジュールは一切含めず、ギルド会話では core にメンバー管理を含める（要件 §4.3.1 / §4.3.3）。
+ * @param scope "guild" = 許可ギルド内の会話 / "dm" = owner との動作確認DM
+ */
+export function getGuildAssistantFunctionModules(
+  scope: "guild" | "dm",
+  caps: ReadonlySet<string>
+): FunctionModule[] {
+  const modules: FunctionModule[] = [richContentModule]; // core: リッチ返信
+  if (scope === "guild") {
+    modules.push(botMemberFunctions); // core: 利用メンバー管理（要件 §4.3.3）
+  }
+  if (caps.has("memory")) {
+    modules.push(botPersonalNoteFunctions); // memory: 個人ノート（bot × ユーザー）
+    if (scope === "guild") {
+      modules.push(botGuildMemoryFunctions); // memory: 共有ノート + ギルド会話検索
+    }
+  }
+  return modules;
 }

@@ -119,11 +119,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const menuItems = document.querySelectorAll(".menu-item");
   const tabViews = document.querySelectorAll(".tab-view");
 
+  // 秘書プリセット専用のタブ（汎用モードBotの文脈では非表示にする）
+  const SECRETARY_ONLY_TABS = ["tasks", "schedules", "expenses", "reminders", "personal", "delivery", "webhooks", "playbooks"];
+
+  function currentBotPreset() {
+    return localStorage.getItem("currentBotPreset") || "secretary";
+  }
+
   function updateSidebarBotBranding() {
     const sidebarAppAvatar = document.getElementById("sidebar-app-avatar");
     const sidebarAppName = document.getElementById("sidebar-app-name");
     const sidebarAppId = document.getElementById("sidebar-app-id");
-    
+
     if (!sidebarAppName || !sidebarAppId) return;
 
     const botName = localStorage.getItem("currentBotName") || "システムデフォルト";
@@ -142,6 +149,15 @@ document.addEventListener("DOMContentLoaded", () => {
         sidebarAppAvatar.style.display = "block";
       }
     }
+
+    // 属性に含まれない機能のタブは、そのBotの文脈では非表示にする（Bot属性 §4.7）
+    const isAssistant = currentBotPreset() === "mcp_assistant";
+    menuItems.forEach(item => {
+      const tab = item.getAttribute("data-tab");
+      if (SECRETARY_ONLY_TABS.includes(tab)) {
+        item.style.display = isAssistant ? "none" : "";
+      }
+    });
   }
 
   // Dashboard DOM
@@ -202,6 +218,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // VIEW ROUTER (HTML5 History Path-based Routing)
   // ==========================================
   function switchTab(tabId) {
+    // 汎用モードBotでは秘書系タブへ遷移させない（Bot設定へフォールバック）
+    if (currentBotPreset() === "mcp_assistant" && SECRETARY_ONLY_TABS.includes(tabId)) {
+      tabId = "config";
+    }
     activeTab = tabId;
 
     // Update menu buttons active state
@@ -465,7 +485,7 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalCredential);
       closeModal(modalCreateBot);
       ["modal-expense-plan", "modal-budget-settings", "modal-persona-edit",
-        "modal-persona-preview", "modal-contact", "modal-webhook"].forEach(id => {
+        "modal-persona-preview", "modal-contact", "modal-webhook", "modal-audit"].forEach(id => {
         const m = document.getElementById(id);
         if (m) closeModal(m);
       });
@@ -564,8 +584,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const isCustomToken = !!bot.discord_token_encrypted;
-      const statusText = isCustomToken ? "独自Bot起動中" : "デフォルト共有";
-      const accentColor = isCustomToken ? "#10b981" : "#3b82f6";
+      const isAssistant = bot.preset === "mcp_assistant";
+      // 属性バッジ: 汎用モード（MCPアシスタント）はプリセット表示名を冠する
+      const presetLabel = isAssistant ? (bot.preset_display_name || "汎用モード") + " ・ " : "";
+      const statusText = presetLabel + (isCustomToken ? "独自Bot起動中" : "デフォルト共有");
+      const accentColor = isAssistant ? "#a78bfa" : isCustomToken ? "#10b981" : "#3b82f6";
 
       // アバター部分
       const avatarDiv = document.createElement("div");
@@ -704,6 +727,7 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("currentBotId", bot.id);
     localStorage.setItem("currentBotName", bot.discord_username || bot.name);
     localStorage.setItem("currentBotAvatar", bot.discord_avatar_url || "");
+    localStorage.setItem("currentBotPreset", bot.preset || "secretary");
     if (activeBotDisplay) {
       activeBotDisplay.textContent = bot.discord_username || bot.name;
     }
@@ -760,8 +784,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  /** プリセット表示名（管理ページから変更可能）を作成フォームへ反映する */
+  async function refreshPresetOptions() {
+    try {
+      const res = await originalFetch("/api/bots/presets");
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.presets)) return;
+      const select = document.getElementById("new-bot-preset");
+      if (!select) return;
+      data.presets.forEach(p => {
+        const option = select.querySelector(`option[value="${p.id}"]`);
+        if (option) option.textContent = p.displayName;
+      });
+    } catch (e) { /* 表示名はHTMLの既定値で続行 */ }
+  }
+
   if (btnShowAddBot) {
     btnShowAddBot.addEventListener("click", () => {
+      refreshPresetOptions();
       openModal(modalCreateBot);
     });
   }
@@ -770,17 +810,22 @@ document.addEventListener("DOMContentLoaded", () => {
     createBotForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = document.getElementById("new-bot-name").value.trim();
+      const presetSelect = document.getElementById("new-bot-preset");
+      const preset = presetSelect ? presetSelect.value : "secretary";
 
       try {
         const res = await originalFetch("/api/bots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name })
+          body: JSON.stringify({ name, preset })
         });
         const data = await res.json();
         if (data.success) {
           closeModal(modalCreateBot);
           createBotForm.reset();
+          if (preset === "mcp_assistant" && data.message) {
+            alert(data.message);
+          }
           fetchBotList();
         } else {
           alert("Bot作成に失敗しました: " + data.message);
@@ -1963,12 +2008,12 @@ document.addEventListener("DOMContentLoaded", () => {
       tdAmount.textContent = `¥${plan.amount.toLocaleString()}`;
 
       const tdActions = document.createElement("td");
-      tdActions.style.textAlign = "right";
+      tdActions.style.cssText = "display:flex;justify-content:flex-end;align-items:center;gap:4px;";
 
       if (isPending) {
         const payBtn = document.createElement("button");
         payBtn.className = "btn btn-primary btn-sm";
-        payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;margin-right:4px;";
+        payBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;line-height:1;";
         payBtn.textContent = "支払う";
         payBtn.addEventListener("click", async () => {
           if (!confirm(`「${plan.title}」¥${plan.amount.toLocaleString()} の支払いを完了しますか？\n家計簿に自動記録（消込）されます。`)) return;
@@ -1987,9 +2032,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const delBtn = document.createElement("button");
         delBtn.className = "btn btn-secondary btn-sm";
-        delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;";
+        delBtn.style.cssText = "font-size:0.72rem;padding:3px 8px;line-height:1;display:inline-flex;align-items:center;";
         delBtn.title = "支払い予定をキャンセル";
-        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">delete</span>`;
+        delBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:15px;line-height:1;">delete</span>`;
         delBtn.addEventListener("click", async () => {
           if (!confirm(`「${plan.title}」をキャンセルしますか？`)) return;
           try {
@@ -2333,9 +2378,417 @@ document.addEventListener("DOMContentLoaded", () => {
       // Load AI Credentials List & Bot共有設定
       fetchCredentialsSettings();
       fetchBotShares();
+      // Bot属性（プリセット）と汎用モード設定
+      fetchBotAttributeConfig();
     } catch (e) {
       console.error(e);
     }
+  }
+
+  // ==========================================
+  // Bot属性（プリセット）+ 汎用モード（MCPアシスタント）設定
+  // ==========================================
+
+  /** 現在のBotの属性カード・汎用モード設定カードの表示を更新する（owner のみ表示） */
+  async function fetchBotAttributeConfig() {
+    const attrCard = document.getElementById("config-bot-attribute-card");
+    const assistantCard = document.getElementById("config-assistant-card");
+    if (attrCard) attrCard.classList.add("hidden");
+    if (assistantCard) assistantCard.classList.add("hidden");
+
+    const botId = window.currentBotId;
+    if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
+
+    try {
+      const res = await originalFetch("/api/bots");
+      const data = await res.json();
+      if (!data.success) return;
+      const bot = (data.bots || []).find(b => b.id === botId);
+      if (!bot) return;
+
+      // プリセットが変わっている可能性に備えて localStorage を同期
+      if (bot.preset && bot.preset !== currentBotPreset()) {
+        localStorage.setItem("currentBotPreset", bot.preset);
+        updateSidebarBotBranding();
+      }
+
+      const isOwner = bot.user_id === activeUserId;
+      const isAdminUser = activeUserRole === "admin";
+      if (!isOwner && !isAdminUser) return; // 属性の変更は owner / Admin のみ（§4.1）
+
+      // ── Bot属性カード ──
+      if (attrCard) {
+        attrCard.classList.remove("hidden");
+        const badge = document.getElementById("bot-attribute-current-badge");
+        if (badge) badge.textContent = bot.preset_display_name || "";
+        const select = document.getElementById("bot-attribute-preset-select");
+        if (select) {
+          try {
+            const pres = await originalFetch("/api/bots/presets").then(r => r.json());
+            if (pres.success) {
+              select.innerHTML = "";
+              pres.presets.forEach(p => {
+                const opt = document.createElement("option");
+                opt.value = p.id;
+                opt.textContent = `${p.displayName}（${p.capabilities.join(" + ")}）`;
+                select.appendChild(opt);
+              });
+            }
+          } catch (e) { }
+          select.value = bot.preset || "secretary";
+        }
+      }
+
+      // ── 汎用モード設定カード ──
+      if (bot.preset === "mcp_assistant" && assistantCard) {
+        assistantCard.classList.remove("hidden");
+        await loadAssistantConfig(botId);
+      }
+    } catch (e) {
+      console.error("Bot属性設定の読み込みに失敗しました:", e);
+    }
+  }
+
+  /** 汎用モード設定タブの内容を取得して描画する */
+  async function loadAssistantConfig(botId) {
+    try {
+      const res = await originalFetch(`/api/bots/assistant-config?botId=${encodeURIComponent(botId)}`);
+      const data = await res.json();
+      if (!data.success) return;
+
+      // 警告表示（応答に必要な設定が欠けている場合 §4.3.3）
+      const warnings = document.getElementById("assistant-warnings");
+      if (warnings) {
+        warnings.innerHTML = "";
+        const warn = (text) => {
+          const div = document.createElement("div");
+          div.className = "field-sub";
+          div.style.color = "#f59e0b";
+          div.textContent = text;
+          warnings.appendChild(div);
+        };
+        if (!data.has_gemini_key) warn("⚠️ Bot専用のGemini APIキーが未設定です。設定されるまでこのBotは応答しません。");
+        if (!data.has_discord_token) warn("⚠️ 独自のDiscord Botトークンが未設定です。汎用モードは専用のDiscordクライアントとして動作するため、上の「Discord 独自Bot設定」から設定してください。");
+        if ((data.guilds || []).length === 0) warn("⚠️ 応答許可ギルドが未設定です。許可したギルドでのみ応答します。");
+      }
+
+      // APIキー（マスク表示）
+      const keyInput = document.getElementById("assistant-gemini-key");
+      if (keyInput) keyInput.value = data.has_gemini_key ? "••••••••••••" : "";
+
+      // ペルソナ選択（自身のペルソナ + 公開ペルソナ §4.4）
+      const personaSelect = document.getElementById("assistant-persona-select");
+      if (personaSelect) {
+        personaSelect.innerHTML = "";
+        const defaultOpt = document.createElement("option");
+        defaultOpt.value = "";
+        defaultOpt.textContent = "（デフォルトペルソナ）";
+        personaSelect.appendChild(defaultOpt);
+        (data.personas || []).forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = String(p.id);
+          opt.textContent = p.name;
+          personaSelect.appendChild(opt);
+        });
+        personaSelect.value = data.persona_id ? String(data.persona_id) : "";
+      }
+
+      // MCPサーバー紐付け
+      const mcpList = document.getElementById("assistant-mcp-list");
+      if (mcpList) {
+        mcpList.innerHTML = "";
+        const servers = data.mcp_servers || [];
+        if (servers.length === 0) {
+          mcpList.innerHTML = `<span class="field-sub">登録済みのMCPサーバーがありません。「MCPサーバー」タブから登録してください。</span>`;
+        }
+        servers.forEach(s => {
+          const row = document.createElement("label");
+          row.style.cssText = "display:flex; align-items:center; gap:10px; cursor:pointer;";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = !!s.linked;
+          cb.disabled = !!s.system; // システムレベルは常に利用可（変更不可）
+          cb.style.cssText = "width:18px; height:18px;";
+          cb.addEventListener("change", async () => {
+            cb.disabled = true;
+            try {
+              const r = await originalFetch("/api/bots/assistant/mcp-links", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ botId, mcpServerId: s.id, linked: cb.checked })
+              });
+              const d = await r.json();
+              if (!d.success) {
+                alert(d.message);
+                cb.checked = !cb.checked;
+              }
+            } catch (e) {
+              cb.checked = !cb.checked;
+            } finally {
+              cb.disabled = false;
+            }
+          });
+          const label = document.createElement("span");
+          label.textContent = `${s.name}${s.system ? "（システムレベル・常時利用可）" : ""}${!s.enabled ? "（無効化中）" : ""}`;
+          row.appendChild(cb);
+          row.appendChild(label);
+          mcpList.appendChild(row);
+        });
+      }
+
+      renderAssistantGuilds(botId, data.guilds || []);
+      renderAssistantMembers(botId, data.members || [], data.guilds || []);
+
+      // 共有ノートのギルド選択
+      const noteGuildSelect = document.getElementById("assistant-note-guild-select");
+      if (noteGuildSelect) {
+        noteGuildSelect.innerHTML = "";
+        (data.guilds || []).forEach(g => {
+          const opt = document.createElement("option");
+          opt.value = g.guild_id;
+          opt.textContent = `ギルド ${g.guild_id}`;
+          noteGuildSelect.appendChild(opt);
+        });
+        if ((data.guilds || []).length > 0) {
+          loadAssistantGuildNote(botId, noteGuildSelect.value);
+        } else {
+          const noteArea = document.getElementById("assistant-guild-note");
+          if (noteArea) noteArea.value = "";
+        }
+      }
+
+      // 利用量（直近14日・日次）
+      const usageEl = document.getElementById("assistant-usage");
+      if (usageEl) {
+        const usage = data.usage || [];
+        if (usage.length === 0) {
+          usageEl.innerHTML = `<span class="field-sub">まだ利用がありません。</span>`;
+        } else {
+          usageEl.innerHTML = usage
+            .map(u => `<div style="display:flex; justify-content:space-between; max-width:280px;"><span class="field-sub">${u.date}</span><span>${u.count} 回</span></div>`)
+            .join("");
+        }
+      }
+      const rateEl = document.getElementById("assistant-rate-limits");
+      if (rateEl && data.rate_limits) {
+        rateEl.textContent = `レート制限: ユーザー ${data.rate_limits.userPerMinute}回/分・${data.rate_limits.userPerDay}回/日、ギルド ${data.rate_limits.guildPerDay}回/日（Admin設定で変更可）`;
+      }
+    } catch (e) {
+      console.error("汎用モード設定の読み込みに失敗しました:", e);
+    }
+  }
+
+  function renderAssistantGuilds(botId, guilds) {
+    const list = document.getElementById("assistant-guild-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (guilds.length === 0) {
+      list.innerHTML = `<span class="field-sub">許可ギルドが未登録です。</span>`;
+      return;
+    }
+    guilds.forEach(g => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
+      const label = document.createElement("span");
+      label.style.fontFamily = "var(--font-family-mono)";
+      label.textContent = g.guild_id;
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "btn btn-secondary btn-sm";
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`ギルド ${g.guild_id} を応答許可リストから削除しますか？`)) return;
+        await postAssistantAction("/api/bots/assistant/guilds", { botId, guildId: g.guild_id, action: "remove" });
+      });
+      row.appendChild(label);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  function renderAssistantMembers(botId, members, guilds) {
+    // メンバー追加用のギルド選択
+    const guildSelect = document.getElementById("assistant-member-guild-select");
+    if (guildSelect) {
+      const prev = guildSelect.value;
+      guildSelect.innerHTML = "";
+      guilds.forEach(g => {
+        const opt = document.createElement("option");
+        opt.value = g.guild_id;
+        opt.textContent = `ギルド ${g.guild_id}`;
+        guildSelect.appendChild(opt);
+      });
+      if (prev && guilds.some(g => g.guild_id === prev)) guildSelect.value = prev;
+    }
+
+    const list = document.getElementById("assistant-member-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (members.length === 0) {
+      list.innerHTML = `<span class="field-sub">登録済みの利用メンバーはいません（あなたは常に利用できます）。</span>`;
+      return;
+    }
+    members.forEach(m => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
+      const label = document.createElement("span");
+      label.className = "field-sub";
+      label.innerHTML = `<span style="font-family:var(--font-family-mono);">${m.user_id}</span> @ ギルド ${m.guild_id}`;
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "btn btn-secondary btn-sm";
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`ユーザー ${m.user_id} を利用メンバーから削除しますか？`)) return;
+        await postAssistantAction("/api/bots/assistant/members", { botId, guildId: m.guild_id, userId: m.user_id, action: "remove" });
+      });
+      row.appendChild(label);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  /** 汎用モード設定のPOST + 再読み込みの共通処理 */
+  async function postAssistantAction(url, body) {
+    try {
+      const res = await originalFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.message || "操作に失敗しました。");
+      }
+      await loadAssistantConfig(body.botId);
+      return data;
+    } catch (e) {
+      alert("通信エラーが発生しました。");
+      return { success: false };
+    }
+  }
+
+  async function loadAssistantGuildNote(botId, guildId) {
+    const noteArea = document.getElementById("assistant-guild-note");
+    if (!noteArea || !guildId) return;
+    try {
+      const res = await originalFetch(`/api/bots/assistant/guild-note?botId=${encodeURIComponent(botId)}&guildId=${encodeURIComponent(guildId)}`);
+      const data = await res.json();
+      noteArea.value = data.success ? data.content : "";
+    } catch (e) {
+      noteArea.value = "";
+    }
+  }
+
+  // ── 汎用モード設定のイベントハンドラ（要素は静的なので一度だけ登録） ──
+
+  const btnSaveBotAttribute = document.getElementById("btn-save-bot-attribute");
+  if (btnSaveBotAttribute) {
+    btnSaveBotAttribute.addEventListener("click", async () => {
+      const select = document.getElementById("bot-attribute-preset-select");
+      if (!select || !select.value) return;
+      const preset = select.value;
+      const presetLabel = select.selectedIndex >= 0 ? select.options[select.selectedIndex].textContent : preset;
+      if (!confirm(`Botの属性を「${presetLabel}」へ変更しますか？\n機能セットが切り替わります（会話の文脈は属性ごとに分離されます）。`)) return;
+      try {
+        const res = await originalFetch("/api/bots/attributes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, preset })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "変更しました。" : "変更に失敗しました。"));
+        if (data.success) {
+          localStorage.setItem("currentBotPreset", preset);
+          updateSidebarBotBranding();
+          fetchBotAttributeConfig();
+        }
+      } catch (e) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  const btnSaveAssistantKey = document.getElementById("btn-save-assistant-key");
+  if (btnSaveAssistantKey) {
+    btnSaveAssistantKey.addEventListener("click", async () => {
+      const input = document.getElementById("assistant-gemini-key");
+      const apiKey = input ? input.value : "";
+      if (!apiKey.trim() && !confirm("APIキーを削除しますか？ 削除するとこのBotは応答を停止します。")) return;
+      await postAssistantAction("/api/bots/assistant/gemini-key", { botId: window.currentBotId, apiKey });
+    });
+  }
+
+  const btnSaveAssistantPersona = document.getElementById("btn-save-assistant-persona");
+  if (btnSaveAssistantPersona) {
+    btnSaveAssistantPersona.addEventListener("click", async () => {
+      const select = document.getElementById("assistant-persona-select");
+      const personaId = select && select.value ? Number(select.value) : null;
+      await postAssistantAction("/api/bots/assistant/persona", { botId: window.currentBotId, personaId });
+    });
+  }
+
+  const btnAddAssistantGuild = document.getElementById("btn-add-assistant-guild");
+  if (btnAddAssistantGuild) {
+    btnAddAssistantGuild.addEventListener("click", async () => {
+      const input = document.getElementById("assistant-guild-input");
+      const guildId = input ? input.value.trim() : "";
+      if (!/^\d{5,25}$/.test(guildId)) {
+        alert("ギルドID（数字）を入力してください。Discordの開発者モードでサーバーを右クリック →「IDをコピー」で取得できます。");
+        return;
+      }
+      const result = await postAssistantAction("/api/bots/assistant/guilds", { botId: window.currentBotId, guildId, action: "add" });
+      if (result.success && input) input.value = "";
+    });
+  }
+
+  const btnAddAssistantMember = document.getElementById("btn-add-assistant-member");
+  if (btnAddAssistantMember) {
+    btnAddAssistantMember.addEventListener("click", async () => {
+      const guildSelect = document.getElementById("assistant-member-guild-select");
+      const input = document.getElementById("assistant-member-input");
+      const guildId = guildSelect ? guildSelect.value : "";
+      const userId = input ? input.value.trim() : "";
+      if (!guildId) {
+        alert("先に応答許可ギルドを追加してください。");
+        return;
+      }
+      if (!/^\d{5,25}$/.test(userId)) {
+        alert("ユーザーID（数字）を入力してください。");
+        return;
+      }
+      const result = await postAssistantAction("/api/bots/assistant/members", { botId: window.currentBotId, guildId, userId, action: "add" });
+      if (result.success && input) input.value = "";
+    });
+  }
+
+  const assistantNoteGuildSelect = document.getElementById("assistant-note-guild-select");
+  if (assistantNoteGuildSelect) {
+    assistantNoteGuildSelect.addEventListener("change", () => {
+      loadAssistantGuildNote(window.currentBotId, assistantNoteGuildSelect.value);
+    });
+  }
+
+  const btnSaveAssistantNote = document.getElementById("btn-save-assistant-note");
+  if (btnSaveAssistantNote) {
+    btnSaveAssistantNote.addEventListener("click", async () => {
+      const guildSelect = document.getElementById("assistant-note-guild-select");
+      const noteArea = document.getElementById("assistant-guild-note");
+      const guildId = guildSelect ? guildSelect.value : "";
+      if (!guildId) {
+        alert("先に応答許可ギルドを追加してください。");
+        return;
+      }
+      try {
+        const res = await originalFetch("/api/bots/assistant/guild-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId: window.currentBotId, guildId, content: noteArea ? noteArea.value : "" })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+      } catch (e) {
+        alert("通信エラーが発生しました。");
+      }
+    });
   }
 
   // Handle Profile settings update
@@ -2890,8 +3343,63 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchAdminInviteCodes(),
       fetchAdminSystemSettings(),
       fetchAdminAuditLogs(),
-      fetchAdminPersonas()
+      fetchAdminPersonas(),
+      fetchAdminBotAttributeSettings()
     ]);
+  }
+
+  // ── Bot属性設定（プリセット表示名・レート制限既定値） ──
+
+  async function fetchAdminBotAttributeSettings() {
+    try {
+      const res = await originalFetch("/api/admin/bot-attribute-settings");
+      const data = await res.json();
+      if (!data.success) return;
+      const byId = {};
+      (data.presets || []).forEach(p => { byId[p.id] = p; });
+      const nameSec = document.getElementById("admin-preset-name-secretary");
+      const nameMcp = document.getElementById("admin-preset-name-mcp");
+      if (nameSec && byId.secretary) nameSec.value = byId.secretary.displayName;
+      if (nameMcp && byId.mcp_assistant) nameMcp.value = byId.mcp_assistant.displayName;
+      const rl = data.rate_limits || {};
+      const userMin = document.getElementById("admin-rate-user-min");
+      const userDay = document.getElementById("admin-rate-user-day");
+      const guildDay = document.getElementById("admin-rate-guild-day");
+      if (userMin) userMin.value = rl.userPerMinute ?? 5;
+      if (userDay) userDay.value = rl.userPerDay ?? 100;
+      if (guildDay) guildDay.value = rl.guildPerDay ?? 1000;
+    } catch (err) {
+      console.error("Bot属性設定の取得に失敗しました:", err);
+    }
+  }
+
+  const adminBotAttrForm = document.getElementById("admin-bot-attr-form");
+  if (adminBotAttrForm) {
+    adminBotAttrForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const res = await originalFetch("/api/admin/bot-attribute-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            displayNames: {
+              secretary: document.getElementById("admin-preset-name-secretary").value.trim(),
+              mcp_assistant: document.getElementById("admin-preset-name-mcp").value.trim()
+            },
+            rateLimits: {
+              userPerMinute: Number(document.getElementById("admin-rate-user-min").value),
+              userPerDay: Number(document.getElementById("admin-rate-user-day").value),
+              guildPerDay: Number(document.getElementById("admin-rate-guild-day").value)
+            }
+          })
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
+        if (data.success) fetchAdminBotAttributeSettings();
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
   }
 
   async function fetchAdminStats() {
@@ -2972,6 +3480,9 @@ document.addEventListener("DOMContentLoaded", () => {
         tdAction.style.textAlign = "right";
 
         if (user.discord_id !== activeUserId) {
+          const actionGroup = document.createElement("div");
+          actionGroup.className = "admin-action-group";
+
           const btn = document.createElement("button");
           btn.className = `admin-btn-action ${user.role === "admin" ? "" : "btn-promote"}`;
           btn.type = "button";
@@ -3000,13 +3511,12 @@ document.addEventListener("DOMContentLoaded", () => {
               console.error("Role change failed");
             }
           });
-          tdAction.appendChild(btn);
+          actionGroup.appendChild(btn);
 
           // ユーザー削除ボタン（§5.3.2）
           const btnDelete = document.createElement("button");
           btnDelete.className = "admin-btn-action btn-danger";
           btnDelete.type = "button";
-          btnDelete.style.marginLeft = "6px";
           btnDelete.textContent = "削除";
           btnDelete.addEventListener("click", async () => {
             if (!confirm(`ユーザー「${user.username}」を完全に削除しますか？\nタスク・家計簿・ペルソナ等の関連データも全て削除され、元に戻せません。`)) return;
@@ -3030,7 +3540,8 @@ document.addEventListener("DOMContentLoaded", () => {
               alert("削除処理中にエラーが発生しました。");
             }
           });
-          tdAction.appendChild(btnDelete);
+          actionGroup.appendChild(btnDelete);
+          tdAction.appendChild(actionGroup);
         } else {
           const selfLabel = document.createElement("span");
           selfLabel.style.fontSize = "0.75rem";
@@ -3183,7 +3694,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!data.success || !data.codes.length) {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 4;
+        td.colSpan = 5;
         td.style.textAlign = "center";
         td.style.padding = "20px";
         td.style.color = "var(--color-zinc-muted)";
@@ -3212,6 +3723,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (code.used_by) {
           statusSpan.className = "invite-status-used";
           statusSpan.textContent = "使用済み";
+        } else if (code.revoked_at) {
+          statusSpan.className = "invite-status-revoked";
+          statusSpan.textContent = "無効";
         } else {
           statusSpan.className = "invite-status-available";
           statusSpan.textContent = "利用可能";
@@ -3233,6 +3747,56 @@ document.addEventListener("DOMContentLoaded", () => {
         tdDate.style.color = "var(--color-zinc-muted)";
         tdDate.textContent = code.created_at;
         tr.appendChild(tdDate);
+
+        // 操作（未使用コードのみ無効化／削除可）
+        const tdAction = document.createElement("td");
+        tdAction.className = "admin-table-td";
+        if (!code.used_by) {
+          if (!code.revoked_at) {
+            const btnRevoke = document.createElement("button");
+            btnRevoke.className = "admin-btn-action";
+            btnRevoke.type = "button";
+            btnRevoke.textContent = "無効化";
+            btnRevoke.addEventListener("click", async () => {
+              if (!confirm(`招待コード「${code.code}」を無効化しますか？\n記録は残りますが、登録には使用できなくなります。`)) return;
+              try {
+                const r = await originalFetch(`/api/admin/invite-codes/${encodeURIComponent(code.code)}/revoke`, { method: "POST" });
+                const d = await r.json();
+                if (d.success) { fetchAdminInviteCodes(); fetchAdminStats(); }
+                else alert(d.message || "無効化に失敗しました。");
+              } catch (e) {
+                console.error("Invite code revoke failed");
+                alert("無効化処理中にエラーが発生しました。");
+              }
+            });
+            tdAction.appendChild(btnRevoke);
+          }
+
+          const btnDelete = document.createElement("button");
+          btnDelete.className = "admin-btn-action btn-danger";
+          btnDelete.type = "button";
+          btnDelete.style.marginLeft = "6px";
+          btnDelete.textContent = "削除";
+          btnDelete.addEventListener("click", async () => {
+            if (!confirm(`招待コード「${code.code}」を完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+            try {
+              const r = await originalFetch(`/api/admin/invite-codes/${encodeURIComponent(code.code)}`, { method: "DELETE" });
+              const d = await r.json();
+              if (d.success) { fetchAdminInviteCodes(); fetchAdminStats(); }
+              else alert(d.message || "削除に失敗しました。");
+            } catch (e) {
+              console.error("Invite code delete failed");
+              alert("削除処理中にエラーが発生しました。");
+            }
+          });
+          tdAction.appendChild(btnDelete);
+        } else {
+          const dash = document.createElement("span");
+          dash.style.color = "var(--color-zinc-muted)";
+          dash.textContent = "—";
+          tdAction.appendChild(dash);
+        }
+        tr.appendChild(tdAction);
 
         tbody.appendChild(tr);
       });
@@ -3261,73 +3825,119 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Admin: 監査ログ（§5.3.2）
+  const AUDIT_PREVIEW_LIMIT = 5; // インラインで表示する直近件数
+  const AUDIT_PAGE_SIZE = 20;    // モーダルの1ページあたり件数
+  let auditModalPage = 0;        // 0始まりのページ番号
+  let auditModalAction = "";     // モーダルで適用中のフィルタ
+
+  // 監査ログ1件分の行を生成（インライン・モーダル共通）
+  function buildAuditRow(log) {
+    const tr = document.createElement("tr");
+
+    const tdDate = document.createElement("td");
+    tdDate.className = "admin-table-td";
+    tdDate.style.fontSize = "0.78rem";
+    tdDate.style.whiteSpace = "nowrap";
+    tdDate.style.color = "var(--color-zinc-muted)";
+    tdDate.textContent = log.created_at;
+    tr.appendChild(tdDate);
+
+    const tdUser = document.createElement("td");
+    tdUser.className = "admin-table-td admin-discord-id";
+    tdUser.textContent = maskDiscordId(log.user_id);
+    tr.appendChild(tdUser);
+
+    const tdAction = document.createElement("td");
+    tdAction.className = "admin-table-td";
+    tdAction.style.fontFamily = "var(--font-family-mono)";
+    tdAction.style.fontSize = "0.78rem";
+    tdAction.textContent = log.action;
+    tr.appendChild(tdAction);
+
+    const tdTarget = document.createElement("td");
+    tdTarget.className = "admin-table-td";
+    tdTarget.style.fontSize = "0.78rem";
+    tdTarget.style.color = "var(--color-zinc-muted)";
+    tdTarget.textContent = log.target || "—";
+    tr.appendChild(tdTarget);
+
+    const tdDetail = document.createElement("td");
+    tdDetail.className = "admin-table-td";
+    tdDetail.style.fontSize = "0.78rem";
+    tdDetail.style.color = "var(--color-zinc-muted)";
+    tdDetail.textContent = log.detail || "—";
+    tr.appendChild(tdDetail);
+
+    return tr;
+  }
+
+  function renderAuditEmptyRow(tbody) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.style.textAlign = "center";
+    td.style.padding = "20px";
+    td.style.color = "var(--color-zinc-muted)";
+    td.style.fontSize = "0.8rem";
+    td.textContent = "監査ログはありません。";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  // インラインの直近プレビュー
   async function fetchAdminAuditLogs() {
     const tbody = document.getElementById("admin-audit-tbody");
     if (!tbody) return;
     tbody.replaceChildren();
 
-    const actionInput = document.getElementById("admin-audit-action-input");
-    const action = actionInput ? actionInput.value.trim() : "";
-
     try {
-      const url = `/api/admin/audit-logs?limit=100${action ? `&action=${encodeURIComponent(action)}` : ""}`;
-      const res = await originalFetch(url);
+      const res = await originalFetch(`/api/admin/audit-logs?limit=${AUDIT_PREVIEW_LIMIT}`);
       const data = await res.json();
       if (!data.success || !data.logs || !data.logs.length) {
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 5;
-        td.style.textAlign = "center";
-        td.style.padding = "20px";
-        td.style.color = "var(--color-zinc-muted)";
-        td.style.fontSize = "0.8rem";
-        td.textContent = "監査ログはありません。";
-        tr.appendChild(td);
-        tbody.appendChild(tr);
+        renderAuditEmptyRow(tbody);
+        return;
+      }
+      data.logs.forEach(log => tbody.appendChild(buildAuditRow(log)));
+    } catch (err) {
+      console.error("Admin audit logs fetch error", err);
+    }
+  }
+
+  // モーダルの全件ページネーション表示
+  async function fetchAdminAuditLogsModal() {
+    const tbody = document.getElementById("admin-audit-modal-tbody");
+    if (!tbody) return;
+    tbody.replaceChildren();
+
+    const pageInfo = document.getElementById("admin-audit-page-info");
+    const btnPrev = document.getElementById("btn-audit-prev");
+    const btnNext = document.getElementById("btn-audit-next");
+
+    try {
+      const offset = auditModalPage * AUDIT_PAGE_SIZE;
+      const url = `/api/admin/audit-logs?limit=${AUDIT_PAGE_SIZE}&offset=${offset}${auditModalAction ? `&action=${encodeURIComponent(auditModalAction)}` : ""}`;
+      const res = await originalFetch(url);
+      const data = await res.json();
+
+      if (!data.success || !data.logs || !data.logs.length) {
+        renderAuditEmptyRow(tbody);
+        if (pageInfo) pageInfo.textContent = "0 件";
+        if (btnPrev) btnPrev.disabled = auditModalPage === 0;
+        if (btnNext) btnNext.disabled = true;
         return;
       }
 
-      data.logs.forEach(log => {
-        const tr = document.createElement("tr");
+      data.logs.forEach(log => tbody.appendChild(buildAuditRow(log)));
 
-        const tdDate = document.createElement("td");
-        tdDate.className = "admin-table-td";
-        tdDate.style.fontSize = "0.78rem";
-        tdDate.style.whiteSpace = "nowrap";
-        tdDate.style.color = "var(--color-zinc-muted)";
-        tdDate.textContent = log.created_at;
-        tr.appendChild(tdDate);
-
-        const tdUser = document.createElement("td");
-        tdUser.className = "admin-table-td admin-discord-id";
-        tdUser.textContent = maskDiscordId(log.user_id);
-        tr.appendChild(tdUser);
-
-        const tdAction = document.createElement("td");
-        tdAction.className = "admin-table-td";
-        tdAction.style.fontFamily = "var(--font-family-mono)";
-        tdAction.style.fontSize = "0.78rem";
-        tdAction.textContent = log.action;
-        tr.appendChild(tdAction);
-
-        const tdTarget = document.createElement("td");
-        tdTarget.className = "admin-table-td";
-        tdTarget.style.fontSize = "0.78rem";
-        tdTarget.style.color = "var(--color-zinc-muted)";
-        tdTarget.textContent = log.target || "—";
-        tr.appendChild(tdTarget);
-
-        const tdDetail = document.createElement("td");
-        tdDetail.className = "admin-table-td";
-        tdDetail.style.fontSize = "0.78rem";
-        tdDetail.style.color = "var(--color-zinc-muted)";
-        tdDetail.textContent = log.detail || "—";
-        tr.appendChild(tdDetail);
-
-        tbody.appendChild(tr);
-      });
+      const total = typeof data.total === "number" ? data.total : 0;
+      const totalPages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
+      const from = offset + 1;
+      const to = offset + data.logs.length;
+      if (pageInfo) pageInfo.textContent = `${from}–${to} 件 / 全 ${total} 件（${auditModalPage + 1} / ${totalPages} ページ）`;
+      if (btnPrev) btnPrev.disabled = auditModalPage === 0;
+      if (btnNext) btnNext.disabled = auditModalPage + 1 >= totalPages;
     } catch (err) {
-      console.error("Admin audit logs fetch error", err);
+      console.error("Admin audit logs modal fetch error", err);
     }
   }
 
@@ -3335,7 +3945,40 @@ document.addEventListener("DOMContentLoaded", () => {
   if (adminAuditFilterForm) {
     adminAuditFilterForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      fetchAdminAuditLogs();
+      const actionInput = document.getElementById("admin-audit-action-input");
+      auditModalAction = actionInput ? actionInput.value.trim() : "";
+      auditModalPage = 0;
+      fetchAdminAuditLogsModal();
+    });
+  }
+
+  const btnOpenAuditModal = document.getElementById("btn-open-audit-modal");
+  const modalAudit = document.getElementById("modal-audit");
+  if (btnOpenAuditModal && modalAudit) {
+    btnOpenAuditModal.addEventListener("click", () => {
+      auditModalPage = 0;
+      const actionInput = document.getElementById("admin-audit-action-input");
+      auditModalAction = actionInput ? actionInput.value.trim() : "";
+      openModal(modalAudit);
+      fetchAdminAuditLogsModal();
+    });
+  }
+
+  const btnAuditPrev = document.getElementById("btn-audit-prev");
+  if (btnAuditPrev) {
+    btnAuditPrev.addEventListener("click", () => {
+      if (auditModalPage > 0) {
+        auditModalPage -= 1;
+        fetchAdminAuditLogsModal();
+      }
+    });
+  }
+
+  const btnAuditNext = document.getElementById("btn-audit-next");
+  if (btnAuditNext) {
+    btnAuditNext.addEventListener("click", () => {
+      auditModalPage += 1;
+      fetchAdminAuditLogsModal();
     });
   }
 

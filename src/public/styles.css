@@ -529,6 +529,8 @@ button, input, select, textarea {
 input[type="text"],
 input[type="password"],
 input[type="number"],
+input[type="url"],
+input[type="email"],
 input[type="date"],
 input[type="datetime-local"],
 select,
@@ -546,6 +548,8 @@ textarea {
 input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="number"]:focus,
+input[type="url"]:focus,
+input[type="email"]:focus,
 input[type="date"]:focus,
 input[type="datetime-local"]:focus,
 select:focus,
@@ -1789,7 +1793,8 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  /* .overlay (z-index: 9999) の上に重なる必要がある（Bot選択画面から開くモーダル等） */
+  z-index: 10000;
   opacity: 0;
   pointer-events: none;
   transition: var(--transition-smooth);
@@ -1803,6 +1808,8 @@ textarea:focus {
 .modal-content {
   width: 100%;
   max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
   transform: translateY(12px);
   transition: var(--transition-smooth);
   border: 1px solid var(--border-matte);
@@ -2862,6 +2869,14 @@ textarea:focus {
 }
 
 /* Admin Action Buttons */
+.admin-action-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .admin-btn-action {
   display: inline-flex;
   align-items: center;
@@ -2921,6 +2936,11 @@ textarea:focus {
 
 .invite-status-used {
   color: var(--color-zinc-muted);
+}
+
+.invite-status-revoked {
+  color: #ef4444;
+  font-weight: 700;
 }
 
 /* Discord ID masking style */

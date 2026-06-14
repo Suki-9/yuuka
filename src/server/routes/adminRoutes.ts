@@ -9,10 +9,10 @@ import {
   deleteUser,
 } from "../../db/userRepo.js";
 import { destroyAllSessionsForUser } from "../../services/sessionService.js";
-import { addAuditLog, listAuditLogs } from "../../db/auditRepo.js";
+import { addAuditLog, listAuditLogs, countAuditLogs } from "../../db/auditRepo.js";
 import { listAllBots, suspendBot, unsuspendBot } from "../../db/botRepo.js";
 import { stopCustomBot, customClients, restartDefaultBot } from "../../bot.js";
-import { listInviteCodes, createInviteCode } from "../../db/inviteRepo.js";
+import { listInviteCodes, createInviteCode, revokeInviteCode, deleteInviteCode } from "../../db/inviteRepo.js";
 import { encryptText } from "../../utils/crypto.js";
 import { getSystemSetting, setSystemSetting } from "../../db/systemSettingsRepo.js";
 
@@ -67,6 +67,7 @@ export const adminRoutes: RouteDef[] = [
       const suspendedBotCount = db.prepare("SELECT COUNT(*) as count FROM bots WHERE suspended = 1").get() as { count: number };
       const inviteTotal = db.prepare("SELECT COUNT(*) as count FROM invite_codes").get() as { count: number };
       const inviteUsed = db.prepare("SELECT COUNT(*) as count FROM invite_codes WHERE used_by IS NOT NULL").get() as { count: number };
+      const inviteAvailable = db.prepare("SELECT COUNT(*) as count FROM invite_codes WHERE used_by IS NULL AND revoked_at IS NULL").get() as { count: number };
 
       sendJson(ctx.res, 200, {
         success: true,
@@ -76,7 +77,7 @@ export const adminRoutes: RouteDef[] = [
           suspendedBots: suspendedBotCount.count,
           totalInviteCodes: inviteTotal.count,
           usedInviteCodes: inviteUsed.count,
-          availableInviteCodes: inviteTotal.count - inviteUsed.count,
+          availableInviteCodes: inviteAvailable.count,
         },
       });
     },
@@ -197,7 +198,12 @@ export const adminRoutes: RouteDef[] = [
     async handler(ctx) {
       const action = ctx.url.searchParams.get("action") || undefined;
       const limit = Math.min(parseInt(ctx.url.searchParams.get("limit") || "200", 10), 500);
-      sendJson(ctx.res, 200, { success: true, logs: listAuditLogs(limit, action) });
+      const offset = Math.max(parseInt(ctx.url.searchParams.get("offset") || "0", 10), 0);
+      sendJson(ctx.res, 200, {
+        success: true,
+        logs: listAuditLogs(limit, action, offset),
+        total: countAuditLogs(action),
+      });
     },
   },
 
@@ -286,6 +292,32 @@ export const adminRoutes: RouteDef[] = [
       createInviteCode(code, ctx.user!.discordId);
       addAuditLog(ctx.user!.discordId, "admin.invite_create", code);
       sendJson(ctx.res, 200, { success: true, message: `招待コード「${code}」を作成しました。` });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/admin/invite-codes/:code/revoke",
+    auth: "admin",
+    async handler(ctx) {
+      const code = ctx.params.code;
+      if (!revokeInviteCode(code)) {
+        return sendJson(ctx.res, 400, { success: false, message: "未使用の招待コードのみ無効化できます。" });
+      }
+      addAuditLog(ctx.user!.discordId, "admin.invite_revoke", code);
+      sendJson(ctx.res, 200, { success: true, message: `招待コード「${code}」を無効化しました。` });
+    },
+  },
+  {
+    method: "DELETE",
+    path: "/api/admin/invite-codes/:code",
+    auth: "admin",
+    async handler(ctx) {
+      const code = ctx.params.code;
+      if (!deleteInviteCode(code)) {
+        return sendJson(ctx.res, 400, { success: false, message: "未使用の招待コードのみ削除できます。" });
+      }
+      addAuditLog(ctx.user!.discordId, "admin.invite_delete", code);
+      sendJson(ctx.res, 200, { success: true, message: `招待コード「${code}」を削除しました。` });
     },
   },
 ];

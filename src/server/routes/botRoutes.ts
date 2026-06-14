@@ -17,6 +17,16 @@ import { getUserByDiscordId, isAdmin } from "../../db/userRepo.js";
 import { getPersonaById } from "../../db/personaRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 import {
+  BOT_PRESETS,
+  applyBotPreset,
+  parseCapabilities,
+  presetIdForCapabilities,
+  getPresetDisplayName,
+  invalidateBotCapabilitiesCache,
+  type BotPresetId,
+} from "../../services/botCapabilities.js";
+import type { BotRecord } from "../../db/botRepo.js";
+import {
   stopCustomBot,
   client as defaultBotClient,
   customClients,
@@ -25,6 +35,21 @@ import {
 
 // ─── Botインスタンス管理・共有 HTTPルート（§5.1, §5.2） ───────────────────────
 
+/**
+ * Bot一覧レスポンス用にレコードを整形する。
+ * Bot専用Gemini APIキーの暗号文はUIに不要のため除外し、属性情報を付与する。
+ */
+function toBotView(bot: BotRecord) {
+  const { gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag, ...rest } = bot;
+  const preset = presetIdForCapabilities(parseCapabilities(bot.capabilities));
+  return {
+    ...rest,
+    preset,
+    preset_display_name: getPresetDisplayName(preset),
+    has_gemini_key: !!(gemini_api_key_encrypted && gemini_api_key_iv && gemini_api_key_tag),
+  };
+}
+
 export const botRoutes: RouteDef[] = [
   // ── Bot一覧・作成・削除 ──
   {
@@ -32,7 +57,10 @@ export const botRoutes: RouteDef[] = [
     path: "/api/bots",
     auth: "user",
     async handler(ctx) {
-      sendJson(ctx.res, 200, { success: true, bots: listBotsForUser(ctx.user!.discordId) });
+      sendJson(ctx.res, 200, {
+        success: true,
+        bots: listBotsForUser(ctx.user!.discordId).map(toBotView),
+      });
     },
   },
   {
@@ -44,9 +72,30 @@ export const botRoutes: RouteDef[] = [
       if (!name) {
         return sendJson(ctx.res, 400, { success: false, message: "Botの名前は必須です。" });
       }
+
+      // プリセット選択（bot_attributes_requirements.md §4.1: 未選択時は secretary）
+      const presetInput = typeof ctx.body.preset === "string" ? ctx.body.preset : "secretary";
+      if (!(presetInput in BOT_PRESETS)) {
+        return sendJson(ctx.res, 400, { success: false, message: "不明なプリセットです。" });
+      }
+      const preset = presetInput as BotPresetId;
+
       const botId = `bot_${crypto.randomUUID()}`;
       const bot = createBot(botId, ctx.user!.discordId, name);
-      sendJson(ctx.res, 200, { success: true, bot, message: "Botを作成しました。" });
+      if (preset !== "secretary") {
+        applyBotPreset(botId, preset);
+        addAuditLog(ctx.user!.discordId, "bot.capabilities_change", botId, `create:${preset}`);
+      }
+
+      const created = getBotById(botId) ?? bot;
+      sendJson(ctx.res, 200, {
+        success: true,
+        bot: toBotView(created),
+        message:
+          preset === "mcp_assistant"
+            ? "Botを作成しました。汎用モードの利用にはBot専用のGemini APIキーの設定が必要です（Bot設定から設定してください）。"
+            : "Botを作成しました。",
+      });
     },
   },
   {
@@ -70,6 +119,7 @@ export const botRoutes: RouteDef[] = [
       stopCustomBot(botId);
 
       const ok = deleteBot(botId);
+      invalidateBotCapabilitiesCache(botId);
       sendJson(ctx.res, 200, { success: ok, message: "Botを削除しました。" });
     },
   },
