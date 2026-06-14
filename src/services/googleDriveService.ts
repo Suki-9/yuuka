@@ -25,6 +25,39 @@ export function isDriveEnabled(userId: string): boolean {
 }
 
 /**
+ * バックアップ先フォルダ指定値を正規化し、フォルダIDを取り出す。
+ * フォルダID単体・各種Google DriveフォルダURLのどちらでも受け付ける。
+ * 例:
+ *   - https://drive.google.com/drive/folders/<ID>
+ *   - https://drive.google.com/drive/u/0/folders/<ID>?usp=sharing
+ *   - https://drive.google.com/open?id=<ID>
+ *   - <ID>
+ * 抽出できない場合は null を返す（呼び出し側で未設定として扱う）。
+ */
+export function extractDriveFolderId(input: string): string | null {
+  const value = input.trim();
+  if (!value) return null;
+
+  // URLでない場合はフォルダID本体とみなす（DriveのIDは英数字・ハイフン・アンダースコア）
+  if (!/^https?:\/\//i.test(value)) {
+    return /^[A-Za-z0-9_-]+$/.test(value) ? value : null;
+  }
+
+  try {
+    const url = new URL(value);
+    // 形式1: /drive/folders/<ID> や /drive/u/0/folders/<ID>
+    const folderMatch = url.pathname.match(/\/folders\/([A-Za-z0-9_-]+)/);
+    if (folderMatch) return folderMatch[1];
+    // 形式2: ?id=<ID>（open?id=... 等）
+    const idParam = url.searchParams.get("id");
+    if (idParam && /^[A-Za-z0-9_-]+$/.test(idParam)) return idParam;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Google Driveにファイルをアップロードする。
  * 世代管理（§8.2）のため同名上書きはせず、常に新規ファイルとして作成する。
  */
