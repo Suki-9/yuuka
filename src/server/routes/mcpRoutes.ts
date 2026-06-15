@@ -1,5 +1,38 @@
+import { randomBytes } from "node:crypto";
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
+
+// ── プロキシ用使い捨てトークン（Cookie が null-origin iframe から届かないため）──
+// ダッシュボードHTML発行時に生成し、SPA の Authorization: Bearer で検証する。
+interface ProxyTokenEntry {
+  serverId: number;
+  userId: string;
+  expiresAt: number;
+}
+const proxyTokens = new Map<string, ProxyTokenEntry>();
+const PROXY_TOKEN_TTL_MS = 60 * 60 * 1000; // 1時間
+
+function issueProxyToken(serverId: number, userId: string): string {
+  // 期限切れトークンをまとめて掃除
+  const now = Date.now();
+  for (const [k, v] of proxyTokens) {
+    if (v.expiresAt < now) proxyTokens.delete(k);
+  }
+  const token = randomBytes(32).toString("hex");
+  proxyTokens.set(token, { serverId, userId, expiresAt: now + PROXY_TOKEN_TTL_MS });
+  return token;
+}
+
+function consumeProxyToken(token: string, serverId: number): ProxyTokenEntry | null {
+  const entry = proxyTokens.get(token);
+  if (!entry) return null;
+  if (entry.serverId !== serverId) return null;
+  if (entry.expiresAt < Date.now()) {
+    proxyTokens.delete(token);
+    return null;
+  }
+  return entry;
+}
 import {
   addServer,
   listServers,
@@ -9,7 +42,13 @@ import {
   parseToolsCache,
   type McpServerRecord,
 } from "../../db/mcpRepo.js";
-import { refreshToolsCache } from "../../services/mcpClient.js";
+import {
+  refreshToolsCache,
+  probeMcpDashboard,
+  fetchMcpDashboardHtml,
+  mcpOrigin,
+  buildAuthHeader,
+} from "../../services/mcpClient.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 
 // ─── MCPサーバー管理 HTTPルート（§4.4） ──────────────────────────────────────
@@ -173,6 +212,158 @@ export const mcpRoutes: RouteDef[] = [
         success: ok,
         message: ok ? "MCPサーバーを削除しました。" : "MCPサーバーが見つからないか、削除権限がありません。",
       });
+    },
+  },
+
+  // ── 管理ページ提供の有無を判定（<origin>/dashboard/enable が200か） ──
+  {
+    method: "GET",
+    path: "/api/mcp-servers/:id/dashboard/status",
+    auth: "user",
+    async handler(ctx) {
+      const user = ctx.user!;
+      const id = Number(ctx.params.id);
+      const server = Number.isInteger(id) ? getServerById(id) : undefined;
+      if (!server || !canManage(server, user.discordId, user.role === "admin")) {
+        return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
+      }
+      const available = await probeMcpDashboard(server);
+      sendJson(ctx.res, 200, { success: true, available });
+    },
+  },
+
+  // ── 管理ページ HTML を取得（MCP_PATH をプロキシ経由に書き換え＋ダミートークン注入） ──
+  {
+    method: "GET",
+    path: "/api/mcp-servers/:id/dashboard",
+    auth: "user",
+    async handler(ctx) {
+      const user = ctx.user!;
+      const id = Number(ctx.params.id);
+      const server = Number.isInteger(id) ? getServerById(id) : undefined;
+      if (!server || !canManage(server, user.discordId, user.role === "admin")) {
+        return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
+      }
+      if (!(await probeMcpDashboard(server))) {
+        return sendJson(ctx.res, 404, {
+          success: false,
+          message: "このMCPサーバーは管理ページを提供していません。",
+        });
+      }
+      try {
+        const { status, html } = await fetchMcpDashboardHtml(server);
+        if (status !== 200) {
+          return sendJson(ctx.res, 502, {
+            success: false,
+            message: `管理ページの取得に失敗しました (HTTP ${status})。`,
+          });
+        }
+
+        // MCP_PATH を /proxy/mcp/:id/mcp に書き換える（動的埋め込みではオリジン解決の問題がないため相対パスで十分）
+        const proxyMcpPath = `/proxy/mcp/${id}/mcp`;
+        let rewritten = html.replace(/var MCP_PATH = "[^"]*"/, `var MCP_PATH = "${proxyMcpPath}"`);
+
+        // 使い捨てプロキシトークンを発行し、window 変数として注入する。
+        // 動的埋め込みでは location.hash はユーザーの画面 URL を汚染するため使わない。
+        // SPA の tokenFromHash() も window 変数を返すよう書き換える。
+        const proxyToken = issueProxyToken(id, user.discordId);
+        rewritten = rewritten.replace(
+          /function tokenFromHash\(\)\s*\{[^}]*\}/,
+          "function tokenFromHash() { return window.__mcpProxyToken__ || null; }"
+        );
+        const autoTokenScript = `<script>window.__mcpProxyToken__ = "${proxyToken}";</script>`;
+
+        const withInjections = /<head[^>]*>/i.test(rewritten)
+          ? rewritten.replace(/<head[^>]*>/i, (m) => `${m}${autoTokenScript}`)
+          : `${autoTokenScript}${rewritten}`;
+
+        sendJson(ctx.res, 200, { success: true, html: withInjections });
+      } catch (err) {
+        sendJson(ctx.res, 502, {
+          success: false,
+          message: `管理ページの取得に失敗しました: ${(err as Error).message}`,
+        });
+      }
+    },
+  },
+
+  // ── MCPエンドポイント プロキシ（ダッシュボードのAPIコールをBearer認証付きで中継） ──
+  // sandbox=null-origin の iframe は SameSite=Lax Cookie を送れないため、
+  // ダッシュボード発行時に生成した使い捨てプロキシトークンで認証する。
+  {
+    method: "POST",
+    path: "/proxy/mcp/:id/mcp",
+    auth: "none",
+    async handler(ctx) {
+      const id = Number(ctx.params.id);
+      if (!Number.isInteger(id)) {
+        return sendJson(ctx.res, 400, { success: false, message: "不正なサーバーIDです。" });
+      }
+
+      // Authorization: Bearer <proxyToken> を検証する
+      const authHeader = (ctx.req.headers["authorization"] as string | undefined) ?? "";
+      const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      const tokenEntry = consumeProxyToken(bearerToken, id);
+      if (!tokenEntry) {
+        return sendJson(ctx.res, 401, { success: false, message: "プロキシトークンが無効または期限切れです。" });
+      }
+
+      const server = getServerById(id);
+      if (!server) {
+        return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
+      }
+
+      const accept = (ctx.req.headers["accept"] as string | undefined) ?? "application/json, text/event-stream";
+      const controller = new AbortController();
+      ctx.req.on("close", () => controller.abort());
+
+      let upstreamRes: Response;
+      try {
+        upstreamRes = await fetch(server.endpoint_url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: accept,
+            "MCP-Protocol-Version": "2025-03-26",
+            ...buildAuthHeader(server),
+          },
+          body: new Uint8Array(ctx.rawBody),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (!ctx.res.headersSent) {
+          sendJson(ctx.res, 502, { success: false, message: `MCPサーバーへの接続に失敗しました: ${(err as Error).message}` });
+        }
+        return;
+      }
+
+      const contentType = upstreamRes.headers.get("content-type") ?? "application/json";
+      const responseHeaders: Record<string, string> = {
+        "Content-Type": contentType,
+        "X-Content-Type-Options": "nosniff",
+        "Access-Control-Allow-Origin": "*",
+      };
+      const mcpSessionId = upstreamRes.headers.get("mcp-session-id");
+      if (mcpSessionId) responseHeaders["mcp-session-id"] = mcpSessionId;
+
+      ctx.res.writeHead(upstreamRes.status, responseHeaders);
+
+      if (upstreamRes.body) {
+        const reader = upstreamRes.body.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            ctx.res.write(Buffer.from(value));
+          }
+        } catch {
+          // クライアント切断等
+        } finally {
+          ctx.res.end();
+        }
+      } else {
+        ctx.res.end();
+      }
     },
   },
 ];

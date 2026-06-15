@@ -485,10 +485,17 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalCredential);
       closeModal(modalCreateBot);
       ["modal-expense-plan", "modal-budget-settings", "modal-persona-edit",
-        "modal-persona-preview", "modal-contact", "modal-webhook", "modal-audit"].forEach(id => {
+        "modal-persona-preview", "modal-contact", "modal-webhook", "modal-audit",
+        "modal-mcp-dashboard"].forEach(id => {
         const m = document.getElementById(id);
         if (m) closeModal(m);
       });
+      // 閉じる際にMCP管理ページの埋め込みコンテンツを破棄（前回の内容を残さない）
+      const mcpContainer = document.getElementById("mcp-dashboard-container");
+      if (mcpContainer) {
+        mcpContainer.innerHTML = "";
+        delete window.__mcpProxyToken__;
+      }
     });
   });
 
@@ -5811,6 +5818,52 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================
   // MCP SERVERS MANAGEMENT (§4.4)
   // ==========================================
+
+  // サーバー返却の HTML を container div へ動的埋め込みする。
+  // innerHTML では <script> が実行されないため、script 要素を個別に再生成して順序通り追加する。
+  function injectMcpDashboardHtml(container, htmlString) {
+    container.innerHTML = "";
+    const doc = new DOMParser().parseFromString(htmlString, "text/html");
+
+    // script を先に抜き出す（importNode 後に appendChild すると実行されるため順序制御が必要）
+    const scripts = [...doc.querySelectorAll("script")];
+    scripts.forEach(s => s.remove());
+
+    // head / body の残りノードを移植
+    [...doc.head.children, ...doc.body.children].forEach(el => {
+      container.appendChild(document.importNode(el, true));
+    });
+
+    // script を順序通り再生成して追加（inline script は textContent で再実行）
+    scripts.forEach(old => {
+      const s = document.createElement("script");
+      [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+      s.textContent = old.textContent;
+      container.appendChild(s);
+    });
+  }
+
+  async function openMcpDashboard(server) {
+    const modal = document.getElementById("modal-mcp-dashboard");
+    const container = document.getElementById("mcp-dashboard-container");
+    const titleEl = document.getElementById("mcp-dashboard-title");
+    if (!modal || !container) return;
+    if (titleEl) titleEl.textContent = `${server.name} の管理ページ`;
+    container.innerHTML = "";
+    try {
+      const res = await fetch(`/api/mcp-servers/${server.id}/dashboard`);
+      const data = await res.json();
+      if (!data.success || typeof data.html !== "string") {
+        alert(data.message || "管理ページの取得に失敗しました。");
+        return;
+      }
+      injectMcpDashboardHtml(container, data.html);
+      openModal(modal);
+    } catch (err) {
+      alert("通信エラーが発生しました。");
+    }
+  }
+
   async function fetchMcpServersList() {
     // Adminの場合のみスコープ選択を表示
     const scopeGroup = document.getElementById("mcp-scope-group");
@@ -5963,6 +6016,23 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         });
         actions.appendChild(delBtn);
+
+        // 管理ページ提供がある場合のみ「管理ページ」ボタンを表示（fire-and-forget で判定）。
+        // <origin>/dashboard/enable が200を返すサーバーのみ available:true。
+        fetch(`/api/mcp-servers/${server.id}/dashboard/status`)
+          .then(r => r.json())
+          .then(d => {
+            if (!d || !d.available) return;
+            const dashBtn = document.createElement("button");
+            dashBtn.type = "button";
+            dashBtn.className = "btn btn-secondary btn-sm";
+            dashBtn.style.cssText = "font-size:0.72rem;padding:3px 10px;";
+            dashBtn.textContent = "管理ページ";
+            dashBtn.addEventListener("click", () => openMcpDashboard(server));
+            // 削除ボタンの前に差し込む（管理系操作をまとめる）
+            actions.insertBefore(dashBtn, delBtn);
+          })
+          .catch(() => {});
 
         card.appendChild(topRow);
         card.appendChild(url);

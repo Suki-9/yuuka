@@ -1,5 +1,6 @@
 import { getDb } from "./database.js";
 import { encryptText } from "../utils/crypto.js";
+import { getBotById } from "./botRepo.js";
 
 // ─── MCPサーバー拡張リポジトリ（§4.4） ───────────────────────────────────────
 // user_id = NULL の行はシステムレベル登録（Adminのみ管理・全ユーザー利用可）。
@@ -78,19 +79,27 @@ export function listServersForUser(userId: string): McpServerRecord[] {
 
 /**
  * Botが利用可能なMCPサーバー一覧（bot_attributes_requirements.md §4.5）。
- * 「bot_mcp_links で紐付けられたサーバー + システムレベル(user_id IS NULL)サーバー」のみ。
- * 発話ユーザー個人のMCPサーバーは参照しない（秘書プリセットとの差分）。
+ * 次のいずれかに該当するサーバーを返す:
+ *   1. bot_mcp_links で明示的に紐付けられたサーバー
+ *   2. システムレベル(user_id IS NULL)サーバー
+ *   3. Bot所有者本人が登録したサーバー（登録するだけで自分のBotから使えるようにする）
+ * 3により、Bot所有者は紐付け作業なしにMCPを登録した時点でそのBotのFunction Callとして
+ * 利用可能になる。ただし汎用モードBotは利用メンバー制のため、所有者以外の発話ユーザーも
+ * Bot経由で所有者のMCPツール（所有者の認証情報で実行）を起動し得る点に注意（監査ログは
+ * 発話ユーザーをactorとして記録。§6）。
+ * 発話ユーザー個人のMCPサーバーは参照しない（秘書プリセットとの差分は維持）。
  */
 export function listServersForBot(botId: string): McpServerRecord[] {
   const db = getDb();
+  const ownerId = getBotById(botId)?.user_id ?? null;
   return db
     .prepare(
       `SELECT DISTINCT s.* FROM mcp_servers s
        LEFT JOIN bot_mcp_links l ON l.mcp_server_id = s.id AND l.bot_id = ?
-       WHERE l.id IS NOT NULL OR s.user_id IS NULL
+       WHERE l.id IS NOT NULL OR s.user_id IS NULL OR s.user_id = ?
        ORDER BY s.created_at ASC`
     )
-    .all(botId) as McpServerRecord[];
+    .all(botId, ownerId) as McpServerRecord[];
 }
 
 /** 管理画面用の一覧（scope: 自分のもの or システムレベル） */

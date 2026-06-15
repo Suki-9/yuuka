@@ -29,7 +29,7 @@ interface JsonRpcResponse {
 }
 
 /** サーバーの認証ヘッダを構築する */
-function buildAuthHeader(server: McpServerRecord): Record<string, string> {
+export function buildAuthHeader(server: McpServerRecord): Record<string, string> {
   if (
     !server.auth_credential_encrypted ||
     !server.auth_credential_iv ||
@@ -230,6 +230,59 @@ export async function callTool(
     }
     return joined;
   });
+}
+
+// ─── MCPサーバー管理ページ統合（§4.4 拡張） ───────────────────────────────────
+// 一部のMCPサーバーは endpoint_url と同一オリジンに管理ページ（HTML）を配信する。
+//   - 有効判定: GET <origin>/dashboard/enable が 200 を返すか
+//   - 本体    : GET <origin>/dashboard
+// パス規約が変わる場合はここ（mcpOrigin / DASHBOARD_* ）だけを直せば済むよう集約する。
+
+const DASHBOARD_ENABLE_PATH = "/dashboard/enable";
+const DASHBOARD_PATH = "/dashboard";
+
+/** endpoint_url のオリジン（scheme://host:port）を返す */
+export function mcpOrigin(server: McpServerRecord): string {
+  return new URL(server.endpoint_url).origin;
+}
+
+/** GET リクエストを Bearer 認証付き・タイムアウト付きで送る共通ヘルパ */
+async function authedGet(server: McpServerRecord, url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      method: "GET",
+      headers: { ...buildAuthHeader(server) },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * MCPサーバーが管理ページを提供しているか判定する。
+ * GET <origin>/dashboard/enable が 200 のときのみ true（到達不可・非200は false）。
+ */
+export async function probeMcpDashboard(server: McpServerRecord): Promise<boolean> {
+  try {
+    const res = await authedGet(server, `${mcpOrigin(server)}${DASHBOARD_ENABLE_PATH}`);
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * MCPサーバーの管理ページ HTML を取得する（Bearer 認証注入）。
+ */
+export async function fetchMcpDashboardHtml(
+  server: McpServerRecord
+): Promise<{ status: number; html: string }> {
+  const res = await authedGet(server, `${mcpOrigin(server)}${DASHBOARD_PATH}`);
+  const html = await res.text();
+  return { status: res.status, html };
 }
 
 /**

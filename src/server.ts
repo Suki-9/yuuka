@@ -194,7 +194,19 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 3. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
+  // 3. MCP プロキシへの CORS プリフライト（null-origin iframe から Authorization ヘッダー付き fetch が来る）
+  if (req.method === "OPTIONS" && pathname.startsWith("/proxy/mcp/")) {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version",
+      "Access-Control-Max-Age": "86400",
+    });
+    res.end();
+    return;
+  }
+
+  // 4. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
   try {
     const handled = await dispatchRoute(req, res, parsedUrl, () => getSessionUser(req));
     if (handled) return;
@@ -207,7 +219,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // 4. 未登録の /api/* は404、それ以外は静的ファイル（SPA）として配信
+  // 5. 未登録の /api/* は404、それ以外は静的ファイル（SPA）として配信
   if (pathname.startsWith("/api/")) {
     res.writeHead(404, { "Content-Type": "application/json", ...SECURITY_HEADERS });
     res.end(JSON.stringify({ success: false, message: "APIエンドポイントが見つかりません。" }));
