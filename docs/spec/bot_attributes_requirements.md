@@ -4,7 +4,7 @@
 **最終更新:** 2026-06-13
 **ステータス:** Draft（主要論点 決定済み）
 **改訂履歴:** 0.4 — 実行APIキーを「Bot専用キー・設定必須」に決定、プリセット表示名は管理ページから変更可能、メンバー外の発話は記録しない（未登録は無視）。0.3 — §10 主要論点を決定（メモリ2層確定・個人/共有ノート両方・利用メンバー制・ギルド単位コンテキスト30件・ペルソナ変更は管理ページのみ・DMは owner のみ）。0.2 — 利用者スコープを「ギルド内全員」に決定、owner キー実行と利用量制御を追加。0.1 — 初版
-**関連文書:** docs/discordbot_spec.md (v0.6.1-draft), docs/architecture_v2.md
+**関連文書:** docs/spec/discordbot_spec.md (v0.6.1-draft), docs/architecture/architecture_v2.md
 
 > 表記注: 本書で **MCP** は Model Context Protocol を指す（仕様書 §4.4 の MCPサーバー拡張と同一）。
 

@@ -39,7 +39,7 @@ import { getUserGenAI, getBotGenAI } from "./services/llmClient.js";
 import { config } from "./config.js";
 import type { ToolContext, FunctionModule } from "./types/contracts.js";
 
-// ─── 検索クロールスキル（docs/search_skills.md のインライン読み込み） ──────────
+// ─── 検索クロールスキル（docs/skills/search_skills.md のインライン読み込み） ──────────
 
 let cachedSearchSkills: string | null = null;
 
@@ -47,7 +47,8 @@ let cachedSearchSkills: string | null = null;
 function loadSearchSkills(): string {
   if (cachedSearchSkills !== null) return cachedSearchSkills;
   const candidates = [
-    path.resolve(process.cwd(), "docs/search_skills.md"),
+    path.resolve(process.cwd(), "docs/skills/search_skills.md"),
+    path.resolve(process.cwd(), "docs/search_skills.md"), // 後方互換（旧配置）
   ];
   for (const p of candidates) {
     try {
@@ -168,7 +169,7 @@ async function buildSystemInstruction(userId: string, botId: string, richReplyEn
 2. 内容に「〜しておいて」「〜を忘れないように」などのタスク依頼が含まれる場合は、ToDoへの変換を提案し、承認後に addTodo を呼ぶ。
 3. ユーザーが希望すれば addClipboardEntry で文字起こし結果をクリップボードに保存する。`;
 
-  // 検索スキル（docs/search_skills.md をインライン化）
+  // 検索スキル（docs/skills/search_skills.md をインライン化）
   const searchSkills = loadSearchSkills();
   const searchSkillsSection = searchSkills
     ? `\n# 検索クロールスキル仕様書（インデックス）\n外部検索（searchWeb）や情報収集を行う際は、以下のスキル仕様書に合致するカテゴリがあれば、その推奨ドメイン・推奨クエリパターン・巡回（fetchDynamicPage）フローに従って調査を組み立ててください。\n\n${searchSkills}`

@@ -1,6 +1,6 @@
-# Yuuka v2 アーキテクチャ規範（仕様書 docs/discordbot_spec.md v0.6.1 準拠）
+# Yuuka v2 アーキテクチャ規範（仕様書 docs/spec/discordbot_spec.md v0.6.1 準拠）
 
-本書は仕様書（docs/discordbot_spec.md）を既存コードベースへ落とし込むための**実装規範**である。
+本書は仕様書（docs/spec/discordbot_spec.md）を既存コードベースへ落とし込むための**実装規範**である。
 実装エージェント・開発者は必ず本書のコントラクトに従うこと。仕様書と本書が矛盾する場合は本書を優先する（本書は仕様書を既存実装と調和させた結果である）。
 
 ---
@@ -8,7 +8,7 @@
 ## 0. 最重要原則
 
 1. **データ分離**: 全ユーザーデータは `user_id`（DiscordユーザーID, TEXT）を WHERE 句の必須条件とする。`user_id` なしのワイルドカードクエリ禁止（cron系の全件走査は例外として明示コメントを書く）。
-   **例外パターン（Bot属性 docs/bot_attributes_requirements.md §6）**: 汎用モード（MCPアシスタント）のデータは `bot_id × user_id`（bot_context_notes）/ `bot_id × guild_id`（bot_guild_notes, bot_guilds, message_logs のギルド会話）の複合スコープを正式な分離キーとする。この user_id にはWebアカウント未登録のDiscordユーザーIDも入るため、message_logs / bot_context_notes / bot_members は users へのFKを持たない。
+   **例外パターン（Bot属性 docs/spec/bot_attributes_requirements.md §6）**: 汎用モード（MCPアシスタント）のデータは `bot_id × user_id`（bot_context_notes）/ `bot_id × guild_id`（bot_guild_notes, bot_guilds, message_logs のギルド会話）の複合スコープを正式な分離キーとする。この user_id にはWebアカウント未登録のDiscordユーザーIDも入るため、message_logs / bot_context_notes / bot_members は users へのFKを持たない。
 2. **ブラウザ操作層は不変**: `src/services/browserService.ts`・`src/rust_crawler/`・`src/functions/browserFunctions.ts` の既存アプローチ（Rustクローラーデーモン→Puppeteerフォールバック、ユーザー別永続セッション、`data-yuuka-id` 数値IDアノテーション）は変更しない。新機能はこの上に乗せる。
 3. **認証情報はLLMに渡さない**: パスワードマネージャの復号値は `browserService` へ直接渡す。Function Call の戻り値・ログ・プロンプトに含めてはならない。
 4. **既存データは破棄してよい**: スキーマバージョン2へ全面再構築する（migrations.ts が旧テーブルをDROPする）。
@@ -171,7 +171,7 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 | webhook | db/webhookRepo.ts, services/webhookProcessor.ts, server/routes/webhookRoutes.ts |
 | mcp | db/mcpRepo.ts, services/mcpClient.ts, functions/mcpDynamic.ts, server/routes/mcpRoutes.ts |
 | persona | db/personaRepo.ts, server/routes/personaRoutes.ts |
-| botattributes（Bot属性 docs/bot_attributes_requirements.md） | services/botCapabilities.ts, services/botRateLimit.ts, db/botAttributesRepo.ts, db/botNoteRepo.ts, functions/botAssistantFunctions.ts, server/routes/botAttributeRoutes.ts |
+| botattributes（Bot属性 docs/spec/bot_attributes_requirements.md） | services/botCapabilities.ts, services/botRateLimit.ts, db/botAttributesRepo.ts, db/botNoteRepo.ts, functions/botAssistantFunctions.ts, server/routes/botAttributeRoutes.ts |
 | charts | services/chartService.ts, functions/chartFunctions.ts |
 | calendar | services/googleCalendarService.ts, services/googleDriveService.ts, services/backupService.ts, db/scheduleRepo.ts, functions/scheduleFunctions.ts |
 | 統合 | gemini.ts, bot.ts, index.ts, server.ts, functions/index.ts, db/chatHistoryRepo.ts(廃止), db/taskRepo.ts(廃止), db/botRepo.ts, db/inviteRepo.ts, utils/embeds.ts, public/* |

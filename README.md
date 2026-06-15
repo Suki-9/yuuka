@@ -4,7 +4,7 @@
 
 ## ✨ 主な機能（できること一覧）
 
-『Yuuka』は、Google の **Gemini API** を活用した Discord 秘書ボットと Web 管理ダッシュボードのハイブリッドな統合管理ソフトウェアです（仕様書: `docs/discordbot_spec.md` v0.6.1 準拠）。
+『Yuuka』は、Google の **Gemini API** を活用した Discord 秘書ボットと Web 管理ダッシュボードのハイブリッドな統合管理ソフトウェアです（仕様書: `docs/spec/discordbot_spec.md` v0.6.1 準拠）。
 
 全ユーザーデータは **DiscordユーザーID単位で完全分離** されており、Botを共有していても会話履歴・家計・パスワード等が他ユーザーから見えることはありません。
 
@@ -146,9 +146,9 @@ pnpm start
 
 ## 🏗️ アーキテクチャ
 
-*   仕様書: [docs/discordbot_spec.md](docs/discordbot_spec.md)
-*   実装規範（モジュール構成・コントラクト・スキーマ）: [docs/architecture_v2.md](docs/architecture_v2.md)
-*   検索クロールスキル: [docs/search_skills.md](docs/search_skills.md)（システムプロンプトへ自動インライン注入されます）
+*   仕様書: [docs/spec/discordbot_spec.md](docs/spec/discordbot_spec.md)
+*   実装規範（モジュール構成・コントラクト・スキーマ）: [docs/architecture/architecture_v2.md](docs/architecture/architecture_v2.md)
+*   検索クロールスキル: [docs/skills/search_skills.md](docs/skills/search_skills.md)（システムプロンプトへ自動インライン注入されます）
 
 ---
 
