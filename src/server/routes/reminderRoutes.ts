@@ -8,6 +8,7 @@ import {
   type ReminderTargetType,
 } from "../../db/reminderRepo.js";
 import { getUserNotifyTarget } from "../../db/userRepo.js";
+import { hasBotAccess } from "../../db/botRepo.js";
 
 // ─── リマインド HTTPルート（§3.3） ───────────────────────────────────────────
 //
@@ -45,7 +46,9 @@ export const reminderRoutes: RouteDef[] = [
       }
       const allParam = ctx.url.searchParams.get("all");
       const includeAll = allParam === "1" || allParam === "true";
-      const reminders = reminderRepo.listReminders(ctx.user.discordId, includeAll);
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(ctx.user.discordId, rawBotId) ? rawBotId : "system_default";
+      const reminders = reminderRepo.listReminders(ctx.user.discordId, botId, includeAll);
       sendJson(ctx.res, 200, { success: true, reminders });
     },
   },
@@ -127,7 +130,10 @@ export const reminderRoutes: RouteDef[] = [
         targetId = targetId ?? pref?.id;
       }
 
-      const reminder = reminderRepo.addReminder(ctx.user.discordId, {
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(ctx.user.discordId, rawBotId) ? rawBotId : "system_default";
+
+      const reminder = reminderRepo.addReminder(ctx.user.discordId, botId, {
         message,
         triggerAt,
         repeatRule,
@@ -160,10 +166,13 @@ export const reminderRoutes: RouteDef[] = [
         return;
       }
 
-      const cancelled = reminderRepo.cancelReminder(ctx.user.discordId, reminderId);
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(ctx.user.discordId, rawBotId) ? rawBotId : "system_default";
+
+      const cancelled = reminderRepo.cancelReminder(ctx.user.discordId, botId, reminderId);
       if (!cancelled) {
         // 失敗理由を区別して返す（存在しない / 既に送信済み・キャンセル済み）
-        const existing = reminderRepo.getReminderById(ctx.user.discordId, reminderId);
+        const existing = reminderRepo.getReminderById(ctx.user.discordId, botId, reminderId);
         if (!existing) {
           sendJson(ctx.res, 404, {
             success: false,

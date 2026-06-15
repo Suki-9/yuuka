@@ -74,7 +74,7 @@ export function upsertSchedule(
     return { success: false, message: "無効なcron式です。" };
   }
 
-  const playbooks = findPlaybooks(userId);
+  const playbooks = findPlaybooks(userId, botId);
   if (!playbooks.some((p) => p.name === playbookName)) {
     return {
       success: false,
@@ -153,32 +153,32 @@ export function deleteSchedule(
 
 // ── 実行履歴 ─────────────────────────────────────────
 
-export function listRuns(userId: string, scheduleId?: number, limit = 50): PlaybookRun[] {
+export function listRuns(userId: string, botId: string, scheduleId?: number, limit = 50): PlaybookRun[] {
   const db = getDb();
   if (scheduleId != null) {
     return db
       .prepare(
-        `SELECT * FROM playbook_runs WHERE user_id = ? AND schedule_id = ?
+        `SELECT * FROM playbook_runs WHERE user_id = ? AND bot_id = ? AND schedule_id = ?
          ORDER BY started_at DESC LIMIT ?`
       )
-      .all(userId, scheduleId, limit) as PlaybookRun[];
+      .all(userId, botId, scheduleId, limit) as PlaybookRun[];
   }
   return db
     .prepare(
-      `SELECT * FROM playbook_runs WHERE user_id = ?
+      `SELECT * FROM playbook_runs WHERE user_id = ? AND bot_id = ?
        ORDER BY started_at DESC LIMIT ?`
     )
-    .all(userId, limit) as PlaybookRun[];
+    .all(userId, botId, limit) as PlaybookRun[];
 }
 
-function createRun(scheduleId: number, userId: string, playbookName: string): number {
+function createRun(scheduleId: number, userId: string, botId: string, playbookName: string): number {
   const db = getDb();
   const result = db
     .prepare(
-      `INSERT INTO playbook_runs (schedule_id, user_id, playbook_name, status)
-       VALUES (?, ?, ?, 'running')`
+      `INSERT INTO playbook_runs (schedule_id, user_id, bot_id, playbook_name, status)
+       VALUES (?, ?, ?, ?, 'running')`
     )
-    .run(scheduleId, userId, playbookName);
+    .run(scheduleId, userId, botId, playbookName);
   return result.lastInsertRowid as number;
 }
 
@@ -228,14 +228,14 @@ function registerCronJob(schedule: PlaybookSchedule): void {
 }
 
 async function executePlaybook(schedule: PlaybookSchedule): Promise<void> {
-  const runId = createRun(schedule.id, schedule.user_id, schedule.playbook_name);
+  const runId = createRun(schedule.id, schedule.user_id, schedule.bot_id, schedule.playbook_name);
   console.log(
     `▶️ マクロ定期実行開始: ${schedule.playbook_name} (user: ${schedule.user_id})`
   );
 
   try {
     // マクロの内容を取得
-    const playbooks = findPlaybooks(schedule.user_id, schedule.playbook_name);
+    const playbooks = findPlaybooks(schedule.user_id, schedule.bot_id, schedule.playbook_name);
     const playbook = playbooks.find((p) => p.name === schedule.playbook_name);
     if (!playbook) {
       finishRun(runId, "failed", `マクロ「${schedule.playbook_name}」が見つかりませんでした。`);
@@ -252,11 +252,16 @@ async function executePlaybook(schedule: PlaybookSchedule): Promise<void> {
     updateLastRun(schedule.id);
 
     // 実行結果をユーザーへ通知する
-    await sendToUser(schedule.user_id, {
-      content: `📋 マクロ「**${playbook.title}**」の定期実行が完了しました。\n\n${result.text.slice(0, 1700)}`,
-      embeds: result.embeds,
-      files: result.files,
-    });
+    await sendToUser(
+      schedule.user_id,
+      {
+        content: `📋 マクロ「**${playbook.title}**」の定期実行が完了しました。\n\n${result.text.slice(0, 1700)}`,
+        embeds: result.embeds,
+        files: result.files,
+      },
+      undefined,
+      schedule.bot_id
+    );
 
     console.log(
       `✅ マクロ定期実行完了: ${schedule.playbook_name} (user: ${schedule.user_id})`
@@ -266,9 +271,14 @@ async function executePlaybook(schedule: PlaybookSchedule): Promise<void> {
     finishRun(runId, "failed", errMsg);
     updateLastRun(schedule.id);
 
-    await sendToUser(schedule.user_id, {
-      content: `⚠️ マクロ「${schedule.playbook_name}」の定期実行に失敗しました: ${errMsg.slice(0, 500)}`,
-    }).catch(() => {});
+    await sendToUser(
+      schedule.user_id,
+      {
+        content: `⚠️ マクロ「${schedule.playbook_name}」の定期実行に失敗しました: ${errMsg.slice(0, 500)}`,
+      },
+      undefined,
+      schedule.bot_id
+    ).catch(() => {});
 
     console.error(
       `❌ マクロ定期実行失敗: ${schedule.playbook_name} (user: ${schedule.user_id})`,

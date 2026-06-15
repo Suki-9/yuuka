@@ -32,17 +32,19 @@ export const financeRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const now = new Date();
       const year = parseInt(ctx.url.searchParams.get("year") || String(now.getFullYear()), 10);
       const month = parseInt(ctx.url.searchParams.get("month") || String(now.getMonth() + 1), 10);
 
       sendJson(ctx.res, 200, {
         success: true,
-        expenses: listRecentExpenses(userId, 30),
-        total: getMonthlyTotal(userId, year, month),
-        incomeTotal: getMonthlyIncomeTotal(userId, year, month),
-        breakdown: getMonthlyCategoryBreakdown(userId, year, month),
-        trend: getMonthlyTrend(userId, 6),
+        expenses: listRecentExpenses(userId, botId, 30),
+        total: getMonthlyTotal(userId, botId, year, month),
+        incomeTotal: getMonthlyIncomeTotal(userId, botId, year, month),
+        breakdown: getMonthlyCategoryBreakdown(userId, botId, year, month),
+        trend: getMonthlyTrend(userId, botId, 6),
       });
     },
   },
@@ -51,12 +53,16 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/add",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const { amount, category, description, date, time, type } = ctx.body as Record<string, unknown>;
       if (!amount || !category || typeof category !== "string") {
         return sendJson(ctx.res, 400, { success: false, message: "金額とカテゴリは必須です。" });
       }
       const expense = addExpense(
-        ctx.user!.discordId,
+        userId,
+        botId,
         Number(amount),
         category,
         typeof description === "string" ? description : undefined,
@@ -94,7 +100,10 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/budget-limits",
     auth: "user",
     async handler(ctx) {
-      sendJson(ctx.res, 200, { success: true, limits: getBudgetLimits(ctx.user!.discordId) });
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      sendJson(ctx.res, 200, { success: true, limits: getBudgetLimits(userId, botId) });
     },
   },
   {
@@ -102,6 +111,9 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/budget-limits",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const { category, limitAmount } = ctx.body as Record<string, unknown>;
       if (!category || typeof category !== "string" || limitAmount === undefined) {
         return sendJson(ctx.res, 400, { success: false, message: "category と limitAmount は必須です。" });
@@ -109,7 +121,7 @@ export const financeRoutes: RouteDef[] = [
       if (typeof limitAmount !== "number" || limitAmount < 0) {
         return sendJson(ctx.res, 400, { success: false, message: "limitAmount は0以上の数値で指定してください。" });
       }
-      upsertBudgetLimit(ctx.user!.discordId, category, limitAmount);
+      upsertBudgetLimit(userId, botId, category, limitAmount);
       sendJson(ctx.res, 200, {
         success: true,
         message: `${category} の予算上限を ¥${limitAmount.toLocaleString()} に設定しました。`,
@@ -121,9 +133,12 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/budget-limits/delete",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const { category } = ctx.body as Record<string, string>;
       if (!category) return sendJson(ctx.res, 400, { success: false, message: "category は必須です。" });
-      deleteBudgetLimit(ctx.user!.discordId, category);
+      deleteBudgetLimit(userId, botId, category);
       sendJson(ctx.res, 200, { success: true, message: `${category} の予算上限を削除しました。` });
     },
   },
@@ -134,8 +149,11 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/plans",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const includePaid = ctx.url.searchParams.get("includePaid") === "true";
-      const plans = listPlannedPayments(ctx.user!.discordId, includePaid ? {} : { status: "pending" });
+      const plans = listPlannedPayments(userId, botId, includePaid ? {} : { status: "pending" });
       sendJson(ctx.res, 200, { success: true, plans });
     },
   },
@@ -144,12 +162,15 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/plans/add",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const { title, amount, category, plannedDate, dueDate, description, repeatRule } = ctx.body as Record<string, unknown>;
       const due = (typeof dueDate === "string" && dueDate) || (typeof plannedDate === "string" && plannedDate); // 旧UI互換: plannedDate
       if (!title || typeof title !== "string" || !amount || !category || typeof category !== "string" || !due) {
         return sendJson(ctx.res, 400, { success: false, message: "title、amount、category、期日 は必須です。" });
       }
-      const plan = addPlannedPayment(ctx.user!.discordId, {
+      const plan = addPlannedPayment(userId, botId, {
         title,
         amount: Number(amount),
         category,
@@ -166,21 +187,23 @@ export const financeRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const id = Number(ctx.body.id);
       if (!id) return sendJson(ctx.res, 400, { success: false, message: "id は必須です。" });
 
-      const plan = getPlannedPaymentById(userId, id);
+      const plan = getPlannedPaymentById(userId, botId, id);
       if (!plan) return sendJson(ctx.res, 404, { success: false, message: "支払い予定が見つかりません。" });
       if (plan.status !== "pending") {
         return sendJson(ctx.res, 400, { success: false, message: "既に消込済みまたはキャンセル済みです。" });
       }
 
       // 実支払いを Expense として記録し、消込（§3.4.3）
-      const expense = addExpense(userId, plan.amount, plan.category, plan.title, undefined, undefined, "manual", "expense");
-      settlePlannedPayment(userId, id, expense.id);
+      const expense = addExpense(userId, botId, plan.amount, plan.category, plan.title, undefined, undefined, "manual", "expense");
+      settlePlannedPayment(userId, botId, id, expense.id);
 
       // 紐付きToDoの自動完了（§3.4.3 手順4）
-      const completedTodos = completeTodoByPaymentLink(userId, id);
+      const completedTodos = completeTodoByPaymentLink(userId, botId, id);
 
       sendJson(ctx.res, 200, {
         success: true,
@@ -195,9 +218,12 @@ export const financeRoutes: RouteDef[] = [
     path: "/api/expenses/plans/delete",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const id = Number(ctx.body.id);
       if (!id) return sendJson(ctx.res, 400, { success: false, message: "id は必須です。" });
-      const ok = cancelPlannedPayment(ctx.user!.discordId, id);
+      const ok = cancelPlannedPayment(userId, botId, id);
       sendJson(ctx.res, 200, { success: ok });
     },
   },

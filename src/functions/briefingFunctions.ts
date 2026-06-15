@@ -91,7 +91,7 @@ const handlers: FunctionModule["handlers"] = {
       }
     }
 
-    const current = getBriefingConfig(userId);
+    const current = getBriefingConfig(userId, ctx.botId);
     let feeds = parseJsonArray(current?.news_feeds);
 
     if (args.add_news_feed !== undefined) {
@@ -103,7 +103,7 @@ const handlers: FunctionModule["handlers"] = {
       feeds = feeds.filter((f) => !f.includes(target));
     }
 
-    const updated = upsertBriefingConfig(userId, {
+    const updated = upsertBriefingConfig(userId, ctx.botId, {
       ...(args.enabled !== undefined ? { enabled: args.enabled === true } : {}),
       ...(args.schedule_cron !== undefined ? { scheduleCron: String(args.schedule_cron) } : {}),
       ...(args.latitude !== undefined ? { weatherLat: Number(args.latitude) } : {}),
@@ -133,8 +133,8 @@ const handlers: FunctionModule["handlers"] = {
   },
 
   getBriefingConfig(ctx: ToolContext): string {
-    const briefing = getBriefingConfig(ctx.userId);
-    const reports = getReportConfigs(ctx.userId);
+    const briefing = getBriefingConfig(ctx.userId, ctx.botId);
+    const reports = getReportConfigs(ctx.userId, ctx.botId);
     return JSON.stringify({
       success: true,
       briefing: briefing
@@ -165,7 +165,7 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "schedule_cron のcron式が不正です。" });
     }
 
-    const updated = upsertReportConfig(ctx.userId, type as ReportType, {
+    const updated = upsertReportConfig(ctx.userId, ctx.botId, type as ReportType, {
       ...(args.enabled !== undefined ? { enabled: args.enabled === true } : {}),
       ...(args.schedule_cron !== undefined ? { scheduleCron: String(args.schedule_cron) } : {}),
     });
@@ -178,14 +178,14 @@ const handlers: FunctionModule["handlers"] = {
   },
 
   async runBriefingNow(ctx: ToolContext): Promise<string> {
-    const config = getBriefingConfig(ctx.userId);
+    const config = getBriefingConfig(ctx.userId, ctx.botId);
     if (!config) {
       return JSON.stringify({
         success: false,
         message: "朝報がまだ設定されていません。先に configureBriefing で天気の地点やニュースフィードを設定してください。",
       });
     }
-    const sent = await runBriefingForUser(ctx.userId);
+    const sent = await runBriefingForUser(ctx.userId, ctx.botId);
     return JSON.stringify({
       success: sent,
       message: sent ? "朝報をテスト配信しました🌅" : "朝報の配信に失敗しました。",

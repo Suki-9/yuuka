@@ -56,9 +56,13 @@ export const GUILD_CONTEXT_LIMIT = 30;
 /** Redisコンテキストキャッシュの TTL（§3.1.4: セッション有効期限7日に連動） */
 const CONTEXT_TTL_SECONDS = config.sessionTtlDays * 24 * 60 * 60;
 
-/** Redisコンテキストキャッシュのキー（§3.1.4: context:{discord_user_id}） */
-function contextKey(userId: string): string {
-  return `context:${userId}`;
+/**
+ * Redisコンテキストキャッシュのキー。
+ * 秘書業務データのBot別分離に伴い、Bot単位で会話コンテキストを分離する
+ * （context:{botId}:secretary:{discord_user_id}）。system_default も明示的に含める。
+ */
+function contextKey(userId: string, botId: string): string {
+  return `context:${botId}:secretary:${userId}`;
 }
 
 /** 汎用モードのギルドコンテキストキー（要件 §4.6.1: context:{botId}:{guildId}） */
@@ -77,13 +81,13 @@ function botDmContextKey(botId: string, ownerId: string): string {
  * Redisキャッシュ再構築時にそれ以前のメッセージを復元しないようにする
  * （SQLiteの永続ログ自体は §7.1 に従い削除しない）。
  */
-function contextFloorKey(userId: string): string {
-  return `context_floor:${userId}`;
+function contextFloorKey(userId: string, botId: string): string {
+  return `context_floor:${botId}:${userId}`;
 }
 
 /** コンテキストリセット境界（これより小さい id はコンテキスト再構築に使わない） */
-function getContextFloor(userId: string): number {
-  const value = getSystemSetting(contextFloorKey(userId), "0");
+function getContextFloor(userId: string, botId: string): number {
+  const value = getSystemSetting(contextFloorKey(userId, botId), "0");
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -128,7 +132,7 @@ export async function addMessageLog(
   ).run(userId, botId, discordMsgId ?? null, role, content, replyToMsgId ?? null);
 
   // 2. Redis コンテキストキャッシュへ追記（末尾が最新、直近15件のみ保持、TTLリセット）
-  await pushContextEntry(contextKey(userId), { role, content }, CONTEXT_LIMIT);
+  await pushContextEntry(contextKey(userId, botId), { role, content }, CONTEXT_LIMIT);
 }
 
 // ─── コンテキスト取得・再構築（§3.1.4） ─────────────────────────────────────
@@ -139,9 +143,10 @@ export async function addMessageLog(
  */
 export async function getRecentContext(
   userId: string,
+  botId: string,
   limit: number = CONTEXT_LIMIT
 ): Promise<ContextEntry[]> {
-  const key = contextKey(userId);
+  const key = contextKey(userId, botId);
   const redis = getRedisClient();
 
   // 1. Redis キャッシュからの読み出しを試みる
@@ -163,18 +168,17 @@ export async function getRecentContext(
   //    ギルド会話（guild_id 付き）および汎用モードBot（secretary なし）の owner DM は
   //    秘書コンテキストへ復元しない（要件 §4.6.1: 秘書とギルドBotのコンテキスト完全分離）
   const db = getDb();
-  const floor = getContextFloor(userId);
+  const floor = getContextFloor(userId, botId);
   const rows = db
     .prepare(
       `SELECT role, content FROM (
          SELECT id, role, content FROM message_logs
-         WHERE user_id = ? AND id > ? AND guild_id IS NULL
-           AND bot_id NOT IN (SELECT id FROM bots WHERE capabilities NOT LIKE '%"secretary"%')
+         WHERE user_id = ? AND bot_id = ? AND id > ? AND guild_id IS NULL
          ORDER BY id DESC
          LIMIT ?
        ) ORDER BY id ASC`
     )
-    .all(userId, floor, limit) as { role: string; content: string }[];
+    .all(userId, botId, floor, limit) as { role: string; content: string }[];
 
   const history: ContextEntry[] = rows.map((row) => ({
     role: row.role as "user" | "assistant",
@@ -202,21 +206,21 @@ export async function getRecentContext(
  * 以降の SQLite 再構築でも過去メッセージを復元しないようにする。
  * 永続ログ (message_logs) 自体は削除しない（§7.1: 件数・期間の制限なし。検索 §3.12 でも利用）。
  */
-export async function clearContext(userId: string): Promise<void> {
+export async function clearContext(userId: string, botId: string): Promise<void> {
   // 1. リセット境界を記録（SQLite からの再構築を防ぐ）
   const db = getDb();
   const row = db
-    .prepare("SELECT MAX(id) AS max_id FROM message_logs WHERE user_id = ?")
-    .get(userId) as { max_id: number | null };
+    .prepare("SELECT MAX(id) AS max_id FROM message_logs WHERE user_id = ? AND bot_id = ?")
+    .get(userId, botId) as { max_id: number | null };
   if (row.max_id !== null) {
-    setSystemSetting(contextFloorKey(userId), String(row.max_id));
+    setSystemSetting(contextFloorKey(userId, botId), String(row.max_id));
   }
 
   // 2. Redis キャッシュを削除
   const redis = getRedisClient();
   if (redis) {
     try {
-      await redis.del(contextKey(userId));
+      await redis.del(contextKey(userId, botId));
     } catch (err) {
       console.error("⚠️ Redis コンテキストキャッシュの削除に失敗しました:", err);
     }
@@ -483,6 +487,7 @@ function normalizePeriod(value: string, isEnd: boolean): string {
  */
 export function searchMessages(
   userId: string,
+  botId: string,
   options: MessageSearchOptions
 ): MessageLogRecord[] {
   const db = getDb();
@@ -512,10 +517,10 @@ export function searchMessages(
       .prepare(
         `SELECT m.* FROM message_logs_fts
          JOIN message_logs m ON m.id = message_logs_fts.rowid
-         WHERE message_logs_fts MATCH ? AND m.user_id = ?${periodSql}
+         WHERE message_logs_fts MATCH ? AND m.user_id = ? AND m.bot_id = ? AND m.guild_id IS NULL${periodSql}
          ORDER BY m.id DESC LIMIT ?`
       )
-      .all(matchExpr, userId, ...periodParams, limit) as MessageLogRecord[];
+      .all(matchExpr, userId, botId, ...periodParams, limit) as MessageLogRecord[];
   }
 
   if (trimmedKeyword) {
@@ -524,20 +529,20 @@ export function searchMessages(
     return db
       .prepare(
         `SELECT m.* FROM message_logs m
-         WHERE m.user_id = ? AND m.content LIKE ? ESCAPE '\\'${periodSql}
+         WHERE m.user_id = ? AND m.bot_id = ? AND m.guild_id IS NULL AND m.content LIKE ? ESCAPE '\\'${periodSql}
          ORDER BY m.id DESC LIMIT ?`
       )
-      .all(userId, likePattern, ...periodParams, limit) as MessageLogRecord[];
+      .all(userId, botId, likePattern, ...periodParams, limit) as MessageLogRecord[];
   }
 
   // keyword 省略時: 期間のみで検索
   return db
     .prepare(
       `SELECT m.* FROM message_logs m
-       WHERE m.user_id = ?${periodSql}
+       WHERE m.user_id = ? AND m.bot_id = ? AND m.guild_id IS NULL${periodSql}
        ORDER BY m.id DESC LIMIT ?`
     )
-    .all(userId, ...periodParams, limit) as MessageLogRecord[];
+    .all(userId, botId, ...periodParams, limit) as MessageLogRecord[];
 }
 
 /**

@@ -15,6 +15,7 @@ export type TodoPriority = "high" | "medium" | "low";
 export interface TodoRecord {
   id: number;
   user_id: string;
+  bot_id: string;
   title: string;
   description: string | null;
   due_date: string | null;
@@ -85,42 +86,43 @@ const ORDER_CLAUSE = `
 // ─── 追加・取得 ──────────────────────────────────────────────────────────────
 
 /** ToDo を追加する（タグは省略時は空配列。LLMによる自動付与は autoTagService が後追いで行う） */
-export function addTodo(userId: string, input: TodoInput): TodoRecord {
+export function addTodo(userId: string, botId: string, input: TodoInput): TodoRecord {
   const db = getDb();
   const result = db
     .prepare(
-      `INSERT INTO todos (user_id, title, description, due_date, priority, tags)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO todos (user_id, bot_id, title, description, due_date, priority, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
+      botId,
       input.title,
       input.description ?? null,
       input.dueDate ?? null,
       input.priority ?? null,
       JSON.stringify(input.tags ?? [])
     );
-  return getTodoById(userId, result.lastInsertRowid as number)!;
+  return getTodoById(userId, botId, result.lastInsertRowid as number)!;
 }
 
 /** ID指定で1件取得する（本人のToDoのみ） */
-export function getTodoById(userId: string, id: number): TodoRecord | undefined {
+export function getTodoById(userId: string, botId: string, id: number): TodoRecord | undefined {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM todos WHERE user_id = ? AND id = ?")
-    .get(userId, id) as TodoRecord | undefined;
+    .prepare("SELECT * FROM todos WHERE user_id = ? AND bot_id = ? AND id = ?")
+    .get(userId, botId, id) as TodoRecord | undefined;
 }
 
 /**
  * ToDo 一覧を取得する（§3.2.1: 未完了・完了済み・タグ別表示）。
  * tag 指定時は tags JSON 配列に該当タグを含むもののみ返す（json_each で展開して照合）。
  */
-export function listTodos(userId: string, filter: TodoListFilter = {}): TodoRecord[] {
+export function listTodos(userId: string, botId: string, filter: TodoListFilter = {}): TodoRecord[] {
   const db = getDb();
   const status = filter.status ?? "open";
 
-  const conditions: string[] = ["user_id = ?"];
-  const params: unknown[] = [userId];
+  const conditions: string[] = ["user_id = ?", "bot_id = ?"];
+  const params: unknown[] = [userId, botId];
 
   if (status !== "all") {
     conditions.push("status = ?");
@@ -144,6 +146,7 @@ export function listTodos(userId: string, filter: TodoListFilter = {}): TodoReco
  */
 export function updateTodo(
   userId: string,
+  botId: string,
   id: number,
   input: TodoUpdateInput
 ): TodoRecord | undefined {
@@ -172,26 +175,26 @@ export function updateTodo(
     params.push(input.status);
   }
   if (sets.length === 0) {
-    return getTodoById(userId, id);
+    return getTodoById(userId, botId, id);
   }
 
   sets.push("updated_at = datetime('now', 'localtime')");
   const result = db
-    .prepare(`UPDATE todos SET ${sets.join(", ")} WHERE user_id = ? AND id = ?`)
-    .run(...params, userId, id);
+    .prepare(`UPDATE todos SET ${sets.join(", ")} WHERE user_id = ? AND bot_id = ? AND id = ?`)
+    .run(...params, userId, botId, id);
   if (result.changes === 0) return undefined;
-  return getTodoById(userId, id);
+  return getTodoById(userId, botId, id);
 }
 
 /** タグを上書き保存する（§3.2.4: LLM自動付与の保存先。autoTagService から呼ばれる） */
-export function updateTodoTags(userId: string, id: number, tags: string[]): boolean {
+export function updateTodoTags(userId: string, botId: string, id: number, tags: string[]): boolean {
   const db = getDb();
   const result = db
     .prepare(
       `UPDATE todos SET tags = ?, updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ?`
+       WHERE user_id = ? AND bot_id = ? AND id = ?`
     )
-    .run(JSON.stringify(tags), userId, id);
+    .run(JSON.stringify(tags), userId, botId, id);
   return result.changes > 0;
 }
 
@@ -201,17 +204,18 @@ export function updateTodoTags(userId: string, id: number, tags: string[]): bool
  */
 export function updateTodoPriorities(
   userId: string,
+  botId: string,
   items: { id: number; priority: TodoPriority }[]
 ): number {
   const db = getDb();
   const stmt = db.prepare(
     `UPDATE todos SET priority = ?, updated_at = datetime('now', 'localtime')
-     WHERE user_id = ? AND id = ? AND status = 'open'`
+     WHERE user_id = ? AND bot_id = ? AND id = ? AND status = 'open'`
   );
   const applyAll = db.transaction((rows: { id: number; priority: TodoPriority }[]) => {
     let updated = 0;
     for (const row of rows) {
-      updated += stmt.run(row.priority, userId, row.id).changes;
+      updated += stmt.run(row.priority, userId, botId, row.id).changes;
     }
     return updated;
   });
@@ -219,22 +223,24 @@ export function updateTodoPriorities(
 }
 
 /** ToDo を完了にする */
-export function completeTodo(userId: string, id: number): TodoRecord | undefined {
+export function completeTodo(userId: string, botId: string, id: number): TodoRecord | undefined {
   const db = getDb();
   const result = db
     .prepare(
       `UPDATE todos SET status = 'done', updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ?`
+       WHERE user_id = ? AND bot_id = ? AND id = ?`
     )
-    .run(userId, id);
+    .run(userId, botId, id);
   if (result.changes === 0) return undefined;
-  return getTodoById(userId, id);
+  return getTodoById(userId, botId, id);
 }
 
 /** ToDo を削除する */
-export function deleteTodo(userId: string, id: number): boolean {
+export function deleteTodo(userId: string, botId: string, id: number): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM todos WHERE user_id = ? AND id = ?").run(userId, id);
+  const result = db
+    .prepare("DELETE FROM todos WHERE user_id = ? AND bot_id = ? AND id = ?")
+    .run(userId, botId, id);
   return result.changes > 0;
 }
 
@@ -244,30 +250,30 @@ export function deleteTodo(userId: string, id: number): boolean {
  * 未完了ToDoのタグを集計して使用回数順に返す（§3.2.4: タグ一覧・グループ表示・既存語彙の学習）。
  * タグを持つ未完了タスクが0件になったタグは自動的に結果から消える（明示削除は行わない仕様）。
  */
-export function listAllTags(userId: string): TagCount[] {
+export function listAllTags(userId: string, botId: string): TagCount[] {
   const db = getDb();
   return db
     .prepare(
       `SELECT json_each.value AS tag, COUNT(*) AS count
        FROM todos, json_each(todos.tags)
-       WHERE todos.user_id = ? AND todos.status = 'open'
+       WHERE todos.user_id = ? AND todos.bot_id = ? AND todos.status = 'open'
        GROUP BY json_each.value
        ORDER BY count DESC, tag ASC`
     )
-    .all(userId) as TagCount[];
+    .all(userId, botId) as TagCount[];
 }
 
 // ─── 支払い予定連携（§3.4.3） ────────────────────────────────────────────────
 
 /** ToDo を支払い予定（planned_payments）に紐付ける */
-export function linkPayment(userId: string, todoId: number, paymentId: number): boolean {
+export function linkPayment(userId: string, botId: string, todoId: number, paymentId: number): boolean {
   const db = getDb();
   const result = db
     .prepare(
       `UPDATE todos SET linked_payment_id = ?, updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ?`
+       WHERE user_id = ? AND bot_id = ? AND id = ?`
     )
-    .run(paymentId, userId, todoId);
+    .run(paymentId, userId, botId, todoId);
   return result.changes > 0;
 }
 
@@ -275,28 +281,28 @@ export function linkPayment(userId: string, todoId: number, paymentId: number): 
  * 支払い予定の消込時に、紐付いた未完了ToDoを自動的に完了へ変更する（§3.4.3 消込フロー手順4）。
  * 完了に変更した TodoRecord の配列を返す（呼び出し元の finance モジュールが結果報告に利用できる）。
  */
-export function completeTodoByPaymentLink(userId: string, paymentId: number): TodoRecord[] {
+export function completeTodoByPaymentLink(userId: string, botId: string, paymentId: number): TodoRecord[] {
   const db = getDb();
   const targets = db
     .prepare(
       `SELECT * FROM todos
-       WHERE user_id = ? AND linked_payment_id = ? AND status = 'open'`
+       WHERE user_id = ? AND bot_id = ? AND linked_payment_id = ? AND status = 'open'`
     )
-    .all(userId, paymentId) as TodoRecord[];
+    .all(userId, botId, paymentId) as TodoRecord[];
   if (targets.length === 0) return [];
 
   const stmt = db.prepare(
     `UPDATE todos SET status = 'done', updated_at = datetime('now', 'localtime')
-     WHERE user_id = ? AND id = ?`
+     WHERE user_id = ? AND bot_id = ? AND id = ?`
   );
   const completeAll = db.transaction((rows: TodoRecord[]) => {
     for (const row of rows) {
-      stmt.run(userId, row.id);
+      stmt.run(userId, botId, row.id);
     }
   });
   completeAll(targets);
 
-  return targets.map((t) => getTodoById(userId, t.id)!).filter(Boolean);
+  return targets.map((t) => getTodoById(userId, botId, t.id)!).filter(Boolean);
 }
 
 // ─── 期限接近リマインド（cron用）（§3.3.1: タスク起因リマインド） ─────────────

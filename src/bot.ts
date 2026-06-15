@@ -541,20 +541,10 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     // 登録ユーザーからのメッセージのみ応答（§5.4）
     if (!isRegisteredUser(message.author.id)) return;
 
-    // 登録ユーザーが独自のBotを有効に起動している場合は、デフォルトクライアントは応答をスキップする
-    if (!botId) {
-      const authorBots = listBotsForUser(message.author.id);
-      const hasActiveCustomBot = authorBots.some(b => {
-        if (b.id === "system_default") return false;
-        // 汎用モード（MCPアシスタント）のBotは秘書の代替にならないため対象外
-        if (isGuildAssistantBot(b.id)) return false;
-        const custom = customClients.get(b.id);
-        return custom && custom.readyAt;
-      });
-      if (hasActiveCustomBot) {
-        return;
-      }
-    }
+    // 以前はユーザーが秘書型の独自Botを起動している場合にデフォルト（早瀬ユウカ）の応答を
+    // 黙殺していたが、デフォルトと独自秘書Botを「同時起動・使い分け」できるようにするため撤廃。
+    // 各Botは別々のDiscordアカウントであり、DMは別チャンネル・ギルドはメンション/返信で
+    // 宛先が一意に決まるため、両方が同じメッセージへ二重応答することはない。
 
     // 処理対象のBot ID（カスタムの場合は botId、デフォルトの場合は system_default）
     const resolvedBotId = botId || "system_default";

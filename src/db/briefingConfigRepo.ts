@@ -4,6 +4,7 @@ import { getDb } from "./database.js";
 
 export interface BriefingConfigRecord {
   user_id: string;
+  bot_id: string;
   enabled: number;
   schedule_cron: string;
   target_type: "dm" | "channel";
@@ -28,25 +29,26 @@ export interface BriefingConfigInput {
   newsKeywords?: string[];
 }
 
-export function getBriefingConfig(userId: string): BriefingConfigRecord | undefined {
+export function getBriefingConfig(userId: string, botId: string): BriefingConfigRecord | undefined {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM briefing_configs WHERE user_id = ?")
-    .get(userId) as BriefingConfigRecord | undefined;
+    .prepare("SELECT * FROM briefing_configs WHERE user_id = ? AND bot_id = ?")
+    .get(userId, botId) as BriefingConfigRecord | undefined;
 }
 
 export function upsertBriefingConfig(
   userId: string,
+  botId: string,
   input: BriefingConfigInput
 ): BriefingConfigRecord {
   const db = getDb();
-  const current = getBriefingConfig(userId);
+  const current = getBriefingConfig(userId, botId);
 
   db.prepare(
     `INSERT INTO briefing_configs
-       (user_id, enabled, schedule_cron, target_type, target_id, weather_lat, weather_lng, location_name, news_feeds, news_keywords)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET
+       (user_id, bot_id, enabled, schedule_cron, target_type, target_id, weather_lat, weather_lng, location_name, news_feeds, news_keywords)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, bot_id) DO UPDATE SET
        enabled = excluded.enabled,
        schedule_cron = excluded.schedule_cron,
        target_type = excluded.target_type,
@@ -59,6 +61,7 @@ export function upsertBriefingConfig(
        updated_at = datetime('now', 'localtime')`
   ).run(
     userId,
+    botId,
     (input.enabled !== undefined ? input.enabled : current ? current.enabled === 1 : false) ? 1 : 0,
     input.scheduleCron ?? current?.schedule_cron ?? "0 7 * * *",
     input.targetType ?? current?.target_type ?? "dm",
@@ -70,7 +73,7 @@ export function upsertBriefingConfig(
     JSON.stringify(input.newsKeywords ?? parseJsonArray(current?.news_keywords))
   );
 
-  return getBriefingConfig(userId)!;
+  return getBriefingConfig(userId, botId)!;
 }
 
 /** 有効な朝報設定の全件取得（cron用・全ユーザー横断の例外クエリ） */

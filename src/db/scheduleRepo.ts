@@ -6,6 +6,7 @@ import { getDb } from "./database.js";
 export interface Schedule {
   id: number;
   user_id: string;
+  bot_id: string;
   title: string;
   description: string | null;
   start_at: string;
@@ -22,6 +23,7 @@ export type ScheduleRecord = Schedule;
 
 export function addSchedule(
   userId: string,
+  botId: string,
   title: string,
   startAt: string,
   endAt?: string,
@@ -32,11 +34,12 @@ export function addSchedule(
 ): Schedule {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO schedules (user_id, title, description, start_at, end_at, remind_before_minutes, google_event_id, google_calendar_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO schedules (user_id, bot_id, title, description, start_at, end_at, remind_before_minutes, google_event_id, google_calendar_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     userId,
+    botId,
     title,
     description ?? null,
     startAt,
@@ -48,28 +51,28 @@ export function addSchedule(
   return getScheduleById(result.lastInsertRowid as number)!;
 }
 
-export function listUpcomingSchedules(userId: string, days: number = 7): Schedule[] {
+export function listUpcomingSchedules(userId: string, botId: string, days: number = 7): Schedule[] {
   const db = getDb();
   return db
     .prepare(
       `SELECT * FROM schedules
-       WHERE user_id = ? AND start_at >= datetime('now', 'localtime')
+       WHERE user_id = ? AND bot_id = ? AND start_at >= datetime('now', 'localtime')
        AND start_at <= datetime('now', 'localtime', '+' || ? || ' days')
        ORDER BY start_at ASC`
     )
-    .all(userId, days) as Schedule[];
+    .all(userId, botId, days) as Schedule[];
 }
 
 /** 指定期間の予定一覧（日報・週報の集約用 §3.8.2） */
-export function listSchedulesInRange(userId: string, from: string, to: string): Schedule[] {
+export function listSchedulesInRange(userId: string, botId: string, from: string, to: string): Schedule[] {
   const db = getDb();
   return db
     .prepare(
       `SELECT * FROM schedules
-       WHERE user_id = ? AND start_at >= ? AND start_at <= ?
+       WHERE user_id = ? AND bot_id = ? AND start_at >= ? AND start_at <= ?
        ORDER BY start_at ASC`
     )
-    .all(userId, from, to) as Schedule[];
+    .all(userId, botId, from, to) as Schedule[];
 }
 
 export function getScheduleById(id: number): Schedule | undefined {
@@ -82,11 +85,11 @@ export function getScheduleByGoogleId(googleEventId: string): Schedule | undefin
   return db.prepare("SELECT * FROM schedules WHERE google_event_id = ?").get(googleEventId) as Schedule | undefined;
 }
 
-export function getScheduleByTitleAndStart(userId: string, title: string, startAt: string): Schedule | undefined {
+export function getScheduleByTitleAndStart(userId: string, botId: string, title: string, startAt: string): Schedule | undefined {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM schedules WHERE user_id = ? AND title = ? AND start_at = ?")
-    .get(userId, title, startAt) as Schedule | undefined;
+    .prepare("SELECT * FROM schedules WHERE user_id = ? AND bot_id = ? AND title = ? AND start_at = ?")
+    .get(userId, botId, title, startAt) as Schedule | undefined;
 }
 
 export function linkGoogleEventId(id: number, googleEventId: string, googleCalendarId?: string): void {
@@ -111,11 +114,11 @@ export function updateScheduleFromGoogle(
   `).run(title, startAt, endAt, description, googleCalendarId ?? null, id);
 }
 
-export function listAllFutureSchedulesWithGoogleId(userId: string): Schedule[] {
+export function listAllFutureSchedulesWithGoogleId(userId: string, botId: string): Schedule[] {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM schedules WHERE user_id = ? AND google_event_id IS NOT NULL AND start_at >= datetime('now', 'localtime')")
-    .all(userId) as Schedule[];
+    .prepare("SELECT * FROM schedules WHERE user_id = ? AND bot_id = ? AND google_event_id IS NOT NULL AND start_at >= datetime('now', 'localtime')")
+    .all(userId, botId) as Schedule[];
 }
 
 /**
@@ -139,8 +142,8 @@ export function markReminded(id: number): void {
   db.prepare("UPDATE schedules SET reminded = 1 WHERE id = ?").run(id);
 }
 
-export function deleteSchedule(id: number, userId: string): boolean {
+export function deleteSchedule(id: number, userId: string, botId: string): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM schedules WHERE id = ? AND user_id = ?").run(id, userId);
+  const result = db.prepare("DELETE FROM schedules WHERE id = ? AND user_id = ? AND bot_id = ?").run(id, userId, botId);
   return result.changes > 0;
 }

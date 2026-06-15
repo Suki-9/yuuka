@@ -62,7 +62,7 @@ const handlers: FunctionModule["handlers"] = {
     const expiresAt =
       ttlHoursRaw === 0 ? null : toDbDateTime(new Date(Date.now() + ttlHoursRaw * 60 * 60 * 1000));
 
-    const entry = addEntry(ctx.userId, content, expiresAt);
+    const entry = addEntry(ctx.userId, ctx.botId, content, expiresAt);
     return JSON.stringify({
       success: true,
       message:
@@ -74,7 +74,7 @@ const handlers: FunctionModule["handlers"] = {
   },
 
   listClipboardEntries(ctx: ToolContext): string {
-    const entries = listEntries(ctx.userId);
+    const entries = listEntries(ctx.userId, ctx.botId);
     return JSON.stringify({
       success: true,
       count: entries.length,
@@ -92,7 +92,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!Number.isInteger(id)) {
       return JSON.stringify({ success: false, message: "entry_id が不正です。" });
     }
-    const ok = deleteEntry(ctx.userId, id);
+    const ok = deleteEntry(ctx.userId, ctx.botId, id);
     return JSON.stringify({
       success: ok,
       message: ok ? "メモを削除しました🗑️" : "指定されたメモが見つかりませんでした。",

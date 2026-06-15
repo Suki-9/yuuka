@@ -13,6 +13,7 @@ import {
 } from "../../db/reportConfigRepo.js";
 import { runBriefingForUser } from "../../services/briefingService.js";
 import { runReportForUser } from "../../services/reportService.js";
+import { hasBotAccess } from "../../db/botRepo.js";
 
 // ─── 朝報・日報・週報 配信設定 HTTPルート（§3.8.3, §3.9.3） ──────────────────
 
@@ -23,7 +24,10 @@ export const deliveryRoutes: RouteDef[] = [
     path: "/api/briefing-config",
     auth: "user",
     async handler(ctx) {
-      const config = getBriefingConfig(ctx.user!.discordId);
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const config = getBriefingConfig(userId, botId);
       sendJson(ctx.res, 200, {
         success: true,
         config: config
@@ -47,12 +51,15 @@ export const deliveryRoutes: RouteDef[] = [
     path: "/api/briefing-config",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const b = ctx.body;
       if (typeof b.schedule_cron === "string" && !cron.validate(b.schedule_cron)) {
         return sendJson(ctx.res, 400, { success: false, message: "cron式が不正です。" });
       }
+      const rawBotId = (b.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
 
-      upsertBriefingConfig(ctx.user!.discordId, {
+      upsertBriefingConfig(userId, botId, {
         ...(b.enabled !== undefined ? { enabled: b.enabled === true } : {}),
         ...(typeof b.schedule_cron === "string" ? { scheduleCron: b.schedule_cron } : {}),
         ...(b.target_type !== undefined
@@ -82,11 +89,14 @@ export const deliveryRoutes: RouteDef[] = [
     path: "/api/briefing/test",
     auth: "user",
     async handler(ctx) {
-      const config = getBriefingConfig(ctx.user!.discordId);
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const config = getBriefingConfig(userId, botId);
       if (!config) {
         return sendJson(ctx.res, 400, { success: false, message: "朝報がまだ設定されていません。先に設定を保存してください。" });
       }
-      const sent = await runBriefingForUser(ctx.user!.discordId);
+      const sent = await runBriefingForUser(userId, botId);
       sendJson(ctx.res, 200, {
         success: sent,
         message: sent ? "朝報をテスト配信しました。Discordを確認してください。" : "配信に失敗しました。Botが起動しているか確認してください。",
@@ -100,7 +110,10 @@ export const deliveryRoutes: RouteDef[] = [
     path: "/api/report-configs",
     auth: "user",
     async handler(ctx) {
-      const configs = getReportConfigs(ctx.user!.discordId).map((c) => ({
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const configs = getReportConfigs(userId, botId).map((c) => ({
         type: c.type,
         enabled: c.enabled === 1,
         schedule_cron: c.schedule_cron,
@@ -115,6 +128,7 @@ export const deliveryRoutes: RouteDef[] = [
     path: "/api/report-configs",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const type = ctx.body.type;
       if (type !== "daily" && type !== "weekly") {
         return sendJson(ctx.res, 400, { success: false, message: "type は 'daily' または 'weekly' を指定してください。" });
@@ -122,8 +136,10 @@ export const deliveryRoutes: RouteDef[] = [
       if (typeof ctx.body.schedule_cron === "string" && !cron.validate(ctx.body.schedule_cron)) {
         return sendJson(ctx.res, 400, { success: false, message: "cron式が不正です。" });
       }
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
 
-      upsertReportConfig(ctx.user!.discordId, type as ReportType, {
+      upsertReportConfig(userId, botId, type as ReportType, {
         ...(ctx.body.enabled !== undefined ? { enabled: ctx.body.enabled === true } : {}),
         ...(typeof ctx.body.schedule_cron === "string" ? { scheduleCron: ctx.body.schedule_cron } : {}),
         ...(ctx.body.target_type !== undefined
@@ -142,8 +158,11 @@ export const deliveryRoutes: RouteDef[] = [
     path: "/api/report-configs/test",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const type = ctx.body.type === "weekly" ? "weekly" : "daily";
-      const sent = await runReportForUser(ctx.user!.discordId, type as ReportType);
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const sent = await runReportForUser(userId, botId, type as ReportType);
       sendJson(ctx.res, 200, {
         success: sent,
         message: sent ? "レポートをテスト配信しました。" : "配信に失敗しました。",

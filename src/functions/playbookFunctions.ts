@@ -114,13 +114,13 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "name・title・steps は必須です。" });
     }
 
-    const result = savePlaybook(ctx.userId, name, title, keywords, description, steps);
+    const result = savePlaybook(ctx.userId, ctx.botId, name, title, keywords, description, steps);
     return JSON.stringify(result);
   },
 
   async findPlaybooks(ctx: ToolContext, args: Record<string, unknown>): Promise<string> {
     const query = args.query ? String(args.query).trim() : undefined;
-    const playbooks = findPlaybooks(ctx.userId, query);
+    const playbooks = findPlaybooks(ctx.userId, ctx.botId, query);
     if (playbooks.length === 0) {
       return JSON.stringify({
         success: true,
@@ -158,7 +158,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!name) {
       return JSON.stringify({ success: false, message: "name は必須です。" });
     }
-    const playbook = getPlaybookByName(ctx.userId, name);
+    const playbook = getPlaybookByName(ctx.userId, ctx.botId, name);
     if (!playbook) {
       return JSON.stringify({
         success: false,
@@ -177,7 +177,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!name) {
       return JSON.stringify({ success: false, message: "name は必須です。" });
     }
-    const ok = deletePlaybook(ctx.userId, name);
+    const ok = deletePlaybook(ctx.userId, ctx.botId, name);
     return JSON.stringify({
       success: ok,
       message: ok ? `マクロ「${name}」を削除しました🗑️` : `マクロ「${name}」が見つかりませんでした。`,

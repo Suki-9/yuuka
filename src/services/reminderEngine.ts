@@ -62,7 +62,8 @@ async function processDueReminders(): Promise<void> {
       const sent = await sendToUser(
         reminder.user_id,
         { content: `⏰ リマインド: ${reminder.message}` },
-        resolveTarget(reminder)
+        resolveTarget(reminder),
+        reminder.bot_id
       );
 
       if (!sent) {
@@ -112,7 +113,7 @@ async function processTodoDueReminders(): Promise<void> {
         `期限: ${formatDisplayDateTime(todo.due_date)}`;
 
       // 送信先はユーザー設定の既定送信先に従う（notifier 側で解決）
-      const sent = await sendToUser(todo.user_id, { content });
+      const sent = await sendToUser(todo.user_id, { content }, undefined, todo.bot_id);
       if (sent) {
         markDueReminded(todo.id);
         console.log(`🔔 ToDo期限リマインド送信: todo #${todo.id} (user: ${todo.user_id})`);
@@ -139,7 +140,7 @@ async function processScheduleReminders(): Promise<void> {
         `開始: ${formatDisplayDateTime(schedule.start_at)}`;
 
       // 送信先はユーザー設定の既定送信先に従う（notifier 側で解決）
-      const sent = await sendToUser(schedule.user_id, { content });
+      const sent = await sendToUser(schedule.user_id, { content }, undefined, schedule.bot_id);
       if (sent) {
         markReminded(schedule.id);
         console.log(`🔔 予定リマインド送信: schedule #${schedule.id} (user: ${schedule.user_id})`);

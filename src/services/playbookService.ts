@@ -18,6 +18,7 @@ export interface Playbook {
  */
 export function savePlaybook(
   userId: string,
+  botId: string,
   name: string,
   title: string,
   keywords: string[],
@@ -32,16 +33,16 @@ export function savePlaybook(
   const keywordsJson = JSON.stringify(keywords);
 
   const stmt = db.prepare(`
-    INSERT INTO playbooks (user_id, name, title, keywords, description, steps)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id, name) DO UPDATE SET
+    INSERT INTO playbooks (user_id, bot_id, name, title, keywords, description, steps)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, bot_id, name) DO UPDATE SET
       title = excluded.title,
       keywords = excluded.keywords,
       description = excluded.description,
       steps = excluded.steps,
       updated_at = datetime('now', 'localtime')
   `);
-  stmt.run(userId, safeName, title, keywordsJson, description, steps);
+  stmt.run(userId, botId, safeName, title, keywordsJson, description, steps);
 
   return {
     success: true,
@@ -52,7 +53,7 @@ export function savePlaybook(
 /**
  * キーワードや部分一致でマクロ（Playbook）を検索し、その中身を返す
  */
-export function findPlaybooks(userId: string, query?: string): Playbook[] {
+export function findPlaybooks(userId: string, botId: string, query?: string): Playbook[] {
   const db = getDb();
 
   let rows: any[];
@@ -61,18 +62,18 @@ export function findPlaybooks(userId: string, query?: string): Playbook[] {
     rows = db.prepare(`
       SELECT name, title, keywords, description, steps
       FROM playbooks
-      WHERE user_id = ? AND (
+      WHERE user_id = ? AND bot_id = ? AND (
         name LIKE ? OR title LIKE ? OR description LIKE ? OR steps LIKE ? OR keywords LIKE ?
       )
       ORDER BY updated_at DESC
-    `).all(userId, likePattern, likePattern, likePattern, likePattern, likePattern);
+    `).all(userId, botId, likePattern, likePattern, likePattern, likePattern, likePattern);
   } else {
     rows = db.prepare(`
       SELECT name, title, keywords, description, steps
       FROM playbooks
-      WHERE user_id = ?
+      WHERE user_id = ? AND bot_id = ?
       ORDER BY updated_at DESC
-    `).all(userId);
+    `).all(userId, botId);
   }
 
   return rows.map((row: any) => {
@@ -95,13 +96,13 @@ export function findPlaybooks(userId: string, query?: string): Playbook[] {
 /**
  * マクロ（Playbook）を名前で1件取得する
  */
-export function getPlaybookByName(userId: string, name: string): Playbook | null {
+export function getPlaybookByName(userId: string, botId: string, name: string): Playbook | null {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT name, title, keywords, description, steps FROM playbooks WHERE user_id = ? AND name = ?`
+      `SELECT name, title, keywords, description, steps FROM playbooks WHERE user_id = ? AND bot_id = ? AND name = ?`
     )
-    .get(userId, name) as any;
+    .get(userId, botId, name) as any;
   if (!row) return null;
   let keywords: string[] = [];
   try {
@@ -119,9 +120,9 @@ export function getPlaybookByName(userId: string, name: string): Playbook | null
 /**
  * マクロ（Playbook）を削除する
  */
-export function deletePlaybook(userId: string, name: string): boolean {
+export function deletePlaybook(userId: string, botId: string, name: string): boolean {
   const db = getDb();
-  const stmt = db.prepare("DELETE FROM playbooks WHERE user_id = ? AND name = ?");
-  const result = stmt.run(userId, name);
+  const stmt = db.prepare("DELETE FROM playbooks WHERE user_id = ? AND bot_id = ? AND name = ?");
+  const result = stmt.run(userId, botId, name);
   return result.changes > 0;
 }

@@ -63,19 +63,23 @@ export const settingsRoutes: RouteDef[] = [
       const userId = ctx.user!.discordId;
       const db = getDb();
 
-      // v2: ユーザースコープの統計（読み取り専用の集計クエリ）
-      const todoCount = db.prepare("SELECT COUNT(*) as count FROM todos WHERE user_id = ?").get(userId) as { count: number };
-      const openTodoCount = db.prepare("SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND status = 'open'").get(userId) as { count: number };
-      const scheduleCount = db.prepare("SELECT COUNT(*) as count FROM schedules WHERE user_id = ?").get(userId) as { count: number };
-      const expenseCount = db.prepare("SELECT COUNT(*) as count FROM expenses WHERE user_id = ?").get(userId) as { count: number };
+      // 秘書業務データのBot別分離（§v3）: ダッシュボードは選択中のBotのスコープで集計する
+      const rawBotId = ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+
+      // v3: (user_id, bot_id) スコープの統計（読み取り専用の集計クエリ）
+      const todoCount = db.prepare("SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ?").get(userId, botId) as { count: number };
+      const openTodoCount = db.prepare("SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'open'").get(userId, botId) as { count: number };
+      const scheduleCount = db.prepare("SELECT COUNT(*) as count FROM schedules WHERE user_id = ? AND bot_id = ?").get(userId, botId) as { count: number };
+      const expenseCount = db.prepare("SELECT COUNT(*) as count FROM expenses WHERE user_id = ? AND bot_id = ?").get(userId, botId) as { count: number };
 
       // 優先度別の未完了ToDo数（v2: high/medium/low。旧UI互換のため 2/1/0 キーでも返す）
       const priorityRows = db.prepare(`
         SELECT priority, COUNT(*) as count
         FROM todos
-        WHERE user_id = ? AND status = 'open'
+        WHERE user_id = ? AND bot_id = ? AND status = 'open'
         GROUP BY priority
-      `).all(userId) as { priority: string | null; count: number }[];
+      `).all(userId, botId) as { priority: string | null; count: number }[];
 
       const priorityMap: Record<number, number> = { 0: 0, 1: 0, 2: 0 };
       for (const row of priorityRows) {
@@ -91,8 +95,8 @@ export const settingsRoutes: RouteDef[] = [
         const countRow = db.prepare(`
           SELECT COUNT(*) as count
           FROM schedules
-          WHERE user_id = ? AND date(start_at) = date(?)
-        `).get(userId, dateStr) as { count: number };
+          WHERE user_id = ? AND bot_id = ? AND date(start_at) = date(?)
+        `).get(userId, botId, dateStr) as { count: number };
         scheduleTrend.push(countRow ? countRow.count : 0);
       }
 
@@ -103,8 +107,8 @@ export const settingsRoutes: RouteDef[] = [
         const sumRow = db.prepare(`
           SELECT SUM(amount) as total
           FROM expenses
-          WHERE user_id = ? AND type = 'expense' AND date = ?
-        `).get(userId, dateStr) as { total: number | null };
+          WHERE user_id = ? AND bot_id = ? AND type = 'expense' AND date = ?
+        `).get(userId, botId, dateStr) as { total: number | null };
         expenseTrend.push(sumRow && sumRow.total ? sumRow.total : 0);
       }
 

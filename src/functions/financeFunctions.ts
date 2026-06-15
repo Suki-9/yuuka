@@ -362,6 +362,7 @@ const handlers: FunctionModule["handlers"] = {
 
     const expense = expenseRepo.addExpense(
       ctx.userId,
+      ctx.botId,
       amount,
       category,
       asOptionalString(args.memo),
@@ -379,10 +380,10 @@ const handlers: FunctionModule["handlers"] = {
 
     if (type === "expense") {
       // 予算消化率の通知（§3.4.1 予算管理）
-      const limit = expenseRepo.getBudgetLimit(ctx.userId, expense.category);
+      const limit = expenseRepo.getBudgetLimit(ctx.userId, ctx.botId, expense.category);
       if (limit) {
         const [y, m] = expense.date.split("-").map(Number);
-        const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, y, m, "expense");
+        const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, ctx.botId, y, m, "expense");
         const spent = breakdown.find((c) => c.category === expense.category)?.total ?? 0;
         const ratio = limit.limit_amount > 0 ? Math.round((spent / limit.limit_amount) * 100) : 0;
         budgetUsage = { limit_amount: limit.limit_amount, spent, ratio_percent: ratio };
@@ -392,7 +393,7 @@ const handlers: FunctionModule["handlers"] = {
       }
 
       // 消込候補の自動照合（§3.4.2 手順6, §3.4.3 消込フロー手順2）
-      candidates = plannedPaymentRepo.findSettlementCandidates(ctx.userId, {
+      candidates = plannedPaymentRepo.findSettlementCandidates(ctx.userId, ctx.botId, {
         amount: expense.amount,
         category: expense.category,
         date: expense.date,
@@ -420,10 +421,10 @@ const handlers: FunctionModule["handlers"] = {
     const month = asOptionalInt(args.month);
     const label = currentMonthLabel(year, month);
 
-    const income = expenseRepo.getMonthlyIncomeTotal(ctx.userId, year, month);
-    const expense = expenseRepo.getMonthlyTotal(ctx.userId, year, month, "expense");
+    const income = expenseRepo.getMonthlyIncomeTotal(ctx.userId, ctx.botId, year, month);
+    const expense = expenseRepo.getMonthlyTotal(ctx.userId, ctx.botId, year, month, "expense");
     const balance = income - expense;
-    const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, year, month, "expense");
+    const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, ctx.botId, year, month, "expense");
 
     if (income === 0 && expense === 0) {
       return JSON.stringify({
@@ -467,8 +468,8 @@ const handlers: FunctionModule["handlers"] = {
     const typeLabel = type === "income" ? "収入" : "支出";
     const label = currentMonthLabel(year, month);
 
-    const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, year, month, type);
-    const total = expenseRepo.getMonthlyTotal(ctx.userId, year, month, type);
+    const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, ctx.botId, year, month, type);
+    const total = expenseRepo.getMonthlyTotal(ctx.userId, ctx.botId, year, month, type);
 
     if (breakdown.length === 0) {
       return JSON.stringify({
@@ -498,7 +499,7 @@ const handlers: FunctionModule["handlers"] = {
     const type: ExpenseType | undefined =
       args.type === "income" || args.type === "expense" ? args.type : undefined;
 
-    const expenses = expenseRepo.listRecentExpenses(ctx.userId, Math.max(1, count), type);
+    const expenses = expenseRepo.listRecentExpenses(ctx.userId, ctx.botId, Math.max(1, count), type);
     if (expenses.length === 0) {
       return JSON.stringify({ success: true, message: "収支の記録はありません。", expenses: [] });
     }
@@ -513,7 +514,7 @@ const handlers: FunctionModule["handlers"] = {
 
   // 予算上限の一覧と今月の消化状況（§3.4.1 予算管理）
   async getBudgetLimits(ctx: ToolContext): Promise<string> {
-    const limits = expenseRepo.getBudgetLimits(ctx.userId);
+    const limits = expenseRepo.getBudgetLimits(ctx.userId, ctx.botId);
     if (limits.length === 0) {
       return JSON.stringify({
         success: true,
@@ -522,7 +523,7 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
-    const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId); // 当月の支出
+    const breakdown = expenseRepo.getMonthlyCategoryBreakdown(ctx.userId, ctx.botId); // 当月の支出
     const entries = limits.map((l) => {
       const spent = breakdown.find((c) => c.category === l.category)?.total ?? 0;
       const ratio = l.limit_amount > 0 ? Math.round((spent / l.limit_amount) * 100) : 0;
@@ -555,7 +556,7 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "limit_amount は1以上の整数（円）で指定してください。" });
     }
 
-    expenseRepo.upsertBudgetLimit(ctx.userId, category, limitAmount);
+    expenseRepo.upsertBudgetLimit(ctx.userId, ctx.botId, category, limitAmount);
     return JSON.stringify({
       success: true,
       message: `${category} の月次予算上限を ${formatCurrency(limitAmount)} に設定しました。`,
@@ -568,7 +569,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!category) {
       return JSON.stringify({ success: false, message: "category を指定してください。" });
     }
-    const deleted = expenseRepo.deleteBudgetLimit(ctx.userId, category);
+    const deleted = expenseRepo.deleteBudgetLimit(ctx.userId, ctx.botId, category);
     if (!deleted) {
       return JSON.stringify({
         success: false,
@@ -586,7 +587,7 @@ const handlers: FunctionModule["handlers"] = {
         ? statusArg
         : "pending";
 
-    const plans = plannedPaymentRepo.listPlannedPayments(ctx.userId, { status });
+    const plans = plannedPaymentRepo.listPlannedPayments(ctx.userId, ctx.botId, { status });
     if (plans.length === 0) {
       return JSON.stringify({
         success: true,
@@ -636,7 +637,7 @@ const handlers: FunctionModule["handlers"] = {
       }
     }
 
-    const plan = plannedPaymentRepo.addPlannedPayment(ctx.userId, {
+    const plan = plannedPaymentRepo.addPlannedPayment(ctx.userId, ctx.botId, {
       title,
       amount,
       category,
@@ -661,7 +662,7 @@ const handlers: FunctionModule["handlers"] = {
     if (planId === undefined) {
       return JSON.stringify({ success: false, message: "plan_id を指定してください。" });
     }
-    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, planId);
+    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, ctx.botId, planId);
     if (!plan) {
       return JSON.stringify({ success: false, message: `支払い予定 #${planId} が見つかりません。` });
     }
@@ -677,7 +678,7 @@ const handlers: FunctionModule["handlers"] = {
     let expense: ExpenseRecord;
     let createdExpense = false;
     if (expenseId !== undefined) {
-      const found = expenseRepo.getExpenseById(ctx.userId, expenseId);
+      const found = expenseRepo.getExpenseById(ctx.userId, ctx.botId, expenseId);
       if (!found) {
         return JSON.stringify({ success: false, message: `支出記録 #${expenseId} が見つかりません。` });
       }
@@ -688,6 +689,7 @@ const handlers: FunctionModule["handlers"] = {
     } else {
       expense = expenseRepo.addExpense(
         ctx.userId,
+        ctx.botId,
         plan.amount,
         plan.category,
         plan.title,
@@ -699,7 +701,7 @@ const handlers: FunctionModule["handlers"] = {
       createdExpense = true;
     }
 
-    const settled = plannedPaymentRepo.settlePlannedPayment(ctx.userId, plan.id, expense.id);
+    const settled = plannedPaymentRepo.settlePlannedPayment(ctx.userId, ctx.botId, plan.id, expense.id);
     if (!settled) {
       return JSON.stringify({ success: false, message: `支払い予定 #${planId} の消込に失敗しました。` });
     }
@@ -707,7 +709,7 @@ const handlers: FunctionModule["handlers"] = {
     const notes: string[] = [];
 
     // 紐付きToDoの自動完了（§3.4.3 消込フロー手順4）
-    const completedTodos = todoRepo.completeTodoByPaymentLink(ctx.userId, plan.id);
+    const completedTodos = todoRepo.completeTodoByPaymentLink(ctx.userId, ctx.botId, plan.id);
     if (completedTodos.length > 0) {
       notes.push(
         `紐付きToDo ${completedTodos.map((t) => `「${t.title}」(#${t.id})`).join("、")} を自動的に完了にしました✅`
@@ -716,7 +718,7 @@ const handlers: FunctionModule["handlers"] = {
 
     // 支払い済みになったため、不要になった期日前リマインドをキャンセル
     if (plan.linked_reminder_id) {
-      const cancelled = reminderRepo.cancelReminder(ctx.userId, plan.linked_reminder_id);
+      const cancelled = reminderRepo.cancelReminder(ctx.userId, ctx.botId, plan.linked_reminder_id);
       if (cancelled) notes.push(`期日前リマインド (#${plan.linked_reminder_id}) をキャンセルしました。`);
     }
 
@@ -756,7 +758,7 @@ const handlers: FunctionModule["handlers"] = {
     if (planId === undefined) {
       return JSON.stringify({ success: false, message: "plan_id を指定してください。" });
     }
-    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, planId);
+    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, ctx.botId, planId);
     if (!plan) {
       return JSON.stringify({ success: false, message: `支払い予定 #${planId} が見つかりません。` });
     }
@@ -767,7 +769,7 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
-    const cancelled = plannedPaymentRepo.cancelPlannedPayment(ctx.userId, planId);
+    const cancelled = plannedPaymentRepo.cancelPlannedPayment(ctx.userId, ctx.botId, planId);
     if (!cancelled) {
       return JSON.stringify({ success: false, message: `支払い予定 #${planId} のキャンセルに失敗しました。` });
     }
@@ -775,7 +777,7 @@ const handlers: FunctionModule["handlers"] = {
     const notes: string[] = [];
     // 不要になった期日前リマインドをキャンセル
     if (plan.linked_reminder_id) {
-      const r = reminderRepo.cancelReminder(ctx.userId, plan.linked_reminder_id);
+      const r = reminderRepo.cancelReminder(ctx.userId, ctx.botId, plan.linked_reminder_id);
       if (r) notes.push(`期日前リマインド (#${plan.linked_reminder_id}) もキャンセルしました。`);
     }
     // 紐付きToDoは自動削除しない（ユーザーの判断に委ねる）
@@ -811,7 +813,7 @@ const handlers: FunctionModule["handlers"] = {
     }
     const date = dateArg ?? todayYmd();
 
-    const candidates = plannedPaymentRepo.findSettlementCandidates(ctx.userId, {
+    const candidates = plannedPaymentRepo.findSettlementCandidates(ctx.userId, ctx.botId, {
       amount,
       category,
       date,
@@ -839,7 +841,7 @@ const handlers: FunctionModule["handlers"] = {
     if (planId === undefined) {
       return JSON.stringify({ success: false, message: "plan_id を指定してください。" });
     }
-    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, planId);
+    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, ctx.botId, planId);
     if (!plan) {
       return JSON.stringify({ success: false, message: `支払い予定 #${planId} が見つかりません。` });
     }
@@ -857,7 +859,7 @@ const handlers: FunctionModule["handlers"] = {
     }
 
     // タグはLLM自動付与ではなく仕様の固定規則 ["支払い", カテゴリ名] を適用（§3.4.3）
-    const todo = todoRepo.addTodo(ctx.userId, {
+    const todo = todoRepo.addTodo(ctx.userId, ctx.botId, {
       title: `${plan.title}の支払い`,
       description:
         `支払い予定 #${plan.id}: ${formatCurrency(plan.amount)}（期日: ${formatDate(plan.due_date)}）` +
@@ -867,8 +869,8 @@ const handlers: FunctionModule["handlers"] = {
     });
 
     // 双方向に紐付ける（消込時の自動完了は todos.linked_payment_id を参照する）
-    todoRepo.linkPayment(ctx.userId, todo.id, plan.id);
-    plannedPaymentRepo.linkTodo(ctx.userId, plan.id, todo.id);
+    todoRepo.linkPayment(ctx.userId, ctx.botId, todo.id, plan.id);
+    plannedPaymentRepo.linkTodo(ctx.userId, ctx.botId, plan.id, todo.id);
 
     return JSON.stringify({
       success: true,
@@ -886,7 +888,7 @@ const handlers: FunctionModule["handlers"] = {
     if (planId === undefined) {
       return JSON.stringify({ success: false, message: "plan_id を指定してください。" });
     }
-    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, planId);
+    const plan = plannedPaymentRepo.getPlannedPaymentById(ctx.userId, ctx.botId, planId);
     if (!plan) {
       return JSON.stringify({ success: false, message: `支払い予定 #${planId} が見つかりません。` });
     }
@@ -926,13 +928,13 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
-    const reminder = reminderRepo.addReminder(ctx.userId, {
+    const reminder = reminderRepo.addReminder(ctx.userId, ctx.botId, {
       message: `支払い予定「${plan.title}」(${formatCurrency(plan.amount)}, ${plan.category}) の期日は ${formatDate(plan.due_date)} です💸`,
       triggerAt: trigger,
       source: "payment",
       sourceId: String(plan.id),
     });
-    plannedPaymentRepo.linkReminder(ctx.userId, plan.id, reminder.id);
+    plannedPaymentRepo.linkReminder(ctx.userId, ctx.botId, plan.id, reminder.id);
 
     return JSON.stringify({
       success: true,

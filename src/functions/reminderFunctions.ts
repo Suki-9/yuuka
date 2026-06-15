@@ -220,7 +220,7 @@ const handlers: FunctionModule["handlers"] = {
       targetId = pref?.id;
     }
 
-    const reminder = reminderRepo.addReminder(ctx.userId, {
+    const reminder = reminderRepo.addReminder(ctx.userId, ctx.botId, {
       message,
       triggerAt,
       repeatRule,
@@ -244,7 +244,7 @@ const handlers: FunctionModule["handlers"] = {
   // リマインド一覧（§3.3.1）
   async listReminders(ctx: ToolContext, args: Record<string, unknown>): Promise<string> {
     const includeAll = args.include_all === true;
-    const reminders = reminderRepo.listReminders(ctx.userId, includeAll);
+    const reminders = reminderRepo.listReminders(ctx.userId, ctx.botId, includeAll);
     if (reminders.length === 0) {
       return JSON.stringify({
         success: true,
@@ -270,10 +270,10 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "reminder_id を数値で指定してください。" });
     }
 
-    const cancelled = reminderRepo.cancelReminder(ctx.userId, reminderId);
+    const cancelled = reminderRepo.cancelReminder(ctx.userId, ctx.botId, reminderId);
     if (!cancelled) {
       // 失敗理由を区別して返す（存在しない / 既に送信済み・キャンセル済み）
-      const existing = reminderRepo.getReminderById(ctx.userId, reminderId);
+      const existing = reminderRepo.getReminderById(ctx.userId, ctx.botId, reminderId);
       if (!existing) {
         return JSON.stringify({
           success: false,

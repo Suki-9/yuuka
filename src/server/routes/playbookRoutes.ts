@@ -18,8 +18,11 @@ export const playbookRoutes: RouteDef[] = [
     path: "/api/playbooks",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const query = ctx.url.searchParams.get("query") || undefined;
-      sendJson(ctx.res, 200, { success: true, playbooks: findPlaybooks(ctx.user!.discordId, query) });
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      sendJson(ctx.res, 200, { success: true, playbooks: findPlaybooks(userId, botId, query) });
     },
   },
   {
@@ -27,13 +30,17 @@ export const playbookRoutes: RouteDef[] = [
     path: "/api/playbooks/save",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const { name, title, keywords, description, steps } = ctx.body as Record<string, unknown>;
       if (!name || typeof name !== "string" || !title || typeof title !== "string" || !steps || typeof steps !== "string") {
         return sendJson(ctx.res, 400, { success: false, message: "マクロ名、タイトル、および手順ステップは必須です。" });
       }
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const keywordsList = Array.isArray(keywords) ? keywords.map(String) : [];
       const result = savePlaybook(
-        ctx.user!.discordId,
+        userId,
+        botId,
         name,
         title,
         keywordsList,
@@ -48,9 +55,12 @@ export const playbookRoutes: RouteDef[] = [
     path: "/api/playbooks/delete",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const { name } = ctx.body as Record<string, string>;
       if (!name) return sendJson(ctx.res, 400, { success: false, message: "マクロ名は必須です。" });
-      const success = deletePlaybook(ctx.user!.discordId, name);
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const success = deletePlaybook(userId, botId, name);
       sendJson(ctx.res, 200, { success, message: success ? "マクロを削除しました。" : "削除に失敗しました。" });
     },
   },
@@ -112,9 +122,12 @@ export const playbookRoutes: RouteDef[] = [
     path: "/api/playbooks/runs",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const scheduleIdParam = ctx.url.searchParams.get("scheduleId");
       const scheduleId = scheduleIdParam ? Number(scheduleIdParam) : undefined;
-      sendJson(ctx.res, 200, { success: true, runs: listRuns(ctx.user!.discordId, scheduleId) });
+      const rawBotId = ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      sendJson(ctx.res, 200, { success: true, runs: listRuns(userId, botId, scheduleId) });
     },
   },
 ];

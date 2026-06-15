@@ -7,6 +7,7 @@ import { getDb } from "./database.js";
 export interface ContactRecord {
   id: number;
   user_id: string;
+  bot_id: string;
   name: string;
   birthday: string | null; // 'YYYY-MM-DD' または '--MM-DD'（年不明）
   relationship: string | null;
@@ -32,15 +33,16 @@ export function isValidBirthday(birthday: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(birthday) || /^--\d{2}-\d{2}$/.test(birthday);
 }
 
-export function addContact(userId: string, input: ContactInput): ContactRecord {
+export function addContact(userId: string, botId: string, input: ContactInput): ContactRecord {
   const db = getDb();
   const result = db
     .prepare(
-      `INSERT INTO contacts (user_id, name, birthday, relationship, contact_info, notes, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO contacts (user_id, bot_id, name, birthday, relationship, contact_info, notes, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
+      botId,
       input.name,
       input.birthday ?? null,
       input.relationship ?? null,
@@ -48,22 +50,23 @@ export function addContact(userId: string, input: ContactInput): ContactRecord {
       input.notes ?? null,
       JSON.stringify(input.tags ?? [])
     );
-  return getContactById(userId, Number(result.lastInsertRowid))!;
+  return getContactById(userId, botId, Number(result.lastInsertRowid))!;
 }
 
-export function getContactById(userId: string, id: number): ContactRecord | undefined {
+export function getContactById(userId: string, botId: string, id: number): ContactRecord | undefined {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM contacts WHERE user_id = ? AND id = ?")
-    .get(userId, id) as ContactRecord | undefined;
+    .prepare("SELECT * FROM contacts WHERE user_id = ? AND bot_id = ? AND id = ?")
+    .get(userId, botId, id) as ContactRecord | undefined;
 }
 
 export function updateContact(
   userId: string,
+  botId: string,
   id: number,
   input: Partial<ContactInput>
 ): boolean {
-  const current = getContactById(userId, id);
+  const current = getContactById(userId, botId, id);
   if (!current) return false;
   const db = getDb();
   const result = db
@@ -71,7 +74,7 @@ export function updateContact(
       `UPDATE contacts SET
          name = ?, birthday = ?, relationship = ?, contact_info = ?, notes = ?, tags = ?,
          updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ?`
+       WHERE user_id = ? AND bot_id = ? AND id = ?`
     )
     .run(
       input.name ?? current.name,
@@ -81,36 +84,39 @@ export function updateContact(
       input.notes !== undefined ? input.notes : current.notes,
       input.tags !== undefined ? JSON.stringify(input.tags) : current.tags,
       userId,
+      botId,
       id
     );
   return result.changes > 0;
 }
 
-export function deleteContact(userId: string, id: number): boolean {
+export function deleteContact(userId: string, botId: string, id: number): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM contacts WHERE user_id = ? AND id = ?").run(userId, id);
+  const result = db
+    .prepare("DELETE FROM contacts WHERE user_id = ? AND bot_id = ? AND id = ?")
+    .run(userId, botId, id);
   return result.changes > 0;
 }
 
 /** 氏名・関係性・メモの部分一致検索 */
-export function searchContacts(userId: string, query: string): ContactRecord[] {
+export function searchContacts(userId: string, botId: string, query: string): ContactRecord[] {
   const db = getDb();
   const like = `%${query.replace(/[%_]/g, (c) => "\\" + c)}%`;
   return db
     .prepare(
       `SELECT * FROM contacts
-       WHERE user_id = ?
+       WHERE user_id = ? AND bot_id = ?
          AND (name LIKE ? ESCAPE '\\' OR relationship LIKE ? ESCAPE '\\' OR notes LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
        ORDER BY name ASC`
     )
-    .all(userId, like, like, like, like) as ContactRecord[];
+    .all(userId, botId, like, like, like, like) as ContactRecord[];
 }
 
-export function listContacts(userId: string): ContactRecord[] {
+export function listContacts(userId: string, botId: string): ContactRecord[] {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM contacts WHERE user_id = ? ORDER BY name ASC")
-    .all(userId) as ContactRecord[];
+    .prepare("SELECT * FROM contacts WHERE user_id = ? AND bot_id = ? ORDER BY name ASC")
+    .all(userId, botId) as ContactRecord[];
 }
 
 /**

@@ -58,7 +58,7 @@ interface ReportData {
 }
 
 /** 当該期間の活動データを集約する（§3.8.2） */
-function collectReportData(userId: string, type: ReportType): ReportData {
+function collectReportData(userId: string, botId: string, type: ReportType): ReportData {
   const now = new Date();
   const periodMs = type === "daily" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   const fromDate = new Date(now.getTime() - periodMs);
@@ -72,22 +72,22 @@ function collectReportData(userId: string, type: ReportType): ReportData {
   // 完了タスク: 当該期間内に更新された done（読み取り専用の期間クエリのため直接SQL使用）
   const completedTodos = db
     .prepare(
-      `SELECT * FROM todos WHERE user_id = ? AND status = 'done' AND updated_at >= ? AND updated_at <= ?
+      `SELECT * FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'done' AND updated_at >= ? AND updated_at <= ?
        ORDER BY updated_at DESC LIMIT 30`
     )
-    .all(userId, from, to) as TodoRecord[];
+    .all(userId, botId, from, to) as TodoRecord[];
 
   // 未完了タスク（持ち越し）: open かつ期限が当該期間内
   const carryOverTodos = db
     .prepare(
-      `SELECT * FROM todos WHERE user_id = ? AND status = 'open'
+      `SELECT * FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'open'
        AND due_date IS NOT NULL AND date(due_date) >= date(?) AND date(due_date) <= date(?)
        ORDER BY due_date ASC LIMIT 30`
     )
-    .all(userId, fromDay, toDay) as TodoRecord[];
+    .all(userId, botId, fromDay, toDay) as TodoRecord[];
 
   // カレンダーイベント（schedulesテーブル＝Google同期済みローカルキャッシュから取得）
-  const schedules = listSchedulesInRange(userId, from, to).map((s) => ({
+  const schedules = listSchedulesInRange(userId, botId, from, to).map((s) => ({
     title: s.title,
     start_at: s.start_at,
   }));
@@ -96,34 +96,34 @@ function collectReportData(userId: string, type: ReportType): ReportData {
   const payments = db
     .prepare(
       `SELECT title, amount, due_date, status FROM planned_payments
-       WHERE user_id = ? AND date(due_date) >= date(?) AND date(due_date) <= date(?)
+       WHERE user_id = ? AND bot_id = ? AND date(due_date) >= date(?) AND date(due_date) <= date(?)
        ORDER BY due_date ASC LIMIT 20`
     )
-    .all(userId, fromDay, toDay) as { title: string; amount: number; due_date: string; status: string }[];
+    .all(userId, botId, fromDay, toDay) as { title: string; amount: number; due_date: string; status: string }[];
 
   // 家計サマリ: 当該期間の収支合計・カテゴリ別内訳
   const incomeRow = db
     .prepare(
       `SELECT COALESCE(SUM(amount), 0) as total FROM expenses
-       WHERE user_id = ? AND type = 'income' AND date >= ? AND date <= ?`
+       WHERE user_id = ? AND bot_id = ? AND type = 'income' AND date >= ? AND date <= ?`
     )
-    .get(userId, fromDay, toDay) as { total: number };
+    .get(userId, botId, fromDay, toDay) as { total: number };
   const expenseRow = db
     .prepare(
       `SELECT COALESCE(SUM(amount), 0) as total FROM expenses
-       WHERE user_id = ? AND type = 'expense' AND date >= ? AND date <= ?`
+       WHERE user_id = ? AND bot_id = ? AND type = 'expense' AND date >= ? AND date <= ?`
     )
-    .get(userId, fromDay, toDay) as { total: number };
+    .get(userId, botId, fromDay, toDay) as { total: number };
   const categoryBreakdown = db
     .prepare(
       `SELECT category, SUM(amount) as total FROM expenses
-       WHERE user_id = ? AND type = 'expense' AND date >= ? AND date <= ?
+       WHERE user_id = ? AND bot_id = ? AND type = 'expense' AND date >= ? AND date <= ?
        GROUP BY category ORDER BY total DESC`
     )
-    .all(userId, fromDay, toDay) as { category: string; total: number }[];
+    .all(userId, botId, fromDay, toDay) as { category: string; total: number }[];
 
   // 会話トピック: 期間内のやり取りのサンプル（プライバシー配慮のため要約用素材のみ §3.8.2）
-  const messages = searchMessages(userId, { from, to, limit: 40 });
+  const messages = searchMessages(userId, botId, { from, to, limit: 40 });
   const conversationSamples = messages
     .filter((m) => m.role === "user")
     .slice(0, 20)
@@ -175,9 +175,9 @@ function buildFallbackText(data: ReportData): string {
  * 日報・週報を生成して配信する（手動実行・テスト配信からも呼ばれる）
  * @returns 送信に成功したか
  */
-export async function runReportForUser(userId: string, type: ReportType): Promise<boolean> {
-  const config = getReportConfig(userId, type);
-  const data = collectReportData(userId, type);
+export async function runReportForUser(userId: string, botId: string, type: ReportType): Promise<boolean> {
+  const config = getReportConfig(userId, botId, type);
+  const data = collectReportData(userId, botId, type);
   const typeLabel = type === "daily" ? "日報" : "週報";
 
   // LLMによるサマリ生成（失敗時は生データへフォールバック §3.8.3）
@@ -230,7 +230,8 @@ export async function runReportForUser(userId: string, type: ReportType): Promis
   return sendToUser(
     userId,
     { embeds: [embed] },
-    config ? { type: config.target_type, id: config.target_id ?? undefined } : undefined
+    config ? { type: config.target_type, id: config.target_id ?? undefined } : undefined,
+    botId
   );
 }
 
@@ -248,7 +249,7 @@ async function tick(): Promise<void> {
     if (!cronMatchesNow(conf.schedule_cron, now)) continue;
     console.log(`📋 [Report] ${conf.type} レポートを生成します (user: ${conf.user_id})`);
     try {
-      await runReportForUser(conf.user_id, conf.type);
+      await runReportForUser(conf.user_id, conf.bot_id, conf.type);
     } catch (err) {
       console.error(`[Report] レポート配信に失敗しました (user: ${conf.user_id}):`, err);
     }

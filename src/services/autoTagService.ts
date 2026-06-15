@@ -82,16 +82,16 @@ ${vocabSection}
 }
 
 /** タグ自動付与の本体処理（scheduleAutoTagging から非同期に呼ばれる） */
-async function runAutoTagging(userId: string, todoId: number): Promise<void> {
+async function runAutoTagging(userId: string, botId: string, todoId: number): Promise<void> {
   // APIキー未設定なら静かにスキップ（§3.2.4: タグ付与は補助機能でありエラー扱いしない）
   if (!getUserGenAI(userId)) return;
 
   // 対象取得（処理開始までに削除されている可能性があるため再取得する）
-  const todo = getTodoById(userId, todoId);
+  const todo = getTodoById(userId, botId, todoId);
   if (!todo) return;
 
   // 既存タグ語彙を学習素材としてプロンプトに含める（§3.2.4: 既存語彙を優先）
-  const vocab = listAllTags(userId);
+  const vocab = listAllTags(userId, botId);
   const prompt = buildPrompt(todo, vocab);
 
   const response = await generateAuxText(userId, prompt, SYSTEM_INSTRUCTION);
@@ -107,7 +107,7 @@ async function runAutoTagging(userId: string, todoId: number): Promise<void> {
   }
 
   // 生成中にユーザーが手動でタグを変えていた場合も、最新のLLM判断で上書き保存する（§3.2.4: 追加・更新のたびに付与）
-  updateTodoTags(userId, todoId, tags);
+  updateTodoTags(userId, botId, todoId, tags);
   console.log(`🏷️ タグ自動付与完了 (todo: #${todoId}): ${tags.join(", ")}`);
 }
 
@@ -115,9 +115,9 @@ async function runAutoTagging(userId: string, todoId: number): Promise<void> {
  * タグ自動付与をバックグラウンドで起動する（§3.2.4: ユーザーへの応答をブロックしない）。
  * 呼び出し側（todoFunctions）は await せずに呼ぶこと。エラーは全てここで握りつぶしログのみ残す。
  */
-export function scheduleAutoTagging(userId: string, todoId: number): void {
+export function scheduleAutoTagging(userId: string, botId: string, todoId: number): void {
   setImmediate(() => {
-    runAutoTagging(userId, todoId).catch((err) => {
+    runAutoTagging(userId, botId, todoId).catch((err) => {
       console.error(`⚠️ タグ自動付与に失敗しました (user: ${userId}, todo: #${todoId}):`, err);
     });
   });

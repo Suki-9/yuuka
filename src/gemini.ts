@@ -76,7 +76,7 @@ const DEFAULT_PERSONA = `# あなたの役割
  * ユーザー毎のシステムプロンプトを構築する（§3.1.2）
  * 構成順: ペルソナ → 機能・ルール → コンテキストノート（末尾 §3.7.3）
  */
-async function buildSystemInstruction(userId: string, richReplyEnabled: boolean): Promise<string> {
+async function buildSystemInstruction(userId: string, botId: string, richReplyEnabled: boolean): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -120,7 +120,7 @@ async function buildSystemInstruction(userId: string, richReplyEnabled: boolean)
   // コンテキストノート（§3.7: システムプロンプトの末尾＝ペルソナの後に挿入）
   let contextNoteSection = "";
   try {
-    const note = getContextNote(userId);
+    const note = getContextNote(userId, botId);
     if (note && note.trim()) {
       contextNoteSection = `\n# コンテキストノート（ユーザーが「覚えておいてほしい」と登録した背景情報）\n以下はユーザー固有の考慮事項・背景知識です。会話・判断の際に常に考慮してください。\n${note.trim()}`;
     }
@@ -555,7 +555,7 @@ export async function processMessage(
   }
 
   // 2. 会話コンテキストを取得（Redis直近15件 → SQLiteフォールバック §3.1.4）
-  const history = await getRecentContext(userId, 15);
+  const history = await getRecentContext(userId, botId, 15);
 
   // 3. 返信チェーンの解決（§3.1.4: 15件キャッシュとは別枠でコンテキストの先頭に追加）
   const contents: Content[] = [];
@@ -626,7 +626,7 @@ export async function processMessage(
   }
   const registry = buildFunctionRegistry([...getFunctionModulesForCapabilities(caps), mcpModule]);
 
-  const systemInstruction = await buildSystemInstruction(userId, richReplyEnabled);
+  const systemInstruction = await buildSystemInstruction(userId, botId, richReplyEnabled);
 
   try {
     const ai = getUserGenAI(userId);

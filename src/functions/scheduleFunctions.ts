@@ -121,6 +121,7 @@ const handlers: FunctionModule["handlers"] = {
 
     const schedule = scheduleRepo.addSchedule(
       userId,
+      ctx.botId,
       args.title,
       args.start_at,
       args.end_at,
@@ -161,7 +162,7 @@ const handlers: FunctionModule["handlers"] = {
       }
     }
 
-    const schedules = scheduleRepo.listUpcomingSchedules(userId, days);
+    const schedules = scheduleRepo.listUpcomingSchedules(userId, ctx.botId, days);
     if (schedules.length === 0) {
       return JSON.stringify({
         success: true,
@@ -206,7 +207,7 @@ const handlers: FunctionModule["handlers"] = {
       }
     }
 
-    const deleted = scheduleRepo.deleteSchedule(scheduleId, userId);
+    const deleted = scheduleRepo.deleteSchedule(scheduleId, userId, ctx.botId);
     if (!deleted) {
       return JSON.stringify({
         success: false,

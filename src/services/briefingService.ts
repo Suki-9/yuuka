@@ -147,8 +147,8 @@ async function fetchNewsItems(feedUrls: string[], keywords: string[]): Promise<N
 /**
  * 朝報を生成して配信する（手動テスト配信からも呼ばれる）
  */
-export async function runBriefingForUser(userId: string): Promise<boolean> {
-  const config = getBriefingConfig(userId);
+export async function runBriefingForUser(userId: string, botId: string): Promise<boolean> {
+  const config = getBriefingConfig(userId, botId);
   if (!config) return false;
 
   const embed = new EmbedBuilder()
@@ -227,7 +227,8 @@ export async function runBriefingForUser(userId: string): Promise<boolean> {
   return sendToUser(
     userId,
     { embeds: [embed] },
-    { type: config.target_type, id: config.target_id ?? undefined }
+    { type: config.target_type, id: config.target_id ?? undefined },
+    config.bot_id
   );
 }
 
@@ -245,7 +246,7 @@ async function tick(): Promise<void> {
     if (!cronMatchesNow(conf.schedule_cron, now)) continue;
     console.log(`🌅 [Briefing] 朝報を配信します (user: ${conf.user_id})`);
     try {
-      await runBriefingForUser(conf.user_id);
+      await runBriefingForUser(conf.user_id, conf.bot_id);
     } catch (err) {
       console.error(`[Briefing] 朝報配信に失敗しました (user: ${conf.user_id}):`, err);
     }

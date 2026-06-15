@@ -31,9 +31,14 @@ async function tick(): Promise<void> {
       }
 
       const relationship = contact.relationship ? `（${contact.relationship}）` : "";
-      const sent = await sendToUser(contact.user_id, {
-        content: `🎂 明日 (${monthDay.replace("-", "/")}) は **${contact.name}**さん${relationship}の誕生日です！${ageNote}\nお祝いの準備はいかがですか？`,
-      });
+      const sent = await sendToUser(
+        contact.user_id,
+        {
+          content: `🎂 明日 (${monthDay.replace("-", "/")}) は **${contact.name}**さん${relationship}の誕生日です！${ageNote}\nお祝いの準備はいかがですか？`,
+        },
+        undefined,
+        contact.bot_id
+      );
 
       if (sent) {
         markBirthdayReminded(contact.id, currentYear);

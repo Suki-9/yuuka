@@ -283,8 +283,12 @@ export async function syncGoogleCalendarToLocal(
     const timeMin = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     const timeMax = new Date(now.getTime() + daysWindow * 24 * 60 * 60 * 1000).toISOString();
 
+    // Googleカレンダー連携はユーザー全体の統合機能のため、同期される予定は
+    // デフォルト秘書（system_default）に帰属させる（秘書業務データのBot別分離 §v3）。
+    const SYNC_BOT_ID = "system_default";
+
     // 1. ローカルの該当期間内の「Google同期済み予定」をマップとして取得
-    const localSchedules = scheduleRepo.listAllFutureSchedulesWithGoogleId(userId);
+    const localSchedules = scheduleRepo.listAllFutureSchedulesWithGoogleId(userId, SYNC_BOT_ID);
     const localMap = new Map<string, scheduleRepo.Schedule>();
     for (const s of localSchedules) {
       if (s.google_event_id) {
@@ -347,7 +351,7 @@ export async function syncGoogleCalendarToLocal(
             localMap.delete(googleEventId);
           } else {
             // B. ローカルに存在しない -> 新規作成、または未リンクのローカルイベントの紐付け
-            const unlinkedLocal = scheduleRepo.getScheduleByTitleAndStart(userId, title, startAtLocal);
+            const unlinkedLocal = scheduleRepo.getScheduleByTitleAndStart(userId, SYNC_BOT_ID, title, startAtLocal);
 
             if (unlinkedLocal) {
               scheduleRepo.linkGoogleEventId(unlinkedLocal.id, googleEventId, cal.id);
@@ -355,6 +359,7 @@ export async function syncGoogleCalendarToLocal(
             } else {
               scheduleRepo.addSchedule(
                 userId,
+                SYNC_BOT_ID,
                 title,
                 startAtLocal,
                 endAtLocal || undefined,
@@ -374,7 +379,7 @@ export async function syncGoogleCalendarToLocal(
 
     // 3. カレンダー側で削除されたため、マップに残ったローカル予定を削除
     for (const [, localEvent] of localMap.entries()) {
-      scheduleRepo.deleteSchedule(localEvent.id, userId);
+      scheduleRepo.deleteSchedule(localEvent.id, userId, SYNC_BOT_ID);
       console.log(`🗑️ [同期] 削除検知: ${localEvent.title}`);
     }
 

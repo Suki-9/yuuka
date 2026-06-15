@@ -155,7 +155,8 @@ export async function processIncomingWebhook(
   if (endpoint.create_todo === 1) {
     try {
       const firstLine = notifyText.split("\n")[0].slice(0, 80);
-      addTodo(userId, {
+      // Webhookは全Bot共有のため、生成されるToDo/リマインドはデフォルト秘書に帰属させる（§v3）
+      addTodo(userId, "system_default", {
         title: `[Webhook] ${firstLine}`,
         description: `Webhook「${endpoint.name}」からの自動登録\n\n${notifyText.slice(0, 500)}`,
         tags: ["webhook", endpoint.name],
@@ -170,7 +171,7 @@ export async function processIncomingWebhook(
   if (endpoint.create_reminder === 1) {
     try {
       const firstLine = notifyText.split("\n")[0].slice(0, 100);
-      addReminder(userId, {
+      addReminder(userId, "system_default", {
         message: `[Webhook: ${endpoint.name}] ${firstLine}`,
         triggerAt: new Date(Date.now() + 60 * 60 * 1000),
         targetType: endpoint.notify_target_type,

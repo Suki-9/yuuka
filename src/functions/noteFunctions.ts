@@ -60,7 +60,7 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "記憶する内容が空です。" });
     }
     try {
-      const full = appendContextNote(ctx.userId, content);
+      const full = appendContextNote(ctx.userId, ctx.botId, content);
       return JSON.stringify({
         success: true,
         message: "コンテキストノートに追記しました📝",
@@ -73,7 +73,7 @@ const handlers: FunctionModule["handlers"] = {
   },
 
   getContextNote(ctx: ToolContext): string {
-    const note = getContextNote(ctx.userId);
+    const note = getContextNote(ctx.userId, ctx.botId);
     return JSON.stringify({
       success: true,
       content: note,
@@ -85,7 +85,7 @@ const handlers: FunctionModule["handlers"] = {
   setContextNote(ctx: ToolContext, args: Record<string, unknown>): string {
     const content = String(args.content ?? "");
     try {
-      setContextNote(ctx.userId, content);
+      setContextNote(ctx.userId, ctx.botId, content);
       return JSON.stringify({
         success: true,
         message: "コンテキストノートを更新しました📝",

@@ -7,7 +7,7 @@ import { getDb } from "./database.js";
  * 旧スキーマ（bot_id スコープ）のデータは破棄してよい方針のため、
  * バージョン不一致を検出した場合は旧テーブルを DROP して作り直す。
  */
-const SCHEMA_VERSION = "2";
+const SCHEMA_VERSION = "3";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -33,6 +33,137 @@ function ensureColumns(
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${def.ddl}`);
       console.log(`🔧 ${table} へ列を追加しました: ${def.name}`);
     }
+  }
+}
+
+/** テーブルに指定列が存在するか（テーブル未作成なら false）。 */
+function hasColumn(db: ReturnType<typeof getDb>, table: string, column: string): boolean {
+  const cols = db.pragma(`table_info(${table})`) as { name: string }[];
+  return cols.some((c) => c.name === column);
+}
+
+/**
+ * v3: 秘書業務データを (user_id, bot_id) スコープへ移行する（冪等）。
+ * - 一意制約に user_id を含まないテーブル: bot_id 列を後付けするだけ（既存行は DEFAULT 'system_default'）。
+ * - PK/UNIQUE に user_id を含むテーブル: bot_id を含む制約へ作り直す（既存DBのみ・bot_id 欠落時）。
+ */
+function migrateToBotScopedData(db: ReturnType<typeof getDb>): void {
+  // 列追加のみで済むテーブル（id PK・user_id 一意制約なし）
+  const SIMPLE_TABLES = [
+    "todos", "schedules", "reminders", "expenses", "planned_payments",
+    "playbook_runs", "clipboard_entries", "contacts",
+  ];
+  for (const t of SIMPLE_TABLES) {
+    ensureColumns(db, t, [{ name: "bot_id", ddl: "bot_id TEXT NOT NULL DEFAULT 'system_default'" }]);
+  }
+
+  // 一意制約に user_id を含むため再構築が必要なテーブル。
+  // 新しい CREATE TABLE 定義は既に bot_id を含むため、新規DBでは bot_id が存在し再構築はスキップされる。
+  const REBUILDS: Array<{ table: string; createRebuilt: string; columns: string; indexes?: string }> = [
+    {
+      table: "budget_limits",
+      createRebuilt: `CREATE TABLE budget_limits_rebuilt (
+        user_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL DEFAULT 'system_default',
+        category TEXT NOT NULL,
+        limit_amount INTEGER NOT NULL DEFAULT 50000,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (user_id, bot_id, category),
+        FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      )`,
+      columns: "user_id, bot_id, category, limit_amount, updated_at",
+    },
+    {
+      table: "context_notes",
+      createRebuilt: `CREATE TABLE context_notes_rebuilt (
+        user_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL DEFAULT 'system_default',
+        content TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (user_id, bot_id),
+        FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      )`,
+      columns: "user_id, bot_id, content, updated_at",
+    },
+    {
+      table: "briefing_configs",
+      createRebuilt: `CREATE TABLE briefing_configs_rebuilt (
+        user_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL DEFAULT 'system_default',
+        enabled INTEGER NOT NULL DEFAULT 0,
+        schedule_cron TEXT NOT NULL DEFAULT '0 7 * * *',
+        target_type TEXT NOT NULL DEFAULT 'dm',
+        target_id TEXT,
+        weather_lat REAL,
+        weather_lng REAL,
+        location_name TEXT,
+        news_feeds TEXT NOT NULL DEFAULT '[]',
+        news_keywords TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (user_id, bot_id),
+        FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      )`,
+      columns: "user_id, bot_id, enabled, schedule_cron, target_type, target_id, weather_lat, weather_lng, location_name, news_feeds, news_keywords, updated_at",
+    },
+    {
+      table: "report_configs",
+      createRebuilt: `CREATE TABLE report_configs_rebuilt (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL DEFAULT 'system_default',
+        type TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        schedule_cron TEXT NOT NULL DEFAULT '0 21 * * *',
+        target_type TEXT NOT NULL DEFAULT 'dm',
+        target_id TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE(user_id, bot_id, type),
+        FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      )`,
+      columns: "id, user_id, bot_id, type, enabled, schedule_cron, target_type, target_id, updated_at",
+    },
+    {
+      table: "playbooks",
+      createRebuilt: `CREATE TABLE playbooks_rebuilt (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL DEFAULT 'system_default',
+        name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        keywords TEXT DEFAULT '[]',
+        description TEXT DEFAULT '',
+        steps TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE(user_id, bot_id, name),
+        FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      )`,
+      columns: "id, user_id, name, title, keywords, description, steps, created_at, updated_at",
+      indexes: "CREATE INDEX IF NOT EXISTS idx_playbooks_user ON playbooks(user_id);",
+    },
+  ];
+
+  for (const r of REBUILDS) {
+    // テーブル未作成（新規DB直後は CREATE 済みなので存在する）または既に bot_id 列があるなら何もしない
+    const exists = (db.pragma(`table_info(${r.table})`) as { name: string }[]).length > 0;
+    if (!exists || hasColumn(db, r.table, "bot_id")) continue;
+
+    console.log(`🔧 ${r.table} を再構築しています（bot_id スコープ化）...`);
+    db.exec("PRAGMA foreign_keys = OFF");
+    // columns は旧テーブル側の列名。bot_id を含まない場合は SELECT で 'system_default' を補う。
+    const selectCols = r.columns
+      .split(",")
+      .map((c) => c.trim())
+      .map((c) => (c === "bot_id" ? "'system_default' AS bot_id" : c))
+      .join(", ");
+    db.exec(`
+      ${r.createRebuilt};
+      INSERT INTO ${r.table}_rebuilt (${r.columns}) SELECT ${selectCols} FROM ${r.table};
+      DROP TABLE ${r.table};
+      ALTER TABLE ${r.table}_rebuilt RENAME TO ${r.table};
+      ${r.indexes ?? ""}
+    `);
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 
@@ -414,10 +545,11 @@ export async function runMigrations(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS budget_limits (
       user_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL DEFAULT 'system_default',
       category TEXT NOT NULL,
       limit_amount INTEGER NOT NULL DEFAULT 50000,
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      PRIMARY KEY (user_id, category),
+      PRIMARY KEY (user_id, bot_id, category),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
     );
 
@@ -446,6 +578,7 @@ export async function runMigrations(): Promise<void> {
     CREATE TABLE IF NOT EXISTS playbooks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL DEFAULT 'system_default',
       name TEXT NOT NULL,
       title TEXT NOT NULL,
       keywords TEXT DEFAULT '[]',              -- JSON string[]
@@ -453,7 +586,7 @@ export async function runMigrations(): Promise<void> {
       steps TEXT NOT NULL DEFAULT '',          -- Markdown手順 または Function Call列のJSON
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      UNIQUE(user_id, name),
+      UNIQUE(user_id, bot_id, name),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_playbooks_user ON playbooks(user_id);
@@ -492,9 +625,11 @@ export async function runMigrations(): Promise<void> {
   // ─── コンテキストノート（§3.7）/ クリップボード（§3.10）/ 連絡先（§3.11） ─
   db.exec(`
     CREATE TABLE IF NOT EXISTS context_notes (
-      user_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL DEFAULT 'system_default',
       content TEXT NOT NULL DEFAULT '',        -- 上限10,000文字（アプリ層で検証）
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (user_id, bot_id),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
     );
 
@@ -580,7 +715,8 @@ export async function runMigrations(): Promise<void> {
   // ─── 朝報（§3.9）/ 日報・週報（§3.8） ────────────────────────────────────
   db.exec(`
     CREATE TABLE IF NOT EXISTS briefing_configs (
-      user_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL DEFAULT 'system_default',
       enabled INTEGER NOT NULL DEFAULT 0,
       schedule_cron TEXT NOT NULL DEFAULT '0 7 * * *',
       target_type TEXT NOT NULL DEFAULT 'dm',
@@ -591,19 +727,21 @@ export async function runMigrations(): Promise<void> {
       news_feeds TEXT NOT NULL DEFAULT '[]',   -- JSON string[] RSSフィードURL
       news_keywords TEXT NOT NULL DEFAULT '[]',-- JSON string[] キーワードフィルタ
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (user_id, bot_id),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS report_configs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL DEFAULT 'system_default',
       type TEXT NOT NULL,                      -- 'daily' | 'weekly'
       enabled INTEGER NOT NULL DEFAULT 0,
       schedule_cron TEXT NOT NULL DEFAULT '0 21 * * *',
       target_type TEXT NOT NULL DEFAULT 'dm',
       target_id TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      UNIQUE(user_id, type),
+      UNIQUE(user_id, bot_id, type),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
     );
   `);
@@ -670,11 +808,16 @@ export async function runMigrations(): Promise<void> {
   `);
   ensureColumns(db, "invite_codes", [{ name: "revoked_at", ddl: "revoked_at TEXT" }]);
 
+  // ─── v3: 秘書業務データのBot別分離（user_id → (user_id, bot_id)） ──────────
+  // 既存行は bot_id = 'system_default'（早瀬ユウカ）に帰属させる。
+  // 一意制約を含まないテーブルは列追加のみ。PK/UNIQUE に user_id を含むテーブルは再構築する。
+  migrateToBotScopedData(db);
+
   // スキーマバージョンを記録
   db.prepare(
     `INSERT INTO system_settings (key, value) VALUES ('schema_version', ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now', 'localtime')`
   ).run(SCHEMA_VERSION);
 
-  console.log("✅ データベースマイグレーション完了 (schema v2)");
+  console.log(`✅ データベースマイグレーション完了 (schema v${SCHEMA_VERSION})`);
 }

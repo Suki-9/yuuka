@@ -17,12 +17,22 @@ export interface NotifyTarget {
 }
 
 /**
- * ユーザーへ通知を送信できるオンラインなDiscordクライアントを解決する。
- * 優先順: ユーザー自身が起動している独自Bot → デフォルト共有Bot
- * cron系通知（リマインド・朝報・日報等）は secretary を持つBotのみを対象とするため、
- * 汎用モード（MCPアシスタント）のBotクライアントは通知に使わない（bot_attributes_requirements.md §4.2）。
+ * 通知を送信するDiscordクライアントを解決する。
+ *
+ * - botId 指定あり（秘書業務データのBot別分離）: そのBot本人のクライアントで届ける。
+ *   'system_default' はデフォルト共有Bot。独自Botが未起動の場合はデフォルトBotへフォールバック。
+ * - botId 指定なし（旧経路）: ユーザーが起動している秘書型独自Bot → デフォルト共有Bot の順。
+ *   汎用モード（MCPアシスタント）のBotは通知に使わない（bot_attributes_requirements.md §4.2）。
  */
-function resolveClientForUser(userId: string) {
+function resolveClientForUser(userId: string, botId?: string) {
+  if (botId) {
+    if (botId !== "system_default") {
+      const custom = customClients.get(botId);
+      if (custom && custom.readyAt) return custom;
+      // 当該Botがオフラインの場合でも通知は届けたいのでデフォルトBotへフォールバック
+    }
+    return client.readyAt ? client : null;
+  }
   try {
     const bots = listBotsForUser(userId);
     for (const bot of bots) {
@@ -41,14 +51,16 @@ function resolveClientForUser(userId: string) {
 /**
  * ユーザーへDiscord通知を送信する（リマインド・日報・朝報・Webhook通知等の共通基盤）。
  * @param target 明示指定が無ければユーザー設定の既定送信先（users.notify_target_*）→ DM の順で解決
+ * @param botId 通知元のBot（秘書業務データのBot別分離）。そのBot本人のクライアントで届ける。
  * @returns 送信成功なら true
  */
 export async function sendToUser(
   userId: string,
   payload: NotifyPayload,
-  target?: NotifyTarget
+  target?: NotifyTarget,
+  botId?: string
 ): Promise<boolean> {
-  const botClient = resolveClientForUser(userId);
+  const botClient = resolveClientForUser(userId, botId);
   if (!botClient) {
     console.error(`[Notifier] 利用可能なBotクライアントがありません (user: ${userId})`);
     return false;

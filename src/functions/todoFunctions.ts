@@ -223,7 +223,7 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "タイトルを指定してください。" });
     }
 
-    const todo = todoRepo.addTodo(ctx.userId, {
+    const todo = todoRepo.addTodo(ctx.userId, ctx.botId, {
       title,
       description: asOptionalString(args.description),
       dueDate: asOptionalString(args.due_date),
@@ -231,7 +231,7 @@ const handlers: FunctionModule["handlers"] = {
     });
 
     // タグ自動付与をバックグラウンドで起動（awaitしない。§3.2.4: 応答をブロックしない）
-    scheduleAutoTagging(ctx.userId, todo.id);
+    scheduleAutoTagging(ctx.userId, ctx.botId, todo.id);
 
     return JSON.stringify({
       success: true,
@@ -247,7 +247,7 @@ const handlers: FunctionModule["handlers"] = {
       statusArg === "done" || statusArg === "all" ? statusArg : "open";
     const tag = asOptionalString(args.tag);
 
-    const todos = todoRepo.listTodos(ctx.userId, { status, tag });
+    const todos = todoRepo.listTodos(ctx.userId, ctx.botId, { status, tag });
     if (todos.length === 0) {
       return JSON.stringify({
         success: true,
@@ -269,7 +269,7 @@ const handlers: FunctionModule["handlers"] = {
   // ToDo完了（§3.2.1）
   async completeTodo(ctx: ToolContext, args: Record<string, unknown>): Promise<string> {
     const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
-    const todo = todoRepo.completeTodo(ctx.userId, todoId);
+    const todo = todoRepo.completeTodo(ctx.userId, ctx.botId, todoId);
     if (!todo) {
       return JSON.stringify({ success: false, message: `ToDo #${args.todo_id} が見つかりません。` });
     }
@@ -283,7 +283,7 @@ const handlers: FunctionModule["handlers"] = {
   // ToDo削除（§3.2.1）
   async deleteTodo(ctx: ToolContext, args: Record<string, unknown>): Promise<string> {
     const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
-    const deleted = todoRepo.deleteTodo(ctx.userId, todoId);
+    const deleted = todoRepo.deleteTodo(ctx.userId, ctx.botId, todoId);
     if (!deleted) {
       return JSON.stringify({ success: false, message: `ToDo #${args.todo_id} が見つかりません。` });
     }
@@ -321,7 +321,7 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "変更する項目を1つ以上指定してください。" });
     }
 
-    const todo = todoRepo.updateTodo(ctx.userId, todoId, {
+    const todo = todoRepo.updateTodo(ctx.userId, ctx.botId, todoId, {
       title,
       description,
       dueDate,
@@ -334,7 +334,7 @@ const handlers: FunctionModule["handlers"] = {
 
     // タイトル・説明が変わった場合はタグを付け直す（バックグラウンド・awaitしない）
     if (title !== undefined || description !== undefined) {
-      scheduleAutoTagging(ctx.userId, todo.id);
+      scheduleAutoTagging(ctx.userId, ctx.botId, todo.id);
     }
 
     return JSON.stringify({
@@ -346,7 +346,7 @@ const handlers: FunctionModule["handlers"] = {
 
   // タグ一覧と件数（§3.2.4: グループ表示用）
   async listTodoTags(ctx: ToolContext): Promise<string> {
-    const tags = todoRepo.listAllTags(ctx.userId);
+    const tags = todoRepo.listAllTags(ctx.userId, ctx.botId);
     if (tags.length === 0) {
       return JSON.stringify({
         success: true,
@@ -364,7 +364,7 @@ const handlers: FunctionModule["handlers"] = {
 
   // タスク優先度整理・第一段階: 分析用データの取得（§3.2.3: 提案のみ・確定はユーザー承認後）
   async organizeTaskPriorities(ctx: ToolContext): Promise<string> {
-    const todos = todoRepo.listTodos(ctx.userId, { status: "open" });
+    const todos = todoRepo.listTodos(ctx.userId, ctx.botId, { status: "open" });
     if (todos.length === 0) {
       return JSON.stringify({
         success: true,
@@ -407,7 +407,7 @@ const handlers: FunctionModule["handlers"] = {
     }
 
     // トランザクションで一括更新（未完了ToDoのみ対象）
-    const updated = todoRepo.updateTodoPriorities(ctx.userId, items);
+    const updated = todoRepo.updateTodoPriorities(ctx.userId, ctx.botId, items);
     if (updated === 0) {
       return JSON.stringify({
         success: false,

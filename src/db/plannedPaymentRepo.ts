@@ -15,6 +15,7 @@ export type PlannedPaymentStatus = "pending" | "settled" | "cancelled";
 export interface PlannedPaymentRecord {
   id: number;
   user_id: string;
+  bot_id: string;
   title: string;
   amount: number;
   category: string;
@@ -65,16 +66,18 @@ export interface SettlementQuery {
 /** 支払い予定を登録する（§3.4.3: 自然言語からLLMが構造化した内容を保存） */
 export function addPlannedPayment(
   userId: string,
+  botId: string,
   input: PlannedPaymentInput
 ): PlannedPaymentRecord {
   const db = getDb();
   const result = db
     .prepare(
-      `INSERT INTO planned_payments (user_id, title, amount, category, memo, due_date, repeat_rule)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO planned_payments (user_id, bot_id, title, amount, category, memo, due_date, repeat_rule)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
+      botId,
       input.title,
       input.amount,
       input.category,
@@ -82,23 +85,25 @@ export function addPlannedPayment(
       input.dueDate,
       input.repeatRule ?? null
     );
-  return getPlannedPaymentById(userId, result.lastInsertRowid as number)!;
+  return getPlannedPaymentById(userId, botId, result.lastInsertRowid as number)!;
 }
 
 /** ID指定で1件取得する（本人の予定のみ） */
 export function getPlannedPaymentById(
   userId: string,
+  botId: string,
   id: number
 ): PlannedPaymentRecord | undefined {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM planned_payments WHERE user_id = ? AND id = ?")
-    .get(userId, id) as PlannedPaymentRecord | undefined;
+    .prepare("SELECT * FROM planned_payments WHERE user_id = ? AND bot_id = ? AND id = ?")
+    .get(userId, botId, id) as PlannedPaymentRecord | undefined;
 }
 
 /** 支払い予定一覧を取得する（既定は pending のみ、期日の近い順） */
 export function listPlannedPayments(
   userId: string,
+  botId: string,
   filter: PlannedPaymentListFilter = {}
 ): PlannedPaymentRecord[] {
   const db = getDb();
@@ -106,17 +111,17 @@ export function listPlannedPayments(
   if (status === "all") {
     return db
       .prepare(
-        `SELECT * FROM planned_payments WHERE user_id = ?
+        `SELECT * FROM planned_payments WHERE user_id = ? AND bot_id = ?
          ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, due_date ASC, id ASC`
       )
-      .all(userId) as PlannedPaymentRecord[];
+      .all(userId, botId) as PlannedPaymentRecord[];
   }
   return db
     .prepare(
-      `SELECT * FROM planned_payments WHERE user_id = ? AND status = ?
+      `SELECT * FROM planned_payments WHERE user_id = ? AND bot_id = ? AND status = ?
        ORDER BY due_date ASC, id ASC`
     )
-    .all(userId, status) as PlannedPaymentRecord[];
+    .all(userId, botId, status) as PlannedPaymentRecord[];
 }
 
 // ─── 消込・キャンセル（§3.4.3 消込フロー） ──────────────────────────────────
@@ -127,6 +132,7 @@ export function listPlannedPayments(
  */
 export function settlePlannedPayment(
   userId: string,
+  botId: string,
   id: number,
   expenseId: number
 ): PlannedPaymentRecord | undefined {
@@ -135,11 +141,11 @@ export function settlePlannedPayment(
     .prepare(
       `UPDATE planned_payments
        SET status = 'settled', settled_expense_id = ?, updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ? AND status = 'pending'`
+       WHERE user_id = ? AND bot_id = ? AND id = ? AND status = 'pending'`
     )
-    .run(expenseId, userId, id);
+    .run(expenseId, userId, botId, id);
   if (result.changes === 0) return undefined;
-  return getPlannedPaymentById(userId, id);
+  return getPlannedPaymentById(userId, botId, id);
 }
 
 /**
@@ -148,6 +154,7 @@ export function settlePlannedPayment(
  */
 export function cancelPlannedPayment(
   userId: string,
+  botId: string,
   id: number
 ): PlannedPaymentRecord | undefined {
   const db = getDb();
@@ -155,38 +162,43 @@ export function cancelPlannedPayment(
     .prepare(
       `UPDATE planned_payments
        SET status = 'cancelled', updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ? AND status = 'pending'`
+       WHERE user_id = ? AND bot_id = ? AND id = ? AND status = 'pending'`
     )
-    .run(userId, id);
+    .run(userId, botId, id);
   if (result.changes === 0) return undefined;
-  return getPlannedPaymentById(userId, id);
+  return getPlannedPaymentById(userId, botId, id);
 }
 
 // ─── ToDo・リマインド連携（§3.4.3） ─────────────────────────────────────────
 
 /** 生成したToDoのIDを支払い予定へ紐付ける */
-export function linkTodo(userId: string, id: number, todoId: number): boolean {
+export function linkTodo(userId: string, botId: string, id: number, todoId: number): boolean {
   const db = getDb();
   const result = db
     .prepare(
       `UPDATE planned_payments
        SET linked_todo_id = ?, updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ?`
+       WHERE user_id = ? AND bot_id = ? AND id = ?`
     )
-    .run(todoId, userId, id);
+    .run(todoId, userId, botId, id);
   return result.changes > 0;
 }
 
 /** 生成したリマインドのIDを支払い予定へ紐付ける */
-export function linkReminder(userId: string, id: number, reminderId: number): boolean {
+export function linkReminder(
+  userId: string,
+  botId: string,
+  id: number,
+  reminderId: number
+): boolean {
   const db = getDb();
   const result = db
     .prepare(
       `UPDATE planned_payments
        SET linked_reminder_id = ?, updated_at = datetime('now', 'localtime')
-       WHERE user_id = ? AND id = ?`
+       WHERE user_id = ? AND bot_id = ? AND id = ?`
     )
-    .run(reminderId, userId, id);
+    .run(reminderId, userId, botId, id);
   return result.changes > 0;
 }
 
@@ -199,6 +211,7 @@ export function linkReminder(userId: string, id: number, reminderId: number): bo
  */
 export function findSettlementCandidates(
   userId: string,
+  botId: string,
   query: SettlementQuery
 ): PlannedPaymentRecord[] {
   const db = getDb();
@@ -207,7 +220,7 @@ export function findSettlementCandidates(
   return db
     .prepare(
       `SELECT * FROM planned_payments
-       WHERE user_id = ? AND status = 'pending'
+       WHERE user_id = ? AND bot_id = ? AND status = 'pending'
          AND category = ?
          AND amount BETWEEN ? AND ?
          AND date(due_date) BETWEEN date(?, '-7 days') AND date(?, '+7 days')
@@ -216,6 +229,7 @@ export function findSettlementCandidates(
     )
     .all(
       userId,
+      botId,
       query.category,
       lower,
       upper,

@@ -22,6 +22,7 @@ export type ReminderSource =
 export interface ReminderRecord {
   id: number;
   user_id: string;
+  bot_id: string;
   message: string;
   /** 送信予定日時 'YYYY-MM-DD HH:MM:SS'（ローカルタイム） */
   trigger_at: string;
@@ -69,16 +70,17 @@ import { toDbDateTime, parseDbDateTime } from "../utils/datetime.js";
  * リマインドを登録する（§3.3.1: 時刻指定 / 繰り返し / 各機能からの自動生成）。
  * triggerAt は DB 形式へ正規化して保存する。
  */
-export function addReminder(userId: string, input: AddReminderInput): ReminderRecord {
+export function addReminder(userId: string, botId: string, input: AddReminderInput): ReminderRecord {
   const db = getDb();
   const triggerAt = toDbDateTime(input.triggerAt);
   const result = db
     .prepare(
-      `INSERT INTO reminders (user_id, message, trigger_at, repeat_rule, target_type, target_id, source, source_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO reminders (user_id, bot_id, message, trigger_at, repeat_rule, target_type, target_id, source, source_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
+      botId,
       input.message,
       triggerAt,
       input.repeatRule ?? null,
@@ -87,51 +89,51 @@ export function addReminder(userId: string, input: AddReminderInput): ReminderRe
       input.source ?? "manual",
       input.sourceId ?? null
     );
-  return getReminderById(userId, result.lastInsertRowid as number)!;
+  return getReminderById(userId, botId, result.lastInsertRowid as number)!;
 }
 
 /** リマインドを1件取得する（本人スコープ） */
-export function getReminderById(userId: string, id: number): ReminderRecord | undefined {
+export function getReminderById(userId: string, botId: string, id: number): ReminderRecord | undefined {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM reminders WHERE id = ? AND user_id = ?")
-    .get(id, userId) as ReminderRecord | undefined;
+    .prepare("SELECT * FROM reminders WHERE id = ? AND user_id = ? AND bot_id = ?")
+    .get(id, userId, botId) as ReminderRecord | undefined;
 }
 
 /**
  * リマインド一覧を取得する（本人スコープ）。
  * @param includeAll true の場合は送信済み・キャンセル済みも含める（既定は pending のみ）
  */
-export function listReminders(userId: string, includeAll: boolean = false): ReminderRecord[] {
+export function listReminders(userId: string, botId: string, includeAll: boolean = false): ReminderRecord[] {
   const db = getDb();
   if (includeAll) {
     return db
       .prepare(
-        `SELECT * FROM reminders WHERE user_id = ?
+        `SELECT * FROM reminders WHERE user_id = ? AND bot_id = ?
          ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, trigger_at ASC`
       )
-      .all(userId) as ReminderRecord[];
+      .all(userId, botId) as ReminderRecord[];
   }
   return db
     .prepare(
-      "SELECT * FROM reminders WHERE user_id = ? AND status = 'pending' ORDER BY trigger_at ASC"
+      "SELECT * FROM reminders WHERE user_id = ? AND bot_id = ? AND status = 'pending' ORDER BY trigger_at ASC"
     )
-    .all(userId) as ReminderRecord[];
+    .all(userId, botId) as ReminderRecord[];
 }
 
 /**
  * リマインドをキャンセルする（本人スコープ、pending のみ対象）。
  * @returns キャンセル後のレコード。対象が存在しない（または pending でない）場合は undefined
  */
-export function cancelReminder(userId: string, id: number): ReminderRecord | undefined {
+export function cancelReminder(userId: string, botId: string, id: number): ReminderRecord | undefined {
   const db = getDb();
   const result = db
     .prepare(
-      "UPDATE reminders SET status = 'cancelled' WHERE id = ? AND user_id = ? AND status = 'pending'"
+      "UPDATE reminders SET status = 'cancelled' WHERE id = ? AND user_id = ? AND bot_id = ? AND status = 'pending'"
     )
-    .run(id, userId);
+    .run(id, userId, botId);
   if (result.changes === 0) return undefined;
-  return getReminderById(userId, id);
+  return getReminderById(userId, botId, id);
 }
 
 /**

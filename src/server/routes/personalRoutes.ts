@@ -15,6 +15,7 @@ import {
   getContactById,
   isValidBirthday,
 } from "../../db/contactRepo.js";
+import { hasBotAccess } from "../../db/botRepo.js";
 
 // ─── コンテキストノート・クリップボード・連絡先 HTTPルート ────────────────────
 // 全ルート auth:"user"。リソースは ctx.user.discordId でスコープする（§12）。
@@ -27,10 +28,12 @@ export const personalRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       sendJson(ctx.res, 200, {
         success: true,
-        content: getContextNote(userId),
-        updated_at: getContextNoteUpdatedAt(userId),
+        content: getContextNote(userId, botId),
+        updated_at: getContextNoteUpdatedAt(userId, botId),
         max_length: CONTEXT_NOTE_MAX_LENGTH,
       });
     },
@@ -40,9 +43,12 @@ export const personalRoutes: RouteDef[] = [
     path: "/api/context-note",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const content = typeof ctx.body.content === "string" ? ctx.body.content : "";
       try {
-        setContextNote(ctx.user!.discordId, content);
+        setContextNote(userId, botId, content);
         sendJson(ctx.res, 200, { success: true, message: "コンテキストノートを保存しました。" });
       } catch (err) {
         sendJson(ctx.res, 400, { success: false, message: (err as Error).message });
@@ -56,7 +62,10 @@ export const personalRoutes: RouteDef[] = [
     path: "/api/clipboard",
     auth: "user",
     async handler(ctx) {
-      const entries = listEntries(ctx.user!.discordId);
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const entries = listEntries(userId, botId);
       sendJson(ctx.res, 200, { success: true, entries });
     },
   },
@@ -65,11 +74,14 @@ export const personalRoutes: RouteDef[] = [
     path: "/api/clipboard/delete",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const id = Number(ctx.body.id);
       if (!Number.isInteger(id)) {
         return sendJson(ctx.res, 400, { success: false, message: "id は必須です。" });
       }
-      const ok = deleteEntry(ctx.user!.discordId, id);
+      const ok = deleteEntry(userId, botId, id);
       sendJson(ctx.res, 200, {
         success: ok,
         message: ok ? "メモを削除しました。" : "メモが見つかりません。",
@@ -83,7 +95,10 @@ export const personalRoutes: RouteDef[] = [
     path: "/api/contacts",
     auth: "user",
     async handler(ctx) {
-      const contacts = listContacts(ctx.user!.discordId).map((c) => {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const contacts = listContacts(userId, botId).map((c) => {
         let tags: string[] = [];
         try {
           tags = JSON.parse(c.tags);
@@ -99,6 +114,8 @@ export const personalRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const name = typeof ctx.body.name === "string" ? ctx.body.name.trim() : "";
       if (!name) {
         return sendJson(ctx.res, 400, { success: false, message: "氏名は必須です。" });
@@ -134,14 +151,14 @@ export const personalRoutes: RouteDef[] = [
       const id = ctx.body.id != null ? Number(ctx.body.id) : null;
       if (id != null && Number.isInteger(id)) {
         // 更新
-        if (!getContactById(userId, id)) {
+        if (!getContactById(userId, botId, id)) {
           return sendJson(ctx.res, 404, { success: false, message: "連絡先が見つかりません。" });
         }
-        updateContact(userId, id, input);
+        updateContact(userId, botId, id, input);
         sendJson(ctx.res, 200, { success: true, message: `連絡先「${name}」を更新しました。` });
       } else {
         // 新規
-        const contact = addContact(userId, input);
+        const contact = addContact(userId, botId, input);
         sendJson(ctx.res, 200, { success: true, contact, message: `連絡先「${name}」を登録しました。` });
       }
     },
@@ -151,11 +168,14 @@ export const personalRoutes: RouteDef[] = [
     path: "/api/contacts/delete",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const id = Number(ctx.body.id);
       if (!Number.isInteger(id)) {
         return sendJson(ctx.res, 400, { success: false, message: "id は必須です。" });
       }
-      const ok = deleteContact(ctx.user!.discordId, id);
+      const ok = deleteContact(userId, botId, id);
       sendJson(ctx.res, 200, {
         success: ok,
         message: ok ? "連絡先を削除しました。" : "連絡先が見つかりません。",

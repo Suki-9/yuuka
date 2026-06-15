@@ -98,7 +98,7 @@ const handlers: FunctionModule["handlers"] = {
     limit = Math.min(Math.max(limit, 1), 50);
 
     // プライバシー（§3.12.3）: ctx.userId を必須条件として本人の会話のみ検索する
-    const records = searchMessages(ctx.userId, { keyword, from, to, limit });
+    const records = searchMessages(ctx.userId, ctx.botId, { keyword, from, to, limit });
 
     if (records.length === 0) {
       return JSON.stringify({
@@ -130,7 +130,7 @@ const handlers: FunctionModule["handlers"] = {
 
     // §3.12.3: 検索結果が多い場合は上位N件（デフォルト10件）に絞る。
     // 11件取得して10件に切り詰めることで「絞り込みが発生したか」を判定する。
-    const found = searchMessages(ctx.userId, { keyword, from, to, limit: 11 });
+    const found = searchMessages(ctx.userId, ctx.botId, { keyword, from, to, limit: 11 });
     const narrowed = found.length > 10;
     const records = found.slice(0, 10);
 

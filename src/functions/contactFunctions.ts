@@ -121,7 +121,7 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
-    const contact = addContact(ctx.userId, {
+    const contact = addContact(ctx.userId, ctx.botId, {
       name,
       birthday,
       relationship: args.relationship ? String(args.relationship).trim() : null,
@@ -142,7 +142,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!query) {
       return JSON.stringify({ success: false, message: "検索キーワードが空です。" });
     }
-    const results = searchContacts(ctx.userId, query);
+    const results = searchContacts(ctx.userId, ctx.botId, query);
     return JSON.stringify({
       success: true,
       count: results.length,
@@ -151,7 +151,7 @@ const handlers: FunctionModule["handlers"] = {
   },
 
   listContacts(ctx: ToolContext): string {
-    const results = listContacts(ctx.userId);
+    const results = listContacts(ctx.userId, ctx.botId);
     return JSON.stringify({
       success: true,
       count: results.length,
@@ -164,7 +164,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!Number.isInteger(id)) {
       return JSON.stringify({ success: false, message: "contact_id が不正です。" });
     }
-    const current = getContactById(ctx.userId, id);
+    const current = getContactById(ctx.userId, ctx.botId, id);
     if (!current) {
       return JSON.stringify({ success: false, message: "指定された連絡先が見つかりません。" });
     }
@@ -177,7 +177,7 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
-    const ok = updateContact(ctx.userId, id, {
+    const ok = updateContact(ctx.userId, ctx.botId, id, {
       ...(args.name !== undefined ? { name: String(args.name).trim() } : {}),
       ...(birthday !== undefined ? { birthday } : {}),
       ...(args.relationship !== undefined ? { relationship: String(args.relationship).trim() } : {}),
@@ -186,7 +186,7 @@ const handlers: FunctionModule["handlers"] = {
       ...(Array.isArray(args.tags) ? { tags: (args.tags as unknown[]).map(String) } : {}),
     });
 
-    const updated = getContactById(ctx.userId, id);
+    const updated = getContactById(ctx.userId, ctx.botId, id);
     return JSON.stringify({
       success: ok,
       message: ok ? `連絡先「${updated?.name}」を更新しました👤` : "更新に失敗しました。",
@@ -199,7 +199,7 @@ const handlers: FunctionModule["handlers"] = {
     if (!Number.isInteger(id)) {
       return JSON.stringify({ success: false, message: "contact_id が不正です。" });
     }
-    const ok = deleteContact(ctx.userId, id);
+    const ok = deleteContact(ctx.userId, ctx.botId, id);
     return JSON.stringify({
       success: ok,
       message: ok ? "連絡先を削除しました🗑️" : "指定された連絡先が見つかりませんでした。",
