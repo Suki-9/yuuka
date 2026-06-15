@@ -2,8 +2,11 @@ import { randomBytes } from "node:crypto";
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
 
-// ── プロキシ用使い捨てトークン（Cookie が null-origin iframe から届かないため）──
-// ダッシュボードHTML発行時に生成し、SPA の Authorization: Bearer で検証する。
+// ── プロキシ用トークン（ダッシュボードSPAの API 中継を認証する短命トークン）──
+// ダッシュボードHTML発行時（Cookie認証済みユーザー）に生成し、SPA からの
+// Authorization: Bearer で検証する。SPA は tools/list・tools/call を複数回呼ぶため
+// 使い捨て（single-use）ではなく、TTL 内は再利用可能なセッショントークンである。
+// 中継時にはトークンに加えて Cookie セッション（発行ユーザー）も照合する（漏洩耐性）。
 interface ProxyTokenEntry {
   serverId: number;
   userId: string;
@@ -12,26 +15,40 @@ interface ProxyTokenEntry {
 const proxyTokens = new Map<string, ProxyTokenEntry>();
 const PROXY_TOKEN_TTL_MS = 60 * 60 * 1000; // 1時間
 
-function issueProxyToken(serverId: number, userId: string): string {
-  // 期限切れトークンをまとめて掃除
-  const now = Date.now();
+/** 期限切れトークンをまとめて掃除する（発行・検証の双方で呼び、放置による肥大を防ぐ） */
+function sweepExpiredProxyTokens(now: number): void {
   for (const [k, v] of proxyTokens) {
     if (v.expiresAt < now) proxyTokens.delete(k);
   }
+}
+
+function issueProxyToken(serverId: number, userId: string): string {
+  const now = Date.now();
+  sweepExpiredProxyTokens(now);
   const token = randomBytes(32).toString("hex");
   proxyTokens.set(token, { serverId, userId, expiresAt: now + PROXY_TOKEN_TTL_MS });
   return token;
 }
 
-function consumeProxyToken(token: string, serverId: number): ProxyTokenEntry | null {
+/** プロキシトークンを検証する（serverId 一致・未失効）。失効分はここでも掃除する。 */
+function validateProxyToken(token: string, serverId: number): ProxyTokenEntry | null {
+  const now = Date.now();
+  sweepExpiredProxyTokens(now);
   const entry = proxyTokens.get(token);
   if (!entry) return null;
   if (entry.serverId !== serverId) return null;
-  if (entry.expiresAt < Date.now()) {
+  if (entry.expiresAt < now) {
     proxyTokens.delete(token);
     return null;
   }
   return entry;
+}
+
+/** 指定サーバーのプロキシトークンを即時失効させる（無効化・削除時に呼ぶ） */
+function revokeProxyTokensForServer(serverId: number): void {
+  for (const [k, v] of proxyTokens) {
+    if (v.serverId === serverId) proxyTokens.delete(k);
+  }
 }
 import {
   addServer,
@@ -185,6 +202,9 @@ export const mcpRoutes: RouteDef[] = [
         return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
       }
       setEnabled(id, enabled);
+      // 無効化したら、発行済みプロキシトークンを即時失効させる（開きっぱなしの
+      // ダッシュボードが無効化後も中継し続けるのを防ぐ）。
+      if (!enabled) revokeProxyTokensForServer(id);
       sendJson(ctx.res, 200, {
         success: true,
         message: enabled ? "MCPサーバーを有効化しました。" : "MCPサーバーを無効化しました。",
@@ -205,8 +225,11 @@ export const mcpRoutes: RouteDef[] = [
       }
       const server = getServerById(id);
       const ok = deleteServer(id, user.discordId, user.role === "admin");
-      if (ok && server?.user_id === null) {
-        addAuditLog(user.discordId, "admin.mcp_delete", server.name);
+      if (ok) {
+        revokeProxyTokensForServer(id);
+        if (server?.user_id === null) {
+          addAuditLog(user.discordId, "admin.mcp_delete", server.name);
+        }
       }
       sendJson(ctx.res, 200, {
         success: ok,
@@ -259,22 +282,42 @@ export const mcpRoutes: RouteDef[] = [
           });
         }
 
-        // MCP_PATH を /proxy/mcp/:id/mcp に書き換える（動的埋め込みではオリジン解決の問題がないため相対パスで十分）
+        // MCP_PATH を /proxy/mcp/:id/mcp に書き換える（iframe srcdoc は yuuka と同一オリジンのため相対パスで十分）。
+        // String.replace は不一致時に元文字列をそのまま返すため、置換が起きたかを明示的に検証し、
+        // 別リポジトリ(ywrk-mcp/dashboard.html)のフォーマットがドリフトした場合は壊れたページを
+        // 200 で返さず 502 で失敗させる（サイレント破損の防止）。
         const proxyMcpPath = `/proxy/mcp/${id}/mcp`;
         let rewritten = html.replace(/var MCP_PATH = "[^"]*"/, `var MCP_PATH = "${proxyMcpPath}"`);
+        if (rewritten === html) {
+          console.error(`[MCP] ${server.name}: ダッシュボードHTMLの MCP_PATH 書き換えに失敗しました（フォーマット不一致）`);
+          return sendJson(ctx.res, 502, {
+            success: false,
+            message: "管理ページの形式が想定と異なるため表示できません（MCP_PATH）。",
+          });
+        }
 
-        // 使い捨てプロキシトークンを発行し、window 変数として注入する。
-        // 動的埋め込みでは location.hash はユーザーの画面 URL を汚染するため使わない。
-        // SPA の tokenFromHash() も window 変数を返すよう書き換える。
+        // プロキシトークンを発行し、window 変数として注入する。
+        // location.hash はユーザーの画面 URL を汚染するため使わず、SPA の tokenFromHash() を
+        // window 変数を返すよう書き換える。
         const proxyToken = issueProxyToken(id, user.discordId);
+        const beforeTokenRewrite = rewritten;
         rewritten = rewritten.replace(
           /function tokenFromHash\(\)\s*\{[^}]*\}/,
           "function tokenFromHash() { return window.__mcpProxyToken__ || null; }"
         );
+        if (rewritten === beforeTokenRewrite) {
+          console.error(`[MCP] ${server.name}: ダッシュボードHTMLの tokenFromHash 書き換えに失敗しました（フォーマット不一致）`);
+          return sendJson(ctx.res, 502, {
+            success: false,
+            message: "管理ページの形式が想定と異なるため表示できません（tokenFromHash）。",
+          });
+        }
         const autoTokenScript = `<script>window.__mcpProxyToken__ = "${proxyToken}";</script>`;
 
-        const withInjections = /<head[^>]*>/i.test(rewritten)
-          ? rewritten.replace(/<head[^>]*>/i, (m) => `${m}${autoTokenScript}`)
+        // `<head ...>` のみにマッチさせる（`<header>` を誤って拾わないよう空白/`>` を境界に要求）。
+        const headOpenTag = /<head(\s[^>]*)?>/i;
+        const withInjections = headOpenTag.test(rewritten)
+          ? rewritten.replace(headOpenTag, (m) => `${m}${autoTokenScript}`)
           : `${autoTokenScript}${rewritten}`;
 
         sendJson(ctx.res, 200, { success: true, html: withInjections });
@@ -287,14 +330,18 @@ export const mcpRoutes: RouteDef[] = [
     },
   },
 
-  // ── MCPエンドポイント プロキシ（ダッシュボードのAPIコールをBearer認証付きで中継） ──
-  // sandbox=null-origin の iframe は SameSite=Lax Cookie を送れないため、
-  // ダッシュボード発行時に生成した使い捨てプロキシトークンで認証する。
+  // ── MCPエンドポイント プロキシ（ダッシュボードのAPIコールを Bearer 認証付きで中継） ──
+  // ダッシュボードは yuuka と同一オリジンの iframe(srcdoc) 内で動くため Cookie セッションが届く。
+  // そのため auth:"user"（セッション必須）に加えて、発行時のプロキシトークンを併用する:
+  //   1. proxyToken: serverId への束縛＋短命TTL
+  //   2. Cookie セッション: 実際の発話者が「トークン発行ユーザー本人」であることの照合
+  //   3. canManage / enabled: 発行後の権限・有効状態の変化を毎回再検証
   {
     method: "POST",
     path: "/proxy/mcp/:id/mcp",
-    auth: "none",
+    auth: "user",
     async handler(ctx) {
+      const user = ctx.user!;
       const id = Number(ctx.params.id);
       if (!Number.isInteger(id)) {
         return sendJson(ctx.res, 400, { success: false, message: "不正なサーバーIDです。" });
@@ -303,19 +350,34 @@ export const mcpRoutes: RouteDef[] = [
       // Authorization: Bearer <proxyToken> を検証する
       const authHeader = (ctx.req.headers["authorization"] as string | undefined) ?? "";
       const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      const tokenEntry = consumeProxyToken(bearerToken, id);
+      const tokenEntry = validateProxyToken(bearerToken, id);
       if (!tokenEntry) {
         return sendJson(ctx.res, 401, { success: false, message: "プロキシトークンが無効または期限切れです。" });
+      }
+      // トークン発行ユーザーと現在のセッションユーザーが一致すること（漏洩トークンの横取り防止）
+      if (user.discordId !== tokenEntry.userId) {
+        return sendJson(ctx.res, 403, { success: false, message: "このプロキシトークンを利用する権限がありません。" });
       }
 
       const server = getServerById(id);
       if (!server) {
         return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
       }
+      // 発行後に権限・有効状態が変化していないか毎回再検証する（降格・無効化の即時反映）
+      if (!canManage(server, user.discordId, user.role === "admin")) {
+        return sendJson(ctx.res, 403, { success: false, message: "このMCPサーバーを操作する権限がありません。" });
+      }
+      if (server.enabled !== 1) {
+        return sendJson(ctx.res, 403, { success: false, message: "このMCPサーバーは無効化されています。" });
+      }
 
       const accept = (ctx.req.headers["accept"] as string | undefined) ?? "application/json, text/event-stream";
       const controller = new AbortController();
-      ctx.req.on("close", () => controller.abort());
+      // クライアント切断は req ではなく res の 'close' で検知する（ボディは handler 到達前に
+      // 読み切られており req の 'close' は発火しないため。writableFinished で正常完了と区別）。
+      ctx.res.on("close", () => {
+        if (!ctx.res.writableFinished) controller.abort();
+      });
 
       let upstreamRes: Response;
       try {
@@ -338,10 +400,11 @@ export const mcpRoutes: RouteDef[] = [
       }
 
       const contentType = upstreamRes.headers.get("content-type") ?? "application/json";
+      // 同一オリジン中継のため CORS ヘッダーは付けない（ACAO:* と server.ts の
+      // Access-Control-Allow-Credentials:true が同居する不正な組み合わせを避ける）。
       const responseHeaders: Record<string, string> = {
         "Content-Type": contentType,
         "X-Content-Type-Options": "nosniff",
-        "Access-Control-Allow-Origin": "*",
       };
       const mcpSessionId = upstreamRes.headers.get("mcp-session-id");
       if (mcpSessionId) responseHeaders["mcp-session-id"] = mcpSessionId;
@@ -356,10 +419,16 @@ export const mcpRoutes: RouteDef[] = [
             if (done) break;
             ctx.res.write(Buffer.from(value));
           }
-        } catch {
-          // クライアント切断等
+        } catch (err) {
+          // クライアント切断による中断（abort）は正常系として無視する。
+          // 上流の途中エラーは握りつぶさず、レスポンスを異常終了させて
+          // 「200 + 切り詰めボディ」をクライアントへ渡さないようにする。
+          if (!controller.signal.aborted && !ctx.res.destroyed) {
+            console.error(`[MCP proxy] ${server.name} のストリーム転送中にエラー:`, (err as Error).message);
+            ctx.res.destroy(err as Error);
+          }
         } finally {
-          ctx.res.end();
+          if (!ctx.res.destroyed && !ctx.res.writableEnded) ctx.res.end();
         }
       } else {
         ctx.res.end();

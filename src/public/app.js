@@ -490,12 +490,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const m = document.getElementById(id);
         if (m) closeModal(m);
       });
-      // 閉じる際にMCP管理ページの埋め込みコンテンツを破棄（前回の内容を残さない）
+      // 閉じる際にMCP管理ページの埋め込み(iframe)とリサイズリスナーを破棄する
       const mcpContainer = document.getElementById("mcp-dashboard-container");
-      if (mcpContainer) {
-        mcpContainer.innerHTML = "";
-        delete window.__mcpProxyToken__;
-      }
+      if (mcpContainer) teardownMcpDashboard(mcpContainer);
     });
   });
 
@@ -5819,28 +5816,44 @@ document.addEventListener("DOMContentLoaded", () => {
   // MCP SERVERS MANAGEMENT (§4.4)
   // ==========================================
 
-  // サーバー返却の HTML を container div へ動的埋め込みする。
-  // innerHTML では <script> が実行されないため、script 要素を個別に再生成して順序通り追加する。
+  // サーバー返却の HTML を「同一オリジンの iframe(srcdoc)」として埋め込む。
+  // 以前は container へ直接 DOM 注入していたが、ダッシュボードが読み込む外部CSS
+  // （akizakura.css 等）や `html,body{...}` がyuuka本体のドキュメント全体に波及して
+  // 管理画面のスタイルを破壊していた。iframe は CSS/JS を隔離でき、かつ同一オリジン
+  // （sandbox allow-same-origin）なので /proxy/mcp への fetch・Cookieセッション・
+  // proxyToken はそのまま機能する。
+  let mcpDashboardResizeHandler = null;
+
+  // 埋め込み(iframe)とウィンドウリスナーを完全に破棄する。
+  function teardownMcpDashboard(container) {
+    if (mcpDashboardResizeHandler) {
+      window.removeEventListener("message", mcpDashboardResizeHandler);
+      mcpDashboardResizeHandler = null;
+    }
+    if (container) container.innerHTML = "";
+  }
+
   function injectMcpDashboardHtml(container, htmlString) {
-    container.innerHTML = "";
-    const doc = new DOMParser().parseFromString(htmlString, "text/html");
+    teardownMcpDashboard(container);
 
-    // script を先に抜き出す（importNode 後に appendChild すると実行されるため順序制御が必要）
-    const scripts = [...doc.querySelectorAll("script")];
-    scripts.forEach(s => s.remove());
+    const iframe = document.createElement("iframe");
+    iframe.id = "mcp-dashboard-frame";
+    iframe.title = "MCP管理ページ";
+    // 余計な権限は与えない（同一オリジン扱い＋スクリプト＋フォーム送信のみ）。
+    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
+    iframe.style.cssText = "width:100%;border:0;display:block;min-height:240px;background:transparent;";
+    iframe.srcdoc = htmlString;
+    container.appendChild(iframe);
 
-    // head / body の残りノードを移植
-    [...doc.head.children, ...doc.body.children].forEach(el => {
-      container.appendChild(document.importNode(el, true));
-    });
-
-    // script を順序通り再生成して追加（inline script は textContent で再実行）
-    scripts.forEach(old => {
-      const s = document.createElement("script");
-      [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
-      s.textContent = old.textContent;
-      container.appendChild(s);
-    });
+    // 埋め込み時の SPA は高さを postMessage で通知するので、iframe を自動リサイズする。
+    mcpDashboardResizeHandler = (e) => {
+      if (e.source !== iframe.contentWindow) return; // 当該 iframe からのメッセージのみ受理
+      const d = e.data;
+      if (d && d.type === "ywrk-dashboard:resize" && typeof d.height === "number") {
+        iframe.style.height = Math.max(240, Math.ceil(d.height)) + "px";
+      }
+    };
+    window.addEventListener("message", mcpDashboardResizeHandler);
   }
 
   async function openMcpDashboard(server) {
@@ -5849,7 +5862,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const titleEl = document.getElementById("mcp-dashboard-title");
     if (!modal || !container) return;
     if (titleEl) titleEl.textContent = `${server.name} の管理ページ`;
-    container.innerHTML = "";
+    teardownMcpDashboard(container);
     try {
       const res = await fetch(`/api/mcp-servers/${server.id}/dashboard`);
       const data = await res.json();

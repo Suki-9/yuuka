@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { FunctionDeclaration, Schema } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
@@ -27,12 +28,68 @@ function mcpFunctionName(serverId: number, toolName: string): string {
 }
 
 /**
+ * 名前衝突時に決定的な短ハッシュを付与して 63 文字以内で一意化する。
+ * サニタイズ（`list-items` と `list.items` → `mcp1_list_items`）や 63 文字切り詰めで
+ * 別ツールが同名になり、2 番目が無言で捨てられる事故を防ぐ。
+ */
+function disambiguateFunctionName(serverId: number, toolName: string, used: Set<string>): string {
+  const base = mcpFunctionName(serverId, toolName);
+  const hash = createHash("sha1").update(`${serverId}:${toolName}`).digest("hex").slice(0, 6);
+  let candidate = base.slice(0, MAX_FUNCTION_NAME_LENGTH - (hash.length + 1)) + `_${hash}`;
+  let n = 0;
+  while (used.has(candidate)) {
+    const tag = `_${hash}_${n}`;
+    candidate = base.slice(0, MAX_FUNCTION_NAME_LENGTH - tag.length) + tag;
+    n++;
+  }
+  return candidate;
+}
+
+/**
  * JSON Schema → Gemini Schema への変換（最小実装）。
  * object/string/number/integer/boolean/array をマップし、未対応型はSTRINGにフォールバック。
  */
 function jsonSchemaToGeminiSchema(schema: Record<string, unknown>): Schema {
-  const type = String(schema.type ?? "string").toLowerCase();
+  // (1) type が配列（例: ["integer","null"] = nullable）の場合は、null 以外の最初の型を採用し
+  //     nullable 扱いにする。schemars 1.x は Option<T> をこの形で出力する。
+  let rawType: unknown = schema.type;
+  let nullable = false;
+  if (Array.isArray(rawType)) {
+    const types = rawType.map((t) => String(t).toLowerCase());
+    nullable = types.includes("null");
+    rawType = types.find((t) => t !== "null") ?? "string";
+  }
+
+  // (2) type 未指定で anyOf/oneOf/allOf により形が表現される場合（schemars の Option<Struct>/enum 等）、
+  //     null 以外の最初のサブスキーマへ委譲する。これをしないと STRING に潰れて
+  //     ネストしたプロパティが丸ごと失われる。
+  if (rawType === undefined || rawType === null) {
+    const combinator =
+      (Array.isArray(schema.anyOf) && schema.anyOf) ||
+      (Array.isArray(schema.oneOf) && schema.oneOf) ||
+      (Array.isArray(schema.allOf) && schema.allOf) ||
+      null;
+    if (combinator) {
+      const subs = (combinator as unknown[]).filter(
+        (s): s is Record<string, unknown> => !!s && typeof s === "object"
+      );
+      const isNullSchema = (s: Record<string, unknown>) => String(s.type).toLowerCase() === "null";
+      nullable = nullable || subs.some(isNullSchema);
+      const chosen = subs.find((s) => !isNullSchema(s));
+      if (chosen) {
+        const inner = jsonSchemaToGeminiSchema(
+          schema.description && !chosen.description
+            ? { ...chosen, description: schema.description }
+            : chosen
+        );
+        return (nullable ? { ...inner, nullable: true } : inner) as Schema;
+      }
+    }
+  }
+
+  const type = String(rawType ?? "string").toLowerCase();
   const description = schema.description ? String(schema.description) : undefined;
+  const nullableProp = nullable ? { nullable: true } : {};
 
   switch (type) {
     case "object": {
@@ -49,9 +106,10 @@ function jsonSchemaToGeminiSchema(schema: Record<string, unknown>): Schema {
       return {
         type: SchemaType.OBJECT,
         ...(description ? { description } : {}),
+        ...nullableProp,
         properties,
         ...(required && required.length > 0 ? { required } : {}),
-      };
+      } as Schema;
     }
     case "array": {
       const items =
@@ -61,15 +119,16 @@ function jsonSchemaToGeminiSchema(schema: Record<string, unknown>): Schema {
       return {
         type: SchemaType.ARRAY,
         ...(description ? { description } : {}),
+        ...nullableProp,
         items,
       } as Schema;
     }
     case "number":
-      return { type: SchemaType.NUMBER, ...(description ? { description } : {}) } as Schema;
+      return { type: SchemaType.NUMBER, ...(description ? { description } : {}), ...nullableProp } as Schema;
     case "integer":
-      return { type: SchemaType.INTEGER, ...(description ? { description } : {}) } as Schema;
+      return { type: SchemaType.INTEGER, ...(description ? { description } : {}), ...nullableProp } as Schema;
     case "boolean":
-      return { type: SchemaType.BOOLEAN, ...(description ? { description } : {}) } as Schema;
+      return { type: SchemaType.BOOLEAN, ...(description ? { description } : {}), ...nullableProp } as Schema;
     case "string":
     default: {
       const enumValues = Array.isArray(schema.enum)
@@ -78,6 +137,7 @@ function jsonSchemaToGeminiSchema(schema: Record<string, unknown>): Schema {
       return {
         type: SchemaType.STRING,
         ...(description ? { description } : {}),
+        ...nullableProp,
         ...(enumValues && enumValues.length > 0 ? { enum: enumValues, format: "enum" } : {}),
       } as Schema;
     }
@@ -86,9 +146,12 @@ function jsonSchemaToGeminiSchema(schema: Record<string, unknown>): Schema {
 
 /** ツールキャッシュが古いサーバーは再取得する（失敗してもキャッシュで続行） */
 async function ensureFreshToolsCache(server: McpServerRecord): Promise<McpToolDef[]> {
-  const cacheAge = server.tools_cache_updated
-    ? Date.now() - new Date(server.tools_cache_updated.replace(" ", "T")).getTime()
-    : Infinity;
+  const parsedTs = server.tools_cache_updated
+    ? Date.parse(server.tools_cache_updated.replace(" ", "T"))
+    : NaN;
+  // null・不正日時はキャッシュ未取得とみなして必ず再取得する（NaN を「新鮮」と誤判定して
+  // 永久に更新されなくなるのを防ぐ）。
+  const cacheAge = Number.isFinite(parsedTs) ? Date.now() - parsedTs : Infinity;
 
   if (cacheAge > TOOLS_CACHE_TTL_MS) {
     try {
@@ -125,8 +188,13 @@ async function buildMcpFunctionModule(
     const tools = await ensureFreshToolsCache(server);
 
     for (const tool of tools) {
-      const fnName = mcpFunctionName(server.id, tool.name);
-      if (usedNames.has(fnName)) continue; // 同名衝突はスキップ（先勝ち）
+      // 衝突時は捨てずに退避名で一意化する（サニタイズ/63字切り詰めによる別ツールの取りこぼし防止）。
+      const baseName = mcpFunctionName(server.id, tool.name);
+      let fnName = baseName;
+      if (usedNames.has(fnName)) {
+        fnName = disambiguateFunctionName(server.id, tool.name, usedNames);
+        console.warn(`[MCP] ${server.name}: Function名 "${baseName}" が衝突したため "${fnName}" に退避しました (tool: ${tool.name})`);
+      }
       usedNames.add(fnName);
 
       const confirmNote =
@@ -174,7 +242,15 @@ async function buildMcpFunctionModule(
         }
 
         try {
-          addAuditLog(ctx.userId, "mcp.call", `${serverName}:${toolName}`);
+          // actor=発話ユーザー(§6)。汎用モードでは認証情報の所有者(fresh.user_id, system は null)と
+          // 起動元 Bot が actor と異なり得るため、誰の資格情報がどの Bot 経由で使われたかを
+          // detail に記録する（秘密値は含めない）。
+          addAuditLog(
+            ctx.userId,
+            "mcp.call",
+            `${serverName}:${toolName}`,
+            JSON.stringify({ botId: ctx.botId, credentialOwner: fresh.user_id })
+          );
           const result = await callTool(fresh, toolName, args);
           return JSON.stringify({
             success: true,

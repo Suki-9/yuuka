@@ -44,7 +44,10 @@ registerRoutes(deliveryRoutes);  // 朝報・日報・週報（§3.8, §3.9）
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-ancestors 'self';";
+// MCP管理ダッシュボード（ywrk-mcp の SPA）を #mcp-dashboard-container へ直接DOM埋め込みする際、
+// その design system である akizakura.css を yuuka の本ドキュメント上でロードできるよう style-src に許可する。
+// （iframe ではなく本ドキュメントへ注入するため、注入される <link> も yuuka の CSP に従う）
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com https://akizakura.pages.dev; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-ancestors 'self';";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
@@ -194,19 +197,9 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 3. MCP プロキシへの CORS プリフライト（null-origin iframe から Authorization ヘッダー付き fetch が来る）
-  if (req.method === "OPTIONS" && pathname.startsWith("/proxy/mcp/")) {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version",
-      "Access-Control-Max-Age": "86400",
-    });
-    res.end();
-    return;
-  }
-
-  // 4. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
+  // 3. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
+  //    （MCP ダッシュボードは同一オリジンの iframe(srcdoc) 内で動くため、
+  //     /proxy/mcp/ への CORS プリフライト特別扱いは不要になった。）
   try {
     const handled = await dispatchRoute(req, res, parsedUrl, () => getSessionUser(req));
     if (handled) return;
@@ -219,7 +212,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // 5. 未登録の /api/* は404、それ以外は静的ファイル（SPA）として配信
+  // 4. 未登録の /api/* は404、それ以外は静的ファイル（SPA）として配信
   if (pathname.startsWith("/api/")) {
     res.writeHead(404, { "Content-Type": "application/json", ...SECURITY_HEADERS });
     res.end(JSON.stringify({ success: false, message: "APIエンドポイントが見つかりません。" }));

@@ -28,6 +28,23 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
+/** MCP Tool が isError:true を返したことを表す（= トランスポート/セッション障害ではない）。
+ *  これにより呼び出し側の再試行ロジックがツールエラーを再実行しないようにする。 */
+export class McpToolError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "McpToolError";
+  }
+}
+
+/** セッション未確立/失効に起因するエラーか（= サーバーがリクエストを「実行せず」拒否したと判断できるか）を推定する。
+ *  該当する場合のみ initialize し直して再試行する。タイムアウト/ネットワーク断/ツールエラーは含めない
+ *  （それらは「実行済みかもしれない」ため副作用のある tools/call を二重実行しないよう再試行しない）。 */
+function isSessionError(err: unknown): boolean {
+  const msg = String((err as Error | undefined)?.message ?? "");
+  return /\bHTTP 40[04]\b/.test(msg) || /session|not initialized|initializ/i.test(msg);
+}
+
 /** サーバーの認証ヘッダを構築する */
 export function buildAuthHeader(server: McpServerRecord): Record<string, string> {
   if (
@@ -50,9 +67,12 @@ export function buildAuthHeader(server: McpServerRecord): Record<string, string>
   }
 }
 
-/** SSEレスポンスボディから最後の JSON-RPC レスポンスを抽出する簡易パーサ */
-function parseSseBody(body: string): JsonRpcResponse | null {
+/** SSEレスポンスボディから当該リクエストの JSON-RPC レスポンスを抽出する簡易パーサ。
+ *  expectedId が指定された場合は id 一致の応答を優先し（バッチ/サーバー発リクエストとの取り違え防止）、
+ *  無ければ最後の result/error 応答にフォールバックする。 */
+function parseSseBody(body: string, expectedId?: number | string | null): JsonRpcResponse | null {
   let last: JsonRpcResponse | null = null;
+  let matched: JsonRpcResponse | null = null;
   for (const rawLine of body.split("\n")) {
     const line = rawLine.trim();
     if (!line.startsWith("data:")) continue;
@@ -60,15 +80,16 @@ function parseSseBody(body: string): JsonRpcResponse | null {
     if (!data || data === "[DONE]") continue;
     try {
       const parsed = JSON.parse(data) as JsonRpcResponse;
-      // レスポンス（result/error持ち）のみ対象。通知はスキップ
+      // レスポンス（result/error持ち）のみ対象。通知・サーバー発リクエストはスキップ
       if (parsed && (parsed.result !== undefined || parsed.error !== undefined)) {
         last = parsed;
+        if (expectedId !== undefined && parsed.id === expectedId) matched = parsed;
       }
     } catch {
       // 部分的なdata行は無視
     }
   }
-  return last;
+  return matched ?? last;
 }
 
 /** JSON-RPC リクエストを送信する（タイムアウト付き） */
@@ -127,9 +148,10 @@ async function rpcRequest(
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
     const bodyText = await response.text();
 
+    const requestId = payload.id as number | undefined;
     let rpcResponse: JsonRpcResponse | null;
     if (contentType.includes("text/event-stream")) {
-      rpcResponse = parseSseBody(bodyText);
+      rpcResponse = parseSseBody(bodyText, requestId);
     } else {
       rpcResponse = bodyText ? (JSON.parse(bodyText) as JsonRpcResponse) : null;
     }
@@ -161,16 +183,23 @@ async function ensureInitialized(server: McpServerRecord): Promise<void> {
   initializedServers.add(server.id);
 }
 
-/** セッション無効エラー時に初期化状態をリセットして1回だけ再試行するヘルパー */
-async function withSessionRetry<T>(
-  server: McpServerRecord,
-  fn: () => Promise<T>
-): Promise<T> {
+/**
+ * JSON-RPC 呼び出しを実行する。ステートレスサーバー（ywrk 等）では initialize 不要なので
+ * まず直接実行し、セッション未確立/失効に起因するエラー（= サーバーが「実行せず」拒否）に
+ * 限って一度だけ initialize し直して再試行する。
+ *
+ * 重要: タイムアウト・ネットワーク断・ツールエラー(McpToolError) では再試行しない。
+ * これらは「サーバー側で実行済みかもしれない」ため、副作用のある tools/call を再実行すると
+ * 二重更新を起こすからである。セッションエラーはサーバーが処理前に 4xx で弾くので再実行が安全。
+ */
+async function callRpc<T>(server: McpServerRecord, fn: () => Promise<T>): Promise<T> {
   try {
-    await ensureInitialized(server);
+    // 既に initialize 済みなら sessionIds 経由でセッションヘッダが付く。
+    // 未初期化でもステートレスサーバーはそのまま成功する。
     return await fn();
   } catch (err) {
-    // セッション切れ・未初期化系のエラーは一度だけ再初期化して再試行
+    if (err instanceof McpToolError || !isSessionError(err)) throw err;
+    // ステートフルサーバーのセッション未確立/失効。再初期化して一度だけ再試行する。
     initializedServers.delete(server.id);
     sessionIds.delete(server.id);
     await ensureInitialized(server);
@@ -182,7 +211,7 @@ async function withSessionRetry<T>(
  * MCPサーバーの提供Tool一覧を取得する（§4.4.2 手順2）
  */
 export async function listTools(server: McpServerRecord): Promise<McpToolDef[]> {
-  return withSessionRetry(server, async () => {
+  return callRpc(server, async () => {
     const response = await rpcRequest(server, "tools/list", {});
     const result = response?.result as { tools?: unknown[] } | undefined;
     if (!result || !Array.isArray(result.tools)) return [];
@@ -208,7 +237,7 @@ export async function callTool(
   toolName: string,
   args: Record<string, unknown>
 ): Promise<string> {
-  return withSessionRetry(server, async () => {
+  return callRpc(server, async () => {
     const response = await rpcRequest(server, "tools/call", {
       name: toolName,
       arguments: args,
@@ -226,7 +255,8 @@ export async function callTool(
 
     const joined = texts.join("\n");
     if (result.isError) {
-      throw new Error(joined || "MCP Tool がエラーを返しました");
+      // ツール側のエラー（トランスポート/セッション障害ではない）。callRpc は再試行しない。
+      throw new McpToolError(joined || "MCP Tool がエラーを返しました");
     }
     return joined;
   });
