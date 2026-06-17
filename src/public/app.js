@@ -289,9 +289,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (integratedOverlay) integratedOverlay.classList.remove("active");
     const adminOverlay = document.getElementById("admin-overlay");
     if (adminOverlay) adminOverlay.classList.remove("active");
+    const accountOverlay = document.getElementById("account-overlay");
+    if (accountOverlay) accountOverlay.classList.remove("active");
 
-    // 全体管理（owner/システム）の独立オーバーレイ。Bot個別画面（#app-container）の外で表示する。
-    if (cleanPath === "/integrated" || cleanPath === "/admin") {
+    // 全体管理（owner/システム）・アカウント管理の独立オーバーレイ。
+    // Bot個別画面（#app-container）の外で表示する。
+    if (cleanPath === "/integrated" || cleanPath === "/admin" || cleanPath === "/account") {
       if (!activeUserId) { initAppSession(); return; }
       if (cleanPath === "/admin" && activeUserRole !== "admin") { navigateTo("/", false); return; }
       loginOverlay.classList.remove("active");
@@ -300,6 +303,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (cleanPath === "/integrated") {
         if (integratedOverlay) integratedOverlay.classList.add("active");
         fetchIntegratedOverview();
+      } else if (cleanPath === "/account") {
+        if (accountOverlay) accountOverlay.classList.add("active");
+        fetchAccountSettings();
       } else {
         if (adminOverlay) adminOverlay.classList.add("active");
         fetchAdminData();
@@ -851,6 +857,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 全体管理（Bot統合管理 / 管理者用設定）の入口・戻る配線。Bot個別画面の外で開く独立オーバーレイ。
   document.getElementById("btn-open-integrated")?.addEventListener("click", () => navigateTo("/integrated"));
+  document.getElementById("btn-open-account")?.addEventListener("click", () => navigateTo("/account"));
   document.getElementById("btn-open-admin")?.addEventListener("click", () => navigateTo("/admin"));
   document.querySelectorAll("[data-management-back]").forEach((btn) =>
     btn.addEventListener("click", () => navigateTo("/"))
@@ -859,7 +866,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // 統合管理／管理者設定のセクションはアコーディオン（同時に1つだけ展開）。
   // ネイティブの <details name> 排他制御に未対応なブラウザ向けの保険として、
   // あるセクションを開いたら同じ name の他セクションを閉じる。
-  ["integrated-overlay", "admin-overlay"].forEach((overlayId) => {
+  // tab-config（Bot単体の設定タブ）も同方式。name 無しのネスト details は対象外。
+  ["integrated-overlay", "admin-overlay", "account-overlay", "tab-config"].forEach((overlayId) => {
     const root = document.getElementById(overlayId);
     if (!root) return;
     const items = root.querySelectorAll("details[name]");
@@ -2428,6 +2436,20 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsDataURL(file);
   }
 
+  // アカウント管理ページ（表示名）の値を投入する。Bot文脈に依存しないため独立に取得。
+  async function fetchAccountSettings() {
+    try {
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      if (data.success && data.user) {
+        const el = document.getElementById("config-profile-username");
+        if (el) el.value = data.user.username;
+      }
+    } catch (err) {
+      console.error("アカウント設定の取得に失敗しました:", err);
+    }
+  }
+
   // H. SYSTEM CONFIG POLL
   async function fetchConfigSettings() {
     try {
@@ -2436,7 +2458,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (data.success) {
         // Fill individual config form values
-        document.getElementById("config-profile-username").value = data.user.username;
         document.getElementById("gemini-model-select").value = data.config.geminiModel;
 
         document.getElementById("backup-enable").checked = data.config.backupEnabled;
@@ -2471,31 +2492,13 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        // system_default を非管理者が見ている場合、Google連携・バックアップを隠す
+        // system_default を非管理者が見ている場合、バックアップを隠す
+        // （Google連携カードはBot個別画面から廃止し「Bot統合管理」へ集約）
         const restrictedForNonAdmin = isSystemDefault && !isAdmin;
-        ["config-google-section", "config-backup-section"].forEach(id => {
+        ["config-backup-section"].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.classList.toggle("hidden", restrictedForNonAdmin);
         });
-
-        // Update Google OAuth linked status UI
-        const googleLinkedStatus = document.getElementById("google-linked-status");
-        const btnGoogleAuth = document.getElementById("btn-google-auth");
-        if (googleLinkedStatus && btnGoogleAuth) {
-          if (data.config.googleLinked) {
-            googleLinkedStatus.style.display = "flex";
-            btnGoogleAuth.innerHTML = `<span class="material-symbols-outlined">sync</span> 連携アカウントを更新する`;
-            btnGoogleAuth.className = "btn btn-secondary";
-            btnGoogleAuth.style.width = "100%";
-            btnGoogleAuth.style.maxWidth = "320px";
-          } else {
-            googleLinkedStatus.style.display = "none";
-            btnGoogleAuth.innerHTML = `<span class="material-symbols-outlined">link</span> Google 連携認証を開始する`;
-            btnGoogleAuth.className = "btn btn-primary";
-            btnGoogleAuth.style.width = "100%";
-            btnGoogleAuth.style.maxWidth = "320px";
-          }
-        }
 
         // Fetch and fill Discord token config (v2: トークンのみ)
         if (!isSystemDefault || isAdmin) {
@@ -2532,8 +2535,10 @@ document.addEventListener("DOMContentLoaded", () => {
   async function fetchBotAttributeConfig() {
     const attrCard = document.getElementById("config-bot-attribute-card");
     const assistantCard = document.getElementById("config-assistant-card");
+    const nameCard = document.getElementById("config-bot-name-card");
     if (attrCard) attrCard.classList.add("hidden");
     if (assistantCard) assistantCard.classList.add("hidden");
+    if (nameCard) nameCard.classList.add("hidden");
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
@@ -2554,6 +2559,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const isOwner = bot.user_id === activeUserId;
       const isAdminUser = activeUserRole === "admin";
       if (!isOwner && !isAdminUser) return; // 属性の変更は owner / Admin のみ（§4.1）
+
+      // ── Bot登録名カード ── 現在の登録名を反映。表示名復元用に discord_username も保持。
+      if (nameCard) {
+        nameCard.classList.remove("hidden");
+        const nameInput = document.getElementById("bot-name-input");
+        if (nameInput) nameInput.value = bot.name || "";
+        const nameForm = document.getElementById("bot-name-form");
+        if (nameForm) nameForm.dataset.discordUsername = bot.discord_username || "";
+        const fb = document.getElementById("bot-name-feedback");
+        if (fb) { fb.style.display = "none"; fb.textContent = ""; }
+      }
 
       // ── Bot属性カード ──
       if (attrCard) {
@@ -2925,6 +2941,47 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Bot登録名の変更（/api/bots/profile に name のみ送信。avatar は COALESCE で保持される）
+  const botNameForm = document.getElementById("bot-name-form");
+  if (botNameForm) {
+    botNameForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const botId = window.currentBotId;
+      const name = document.getElementById("bot-name-input").value.trim();
+      const fb = document.getElementById("bot-name-feedback");
+      const btn = botNameForm.querySelector('button[type="submit"]');
+      const showFb = (msg, ok) => { if (fb) { fb.style.display = "block"; fb.style.color = ok ? "" : "#f87171"; fb.textContent = msg; } };
+      if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
+      if (!name) { showFb("登録名を入力してください。", false); return; }
+      if (btn) btn.disabled = true;
+      try {
+        const res = await originalFetch("/api/bots/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId, name })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showFb("登録名を変更しました。", true);
+          // Discordの表示名が無いBotは登録名がそのまま表示名になるため、サイドバー表示も更新。
+          const discordUsername = botNameForm.dataset.discordUsername || "";
+          if (!discordUsername && window.currentBotId === botId) {
+            localStorage.setItem("currentBotName", name);
+            if (activeBotDisplay) activeBotDisplay.textContent = name;
+            updateSidebarBotBranding();
+          }
+          fetchBotList();
+        } else {
+          showFb(data.message || "変更に失敗しました。", false);
+        }
+      } catch (err) {
+        showFb("通信エラーが発生しました。", false);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
   // Handle Profile settings update
   const profileConfigForm = document.getElementById("profile-config-form");
   if (profileConfigForm) {
@@ -3226,24 +3283,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
-  // Handle Google OAuth trigger
-  const btnGoogleAuth = document.getElementById("btn-google-auth");
-  if (btnGoogleAuth) {
-    btnGoogleAuth.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/settings/google/oauth/url");
-        const data = await res.json();
-        if (data.success) {
-          window.location.href = data.url;
-        } else {
-          alert(data.message);
-        }
-      } catch (err) {
-        alert("認証URLの取得に失敗しました。システム共通の Google OAuth 設定が登録されていることを確認してください。");
-      }
-    });
-  }
-
   // Handle Backup config update
   const backupConfigForm = document.getElementById("backup-config-form");
   if (backupConfigForm) {
@@ -3366,44 +3405,23 @@ document.addEventListener("DOMContentLoaded", () => {
           tdDate.style.color = "var(--color-zinc-muted)";
           tdDate.textContent = cred.updated_at || cred.updatedAt || "";
 
-          const tdActions = document.createElement("td");
-          tdActions.style.padding = "12px 10px";
-          tdActions.style.textAlign = "right";
-
-          const btnDel = document.createElement("button");
-          btnDel.className = "btn-credential-delete";
-          btnDel.type = "button";
-
-          const delIcon = document.createElement("span");
-          delIcon.className = "material-symbols-outlined";
-          delIcon.style.fontSize = "0.9rem";
-          delIcon.textContent = "delete";
-
-          btnDel.appendChild(delIcon);
-          btnDel.appendChild(document.createTextNode(" 削除"));
-
-          btnDel.addEventListener("click", () => handleDeleteCredential(serviceName));
-
-          tdActions.appendChild(btnDel);
-
           tr.appendChild(tdService);
           tr.appendChild(tdUser);
           tr.appendChild(tdPass);
           tr.appendChild(tdUrl);
           tr.appendChild(tdDate);
-          tr.appendChild(tdActions);
 
           configCredentialsList.appendChild(tr);
         });
       } else {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 6;
+        td.colSpan = 5;
         td.style.textAlign = "center";
         td.style.padding = "20px";
         td.style.color = "var(--color-zinc-muted)";
         td.style.fontSize = "0.8rem";
-        td.textContent = "登録されているAI用認証情報はありません。";
+        td.textContent = "利用可能なAI認証情報はありません。";
         tr.appendChild(td);
         configCredentialsList.appendChild(tr);
       }
@@ -3438,26 +3456,6 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("通信エラーが発生しました。");
     }
   });
-
-  async function handleDeleteCredential(serviceName) {
-    if (!confirm(`本当にサービス [${serviceName}] のログイン資格情報を完全に削除しますか？`)) return;
-    try {
-      const res = await fetch("/api/credentials/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serviceName })
-      });
-      const data = await res.json();
-      if (data.success) {
-        fetchCredentialsSettings();
-      } else {
-        alert("削除に失敗しました。");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("通信エラーが発生しました。");
-    }
-  }
 
   // ==========================================
   // ADMIN PAGE LOGIC

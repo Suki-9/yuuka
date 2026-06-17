@@ -1531,32 +1531,60 @@ textarea:focus {
   flex: 1 1 auto;
 }
 
+/* チェックボックスは全て統一の自作スタイル（テーマ連動・描画チェックマーク）。
+   静的な native checkbox と動的生成の .checkbox-custom の両方に適用する。 */
+input[type="checkbox"],
 .checkbox-custom {
   appearance: none;
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
-  border: 2px solid #4e5058;
-  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 2px solid var(--text-secondary);
+  border-radius: 5px;
+  background-color: transparent;
   outline: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: var(--transition-smooth);
+  vertical-align: middle;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+input[type="checkbox"]:hover,
+.checkbox-custom:hover {
+  border-color: var(--color-primary);
+}
+
+input[type="checkbox"]:focus-visible,
+.checkbox-custom:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+input[type="checkbox"]:checked,
 .checkbox-custom:checked {
-  background-color: var(--discord-blurple);
-  border-color: var(--discord-blurple);
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
+/* ✓ をボックス描画（回転させた枠線）で表現。グリフより精緻に見える */
+input[type="checkbox"]:checked::after,
 .checkbox-custom:checked::after {
-  content: '✓';
-  color: #ffffff;
-  font-size: 0.75rem;
-  font-weight: bold;
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-top: -1px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="checkbox"]:disabled,
+.checkbox-custom:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .card-text {
@@ -3111,6 +3139,61 @@ details.admin-section[open] > summary.admin-section-header {
 }
 details.admin-section[open] > summary > .admin-section-title::before {
   transform: rotate(90deg);
+}
+
+/* 設定タブ：config-card を details 化したアコーディオン。
+   summary（.column-header）をクリック行にし、タイトル左にシェブロンを付ける。
+   閉時は説明文・本文が隠れ、同時に1つだけ展開（name="config-acc"）。 */
+details.config-card > summary.column-header {
+  cursor: pointer;
+  user-select: none;
+  list-style: none; /* Firefox の三角を消す */
+}
+details.config-card > summary.column-header::-webkit-details-marker {
+  display: none; /* WebKit/Blink の三角を消す */
+}
+details.config-card:not([open]) > summary.column-header {
+  margin-bottom: 0;
+}
+/* h3 の左にシェブロン（開閉で回転）。h3 内の material icon の前に出る */
+details.config-card > summary.column-header > h3::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.85rem;
+  line-height: 1;
+  margin-right: 6px;
+  color: var(--text-secondary);
+  transition: transform 0.18s ease;
+  vertical-align: middle;
+}
+details.config-card[open] > summary.column-header > h3::before {
+  transform: rotate(90deg);
+}
+/* バッジをヘッダ右端（タイトルの反対側）へ寄せるバリアント */
+summary.column-header.badge-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+summary.column-header.badge-right > .badge {
+  margin-left: auto;
+}
+summary.column-header.badge-right > h3 {
+  margin: 0;
+}
+/* 追加ボタンをヘッダ右端（タイトルの反対側）へ寄せるバリアント */
+.column-header.action-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.column-header.action-right > .btn {
+  margin-left: auto;
+}
+.column-header.action-right > h3 {
+  margin: 0;
 }
 
 .admin-section-title {
