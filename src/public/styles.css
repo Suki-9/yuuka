@@ -3141,6 +3141,19 @@ details.config-card > summary.column-header > h3::before {
 details.config-card[open] > summary.column-header > h3::before {
   transform: rotate(90deg);
 }
+/* バッジをヘッダ左端（チェブロン・タイトルより前）へ寄せるバリアント */
+summary.column-header.badge-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+summary.column-header.badge-left > .badge {
+  order: -1;
+}
+summary.column-header.badge-left > h3 {
+  margin: 0;
+}
 
 .admin-section-title {
   display: flex;
