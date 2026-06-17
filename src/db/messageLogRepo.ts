@@ -623,6 +623,62 @@ export function countBotDailyUsage(
     .all(botId, `-${clamped} days`) as Array<{ date: string; count: number }>;
 }
 
+/** YYYY-MM-DD 形式のローカル日付文字列（offsetDays 日前。message_logs の date(created_at,'localtime') と一致させる） */
+function localDateString(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Bot別の日次メッセージ統計（直近 days 日、今日を含み欠損日は0補完）。
+ * 汎用モードのAPI使用量チャート用（コスト可視化 要件 §6）。
+ * requests = 受信（role='user'）、responses = 応答（role='assistant'）。
+ */
+export function getBotUsageSeries(
+  botId: string,
+  days: number = 14
+): {
+  series: Array<{ date: string; requests: number; responses: number }>;
+  totals: { requests: number; responses: number };
+} {
+  const db = getDb();
+  const clamped = Math.min(Math.max(Math.floor(days), 1), 90);
+  // bot_id 単位の集計（コスト可視化のための読み取り専用クエリ。user_id 全件走査の明示的例外）
+  const rows = db
+    .prepare(
+      `SELECT date(created_at) AS date, role, COUNT(*) AS count
+       FROM message_logs
+       WHERE bot_id = ? AND created_at >= date('now', 'localtime', ?)
+       GROUP BY date(created_at), role`
+    )
+    .all(botId, `-${clamped - 1} days`) as Array<{ date: string; role: string; count: number }>;
+
+  const byDate = new Map<string, { requests: number; responses: number }>();
+  for (const r of rows) {
+    const entry = byDate.get(r.date) ?? { requests: 0, responses: 0 };
+    if (r.role === "user") entry.requests += r.count;
+    else if (r.role === "assistant") entry.responses += r.count;
+    byDate.set(r.date, entry);
+  }
+
+  // 直近 clamped 日（今日を含む）の連続日付列を生成し、欠損日を0補完する（チャートのX軸を連続させる）
+  const series: Array<{ date: string; requests: number; responses: number }> = [];
+  let totalReq = 0;
+  let totalRes = 0;
+  for (let i = clamped - 1; i >= 0; i--) {
+    const date = localDateString(i);
+    const e = byDate.get(date) ?? { requests: 0, responses: 0 };
+    totalReq += e.requests;
+    totalRes += e.responses;
+    series.push({ date, requests: e.requests, responses: e.responses });
+  }
+  return { series, totals: { requests: totalReq, responses: totalRes } };
+}
+
 /** ユーザーの保存済みメッセージ総数を返す（統計・レポート用） */
 export function countMessages(userId: string): number {
   const db = getDb();
