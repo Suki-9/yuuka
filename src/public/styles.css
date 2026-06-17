@@ -3154,6 +3154,19 @@ summary.column-header.badge-left > .badge {
 summary.column-header.badge-left > h3 {
   margin: 0;
 }
+/* 追加ボタンをヘッダ左端（タイトルより前）へ寄せるバリアント */
+.column-header.action-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.column-header.action-left > .btn {
+  order: -1;
+}
+.column-header.action-left > h3 {
+  margin: 0;
+}
 
 .admin-section-title {
   display: flex;
