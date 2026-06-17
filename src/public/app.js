@@ -6179,6 +6179,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const startBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-start="${b.id}" ${(b.running || b.suspended || !b.has_token) ? "disabled" : ""}>起動</button>` : "";
       const restartBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-restart="${b.id}" ${(b.suspended || !b.has_token) ? "disabled" : ""}>再起動</button>` : "";
       const stopBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-stop="${b.id}" ${!b.running ? "disabled" : ""}>停止</button>` : "";
+      // 履歴クリアは全Bot対象（system_default含む）。自分の会話のみに作用。
+      const clearBtn = `<button class="btn btn-secondary btn-sm" data-int-clear="${b.id}" title="このBotとの自分の会話履歴をクリア（Redisキャッシュ削除＋境界記録。永続ログは保持）">履歴クリア</button>`;
       row.innerHTML = `
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
           <span class="material-symbols-outlined" style="color:${chipColor};">${b.is_system_default ? "shield_person" : "smart_toy"}</span>
@@ -6189,13 +6191,20 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
           <span style="font-size:0.75rem;color:${chipColor};font-weight:600;">${chip}</span>
-          ${startBtn}${restartBtn}${stopBtn}
+          ${startBtn}${restartBtn}${stopBtn}${clearBtn}
         </div>`;
       el.appendChild(row);
     });
     el.querySelectorAll("[data-int-start]").forEach((btn) => btn.addEventListener("click", () => intBotAction("start", btn.getAttribute("data-int-start"))));
     el.querySelectorAll("[data-int-restart]").forEach((btn) => btn.addEventListener("click", () => intBotAction("restart", btn.getAttribute("data-int-restart"))));
     el.querySelectorAll("[data-int-stop]").forEach((btn) => btn.addEventListener("click", () => intBotAction("stop", btn.getAttribute("data-int-stop"))));
+    el.querySelectorAll("[data-int-clear]").forEach((btn) => btn.addEventListener("click", () => intClearHistory(btn.getAttribute("data-int-clear"))));
+  }
+
+  async function intClearHistory(botId) {
+    if (!confirm("このBotとの会話履歴をクリアしますか？\n次のメッセージから新しい会話になります（永続ログは保持され、検索・監査では引き続き利用できます）。")) return;
+    const d = await intPost("/api/integrated/bots/clear-history", { botId });
+    alert(d.message || (d.success ? "クリアしました。" : "クリアに失敗しました。"));
   }
 
   async function intBotAction(action, botId) {

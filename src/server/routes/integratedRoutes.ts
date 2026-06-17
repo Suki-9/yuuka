@@ -1,6 +1,7 @@
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
-import { listBotsOwnedBy, getBotById, isBotSuspended, type BotRecord } from "../../db/botRepo.js";
+import { listBotsOwnedBy, getBotById, isBotSuspended, hasBotAccess, type BotRecord } from "../../db/botRepo.js";
+import { clearContext } from "../../db/messageLogRepo.js";
 import { client, customClients, startCustomBot, stopCustomBot } from "../../bot.js";
 import { parseCapabilities, presetIdForCapabilities } from "../../services/botCapabilities.js";
 import {
@@ -193,6 +194,31 @@ export const integratedRoutes: RouteDef[] = [
         message: ok ? "再起動しました。" : "再起動に失敗しました（トークンを確認してください）。",
         running: status.running,
         connected: status.connected,
+      });
+    },
+  },
+
+  // ── 会話履歴クリア ──
+  // Redis のコンテキストキャッシュを削除し、context_floor（リセット境界）を記録する。
+  // 永続ログ message_logs は削除しない（検索・監査用に保持。§7.1）。
+  // スコープは (ログインユーザー, botId) の秘書会話のみ＝自分の会話だけに作用する。
+  {
+    method: "POST",
+    path: "/api/integrated/bots/clear-history",
+    auth: "user",
+    async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const botId = typeof ctx.body.botId === "string" ? ctx.body.botId : "";
+      const bot = getBotById(botId);
+      // 自分が会話できるBotのみ（system_default は共有秘書）。clearContext は (userId,botId) 自分の会話のみ操作。
+      if (!bot || (botId !== "system_default" && !hasBotAccess(userId, botId))) {
+        return sendJson(ctx.res, 403, { success: false, message: "このBotへのアクセス権がありません。" });
+      }
+      await clearContext(userId, botId);
+      addAuditLog(userId, "conversation.clear", botId);
+      return sendJson(ctx.res, 200, {
+        success: true,
+        message: "会話履歴をクリアしました（次のメッセージから新しい会話になります。永続ログは保持されます）。",
       });
     },
   },
