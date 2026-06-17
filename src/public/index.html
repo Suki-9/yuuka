@@ -479,6 +479,9 @@
           <button id="btn-open-integrated" class="btn btn-secondary btn-sm home-nav-btn">
             <span class="material-symbols-outlined icon-button-left">hub</span>統合管理
           </button>
+          <button id="btn-open-account" class="btn btn-secondary btn-sm home-nav-btn">
+            <span class="material-symbols-outlined icon-button-left">manage_accounts</span>アカウント管理
+          </button>
           <button id="btn-open-admin" class="btn btn-secondary btn-sm home-nav-btn" style="display: none;">
             <span class="material-symbols-outlined icon-button-left">admin_panel_settings</span>管理者設定
           </button>
@@ -1148,19 +1151,6 @@
              5. CONFIG VIEW
              ========================================== -->
         <section id="tab-config" class="tab-view">
-          <!-- Profile Settings -->
-          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
-            <summary class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">person</span>プロフィール設定</h3>
-            </summary>
-            <p class="description-text">ご自身の表示名を設定できます。</p>
-            <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
-              <input type="text" id="config-profile-username" required placeholder="表示名 (例: ユーザー名)"
-                style="flex-grow: 1;">
-              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
-            </form>
-          </details>
-
           <!-- Gemini Settings -->
           <details class="config-card card" style="margin-top: 24px;" name="config-acc">
             <summary class="column-header">
@@ -1915,8 +1905,42 @@
             </div>
           </details>
 
-          <!-- テーマ設定（アカウント共通の外観設定。Bot個別ページから移設） -->
-          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+        </section>
+      </div>
+    </div>
+  </div>
+  <!-- /#integrated-overlay -->
+
+  <!-- ==========================================
+       アカウント管理 VIEW（全ユーザー。Bot選択画面から開く独立オーバーレイ）
+       表示名・テーマ・ログインパスワードなどBot非依存のアカウント設定を集約
+       ========================================== -->
+  <div id="account-overlay" class="overlay">
+    <div class="management-overlay-card">
+      <div class="management-overlay-header">
+        <h1><span class="material-symbols-outlined" style="vertical-align:middle;font-size:1.6rem;">manage_accounts</span> アカウント管理</h1>
+        <button class="btn btn-secondary" data-management-back>
+          <span class="material-symbols-outlined icon-button-left">arrow_back</span> Bot選択に戻る
+        </button>
+      </div>
+      <div class="management-overlay-body">
+        <section id="tab-account">
+          <p class="description-text" style="margin-bottom: 16px;">
+            表示名・外観テーマ・ログインパスワードなど、特定のBotに依存しないアカウント共通の設定です。
+          </p>
+
+          <!-- 表示名（プロフィール） -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>表示名（プロフィール）</summary>
+            <p class="description-text" style="margin-top:12px;">ご自身の表示名を設定できます。</p>
+            <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
+              <input type="text" id="config-profile-username" required placeholder="表示名 (例: ユーザー名)" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+            </form>
+          </details>
+
+          <!-- テーマ設定 -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
             <summary>テーマ設定</summary>
             <p class="description-text" style="margin-top:12px;">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
             <div class="theme-options">
@@ -1953,8 +1977,8 @@
             </div>
           </details>
 
-          <!-- パスワード変更（アカウントのログインパスワード。Bot個別ページから移設） -->
-          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+          <!-- パスワード変更 -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
             <summary>パスワード変更</summary>
             <p class="description-text" style="margin-top:12px;">管理画面ログイン用パスワードを変更します。変更すると他端末のセッションは無効化されます。</p>
             <form id="password-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
@@ -1977,7 +2001,7 @@
       </div>
     </div>
   </div>
-  <!-- /#integrated-overlay -->
+  <!-- /#account-overlay -->
 
   <!-- ==========================================
        管理者用設定 VIEW（admin専用。Bot選択画面から開く独立オーバーレイ）

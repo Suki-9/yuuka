@@ -289,9 +289,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (integratedOverlay) integratedOverlay.classList.remove("active");
     const adminOverlay = document.getElementById("admin-overlay");
     if (adminOverlay) adminOverlay.classList.remove("active");
+    const accountOverlay = document.getElementById("account-overlay");
+    if (accountOverlay) accountOverlay.classList.remove("active");
 
-    // 全体管理（owner/システム）の独立オーバーレイ。Bot個別画面（#app-container）の外で表示する。
-    if (cleanPath === "/integrated" || cleanPath === "/admin") {
+    // 全体管理（owner/システム）・アカウント管理の独立オーバーレイ。
+    // Bot個別画面（#app-container）の外で表示する。
+    if (cleanPath === "/integrated" || cleanPath === "/admin" || cleanPath === "/account") {
       if (!activeUserId) { initAppSession(); return; }
       if (cleanPath === "/admin" && activeUserRole !== "admin") { navigateTo("/", false); return; }
       loginOverlay.classList.remove("active");
@@ -300,6 +303,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (cleanPath === "/integrated") {
         if (integratedOverlay) integratedOverlay.classList.add("active");
         fetchIntegratedOverview();
+      } else if (cleanPath === "/account") {
+        if (accountOverlay) accountOverlay.classList.add("active");
+        fetchAccountSettings();
       } else {
         if (adminOverlay) adminOverlay.classList.add("active");
         fetchAdminData();
@@ -851,6 +857,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 全体管理（Bot統合管理 / 管理者用設定）の入口・戻る配線。Bot個別画面の外で開く独立オーバーレイ。
   document.getElementById("btn-open-integrated")?.addEventListener("click", () => navigateTo("/integrated"));
+  document.getElementById("btn-open-account")?.addEventListener("click", () => navigateTo("/account"));
   document.getElementById("btn-open-admin")?.addEventListener("click", () => navigateTo("/admin"));
   document.querySelectorAll("[data-management-back]").forEach((btn) =>
     btn.addEventListener("click", () => navigateTo("/"))
@@ -860,7 +867,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // ネイティブの <details name> 排他制御に未対応なブラウザ向けの保険として、
   // あるセクションを開いたら同じ name の他セクションを閉じる。
   // tab-config（Bot単体の設定タブ）も同方式。name 無しのネスト details は対象外。
-  ["integrated-overlay", "admin-overlay", "tab-config"].forEach((overlayId) => {
+  ["integrated-overlay", "admin-overlay", "account-overlay", "tab-config"].forEach((overlayId) => {
     const root = document.getElementById(overlayId);
     if (!root) return;
     const items = root.querySelectorAll("details[name]");
@@ -2429,6 +2436,20 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsDataURL(file);
   }
 
+  // アカウント管理ページ（表示名）の値を投入する。Bot文脈に依存しないため独立に取得。
+  async function fetchAccountSettings() {
+    try {
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      if (data.success && data.user) {
+        const el = document.getElementById("config-profile-username");
+        if (el) el.value = data.user.username;
+      }
+    } catch (err) {
+      console.error("アカウント設定の取得に失敗しました:", err);
+    }
+  }
+
   // H. SYSTEM CONFIG POLL
   async function fetchConfigSettings() {
     try {
@@ -2437,7 +2458,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (data.success) {
         // Fill individual config form values
-        document.getElementById("config-profile-username").value = data.user.username;
         document.getElementById("gemini-model-select").value = data.config.geminiModel;
 
         document.getElementById("backup-enable").checked = data.config.backupEnabled;
