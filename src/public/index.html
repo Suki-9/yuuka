@@ -1149,10 +1149,10 @@
              ========================================== -->
         <section id="tab-config" class="tab-view">
           <!-- Theme Settings -->
-          <div class="config-card card">
-            <div class="column-header">
+          <details class="config-card card" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">palette</span>テーマ設定</h3>
-            </div>
+            </summary>
             <p class="description-text">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
             <div class="theme-options">
               <button type="button" class="theme-option" data-theme="dark">
@@ -1186,26 +1186,26 @@
                 <span>BA</span>
               </button>
             </div>
-          </div>
+          </details>
 
           <!-- Profile Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">person</span>プロフィール設定</h3>
-            </div>
+            </summary>
             <p class="description-text">ご自身の表示名を設定できます。</p>
             <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
               <input type="text" id="config-profile-username" required placeholder="表示名 (例: ユーザー名)"
                 style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- Gemini Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">psychology</span>Gemini AI 個別設定</h3>
-            </div>
+            </summary>
             <p class="description-text">Gemini API Key と使用するモデルを設定してください。</p>
             <form id="gemini-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="margin-bottom: 12px;">
@@ -1224,14 +1224,14 @@
               </div>
               <button type="submit" class="btn btn-primary">Gemini 設定を保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- Discord Bot Token Settings -->
-          <div id="config-discord-card" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-discord-card" class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
               <span class="badge badge-accent">任意設定</span>
-            </div>
+            </summary>
             <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
             <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="margin-bottom: 12px;">
@@ -1242,41 +1242,41 @@
               </div>
               <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- Bot属性（プリセット）設定: owner のみ表示 -->
           <!-- Bot登録名: owner / Admin のみ表示 -->
-          <div id="config-bot-name-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-bot-name-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">badge</span>Bot登録名</h3>
-            </div>
+            </summary>
             <p class="description-text">このBotの登録名（管理画面・Bot選択画面で表示される名前）を変更します。Discord上の表示名とは別です。</p>
             <form id="bot-name-form" style="display: flex; gap: 12px; margin-top: 12px;">
               <input type="text" id="bot-name-input" required maxlength="50" placeholder="例: 経理アシスタント" autocomplete="off" style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">登録名を保存</button>
             </form>
             <span id="bot-name-feedback" class="field-sub" style="display:none; margin-top: 8px;"></span>
-          </div>
+          </details>
 
-          <div id="config-bot-attribute-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-bot-attribute-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">category</span>Bot属性（プリセット）</h3>
               <span class="badge badge-accent" id="bot-attribute-current-badge"></span>
-            </div>
+            </summary>
             <p class="description-text">このBotの機能セットを選択します。変更は次のメッセージ処理から即時反映されます。</p>
             <div style="display: flex; gap: 12px; margin-top: 12px;">
               <select id="bot-attribute-preset-select" style="flex-grow: 1;"></select>
               <button type="button" id="btn-save-bot-attribute" class="btn btn-primary" style="white-space: nowrap;">属性を変更</button>
             </div>
             <span class="field-sub">※「汎用モード」はサーバー常駐の簡易Bot（MCP接続 + ペルソナ + メモリ）です。タスク・家計などの秘書機能は無効になります。</span>
-          </div>
+          </details>
 
           <!-- 汎用モード（MCPアシスタント）設定: owner のみ表示 -->
-          <div id="config-assistant-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-assistant-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">extension</span><span id="assistant-card-title">汎用モード設定</span></h3>
               <span class="badge badge-accent">OWNER専用</span>
-            </div>
+            </summary>
             <p class="description-text">サーバー常駐アシスタントの動作設定です。応答には「Bot専用のGemini APIキー」「独自Discordトークン」「応答許可ギルド」の設定が必要です。</p>
             <div id="assistant-warnings" style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;"></div>
 
@@ -1340,13 +1340,13 @@
               <div id="assistant-usage" style="margin-top: 8px;"></div>
               <span class="field-sub" id="assistant-rate-limits"></span>
             </details>
-          </div>
+          </details>
 
           <!-- Persona / Context Note へ誘導するリンクカード -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">switch_account</span>ペルソナと長期メモの管理</h3>
-            </div>
+            </summary>
             <p class="description-text">AIのペルソナ（キャラクター設定）と長期メモ（コンテキストノート）の管理は、専用画面に移動しました。</p>
             <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
               <button type="button" id="btn-goto-personas" class="btn btn-secondary"
@@ -1360,13 +1360,13 @@
                 長期メモはコンテキストノートへ
               </button>
             </div>
-          </div>
+          </details>
 
           <!-- Password Change -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">password</span>パスワード変更</h3>
-            </div>
+            </summary>
             <p class="description-text">管理画面ログイン用パスワードを変更します。変更すると他端末のセッションは無効化されます。</p>
             <form id="password-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-row">
@@ -1383,13 +1383,13 @@
               </div>
               <button type="submit" class="btn btn-primary" style="align-self: flex-start;">パスワードを変更</button>
             </form>
-          </div>
+          </details>
 
           <!-- Assistant (User) Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">tune</span>アシスタント設定</h3>
-            </div>
+            </summary>
             <p class="description-text">Discord上でのアシスタントの応答スタイルや通知先の既定値を設定します。</p>
             <form id="user-settings-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
@@ -1421,14 +1421,14 @@
               </div>
               <button type="submit" class="btn btn-primary" style="align-self: flex-start;">アシスタント設定を保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- Bot 共有管理 (オーナーのみ表示) -->
-          <div id="config-share-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-share-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">group_add</span>Bot 共有管理</h3>
               <span class="badge badge-accent">オーナー専用</span>
-            </div>
+            </summary>
             <p class="description-text">このBotを他のユーザーと共有できます。招待DMが送信され、相手が承認するとアクセスが有効になります。</p>
             <div id="bot-shares-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px;">
               <!-- Generated dynamically -->
@@ -1449,11 +1449,11 @@
               </div>
               <span class="field-sub">※共有招待時に相手へ推奨ペルソナとして案内されます。</span>
             </div>
-          </div>
+          </details>
 
           <!-- Google OAuth settings -->
-          <div id="config-google-section" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <details id="config-google-section" class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header" style="display: flex; justify-content: space-between; align-items: center;">
               <h3><svg class="header-icon-symbol"
                   style="width: 1.35rem; height: 1.35rem; fill: currentColor; vertical-align: middle; margin-right: 8px; display: inline-block;"
                   viewBox="0 0 24 24">
@@ -1466,7 +1466,7 @@
                   style="color: var(--color-secondary); font-size: 1.1rem;">check_circle</span>
                 <span style="color: var(--color-secondary); font-weight: 600;">連携済み</span>
               </div>
-            </div>
+            </summary>
             <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google
               アカウントとの連携を行います。</p>
 
@@ -1476,16 +1476,16 @@
               <span class="field-sub">Googleアカウントの連携（複数可）とBot別の使用設定は「Bot統合管理」で行います。</span>
               <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
             </div>
-          </div>
+          </details>
 
 
 
           <!-- Google Drive Backup Settings Card -->
-          <div id="config-backup-section" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-backup-section" class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">cloud_sync</span>Google Drive バックアップ</h3>
               <span class="badge badge-accent">Beta</span>
-            </div>
+            </summary>
             <p class="description-text">データベースや設定ファイル、プレイブックのデータをGoogle Driveへ安全にバックアップします。</p>
 
             <form id="backup-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
@@ -1514,14 +1514,14 @@
                   style="flex: 1;">今すぐバックアップ実行</button>
               </div>
             </form>
-          </div>
+          </details>
 
           <!-- AI Credentials Management Card (Matte Flat Style) -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">lock</span>AI認証情報管理 (AI Credentials)</h3>
               <span class="badge badge-accent">セキュア暗号化</span>
-            </div>
+            </summary>
             <p class="description-text">
               AIエージェントが自動ブラウジング等でログインするために使用するユーザー名とパスワードを安全に登録します。パスワードはAES-256-GCMにより強固に暗号化され、必要な時にのみオンデマンドで復号されます。
             </p>
@@ -1557,7 +1557,7 @@
               <span class="field-sub">認証情報の登録・Bot別の利用許可は「Bot統合管理」で行います。</span>
               <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
             </div>
-          </div>
+          </details>
         </section>
 
         <!-- ==========================================

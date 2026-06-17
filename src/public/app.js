@@ -859,7 +859,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // 統合管理／管理者設定のセクションはアコーディオン（同時に1つだけ展開）。
   // ネイティブの <details name> 排他制御に未対応なブラウザ向けの保険として、
   // あるセクションを開いたら同じ name の他セクションを閉じる。
-  ["integrated-overlay", "admin-overlay"].forEach((overlayId) => {
+  // tab-config（Bot単体の設定タブ）も同方式。name 無しのネスト details は対象外。
+  ["integrated-overlay", "admin-overlay", "tab-config"].forEach((overlayId) => {
     const root = document.getElementById(overlayId);
     if (!root) return;
     const items = root.querySelectorAll("details[name]");
