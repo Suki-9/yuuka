@@ -31,6 +31,22 @@ async function main() {
     process.exit(1);
   }
 
+  // 暗号化シークレットの強度チェック（§6.2）: 弱い鍵は KDF の強度にかかわらず総当たりの前提条件になる。
+  // 最低32文字（openssl rand -base64 48 等で十分に満たす）を要求する。
+  const MIN_SECRET_LEN = 32;
+  for (const [name, val] of [
+    ["YUUKA_ENCRYPTION_SECRET", config.secretKey],
+    ["YUUKA_ENCRYPTION_SECRET_NEW", config.secretKeyNew],
+  ] as const) {
+    if (val && val.length < MIN_SECRET_LEN) {
+      console.error(
+        `❌ ${name} が短すぎます（${val.length}文字）。推測困難な ${MIN_SECRET_LEN} 文字以上のランダム値を設定してください。\n` +
+        "   生成例: openssl rand -base64 48"
+      );
+      process.exit(1);
+    }
+  }
+
   // データベース初期化（スキーマv2）
   await runMigrations();
 

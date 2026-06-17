@@ -14,11 +14,40 @@ import {
   deleteContact,
   getContactById,
   isValidBirthday,
+  type ContactRecord,
 } from "../../db/contactRepo.js";
 import { hasBotAccess } from "../../db/botRepo.js";
+import { contactViewSchema } from "../../types/apiViews.js";
 
 // ─── コンテキストノート・クリップボード・連絡先 HTTPルート ────────────────────
 // 全ルート auth:"user"。リソースは ctx.user.discordId でスコープする（§12）。
+
+/**
+ * 連絡先レコードをUI向けに整形する。
+ * セキュリティ: 応答スキーマ contactViewSchema（types/apiViews.ts）の parse() を通すことで、
+ * スコープキー user_id / bot_id と内部のリマインダ重複管理用 birthday_reminded_year など
+ * スキーマ外の列は構造的に除去される（生レコードが紛れ込んでも漏えいしない）。
+ */
+function toContactView(c: ContactRecord) {
+  let tags: string[] = [];
+  try {
+    const parsed = JSON.parse(c.tags);
+    if (Array.isArray(parsed)) tags = parsed.map(String);
+  } catch {
+    /* 不正JSONは空配列扱い */
+  }
+  return contactViewSchema.parse({
+    id: c.id,
+    name: c.name,
+    birthday: c.birthday,
+    relationship: c.relationship,
+    contact_info: c.contact_info,
+    notes: c.notes,
+    tags,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  });
+}
 
 export const personalRoutes: RouteDef[] = [
   // ── コンテキストノート（§3.7.3: 管理UIから全体の参照・編集が可能） ──
@@ -47,11 +76,20 @@ export const personalRoutes: RouteDef[] = [
       const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
       const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
       const content = typeof ctx.body.content === "string" ? ctx.body.content : "";
+      // バリデーションはハンドラ内で行い、ユーザー向けメッセージを明示的に返す。
+      // 想定外（DB/IO）の例外はサーバーログに留め、内部詳細をクライアントへ漏らさない。
+      if (content.length > CONTEXT_NOTE_MAX_LENGTH) {
+        return sendJson(ctx.res, 400, {
+          success: false,
+          message: `コンテキストノートは${CONTEXT_NOTE_MAX_LENGTH.toLocaleString()}文字以内です（現在: ${content.length.toLocaleString()}文字）`,
+        });
+      }
       try {
         setContextNote(userId, botId, content);
         sendJson(ctx.res, 200, { success: true, message: "コンテキストノートを保存しました。" });
       } catch (err) {
-        sendJson(ctx.res, 400, { success: false, message: (err as Error).message });
+        console.error("[context-note] 保存エラー:", err);
+        sendJson(ctx.res, 500, { success: false, message: "コンテキストノートの保存に失敗しました。" });
       }
     },
   },
@@ -98,13 +136,7 @@ export const personalRoutes: RouteDef[] = [
       const userId = ctx.user!.discordId;
       const rawBotId = (ctx.body.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
       const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
-      const contacts = listContacts(userId, botId).map((c) => {
-        let tags: string[] = [];
-        try {
-          tags = JSON.parse(c.tags);
-        } catch {}
-        return { ...c, tags };
-      });
+      const contacts = listContacts(userId, botId).map(toContactView);
       sendJson(ctx.res, 200, { success: true, contacts });
     },
   },
@@ -159,7 +191,7 @@ export const personalRoutes: RouteDef[] = [
       } else {
         // 新規
         const contact = addContact(userId, botId, input);
-        sendJson(ctx.res, 200, { success: true, contact, message: `連絡先「${name}」を登録しました。` });
+        sendJson(ctx.res, 200, { success: true, contact: toContactView(contact), message: `連絡先「${name}」を登録しました。` });
       }
     },
   },

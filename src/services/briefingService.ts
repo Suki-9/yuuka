@@ -10,6 +10,7 @@ import {
 import { generateAuxText } from "./llmClient.js";
 import { sendToUser } from "./notifier.js";
 import { cronMatchesNow } from "./reportService.js";
+import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 
 // ─── 朝報: 天気・ニュース定期配信（§3.9） ────────────────────────────────────
 // 天気: Open-Meteo API（無料枠・APIキー不要）
@@ -120,6 +121,8 @@ async function fetchNewsItems(feedUrls: string[], keywords: string[]): Promise<N
 
   for (const url of feedUrls.slice(0, 10)) {
     try {
+      // SSRF対策: 内部/予約レンジ・非http(s)スキームのフィードは取得しない
+      await assertSafeOutboundUrl(url);
       const feed = await rssParser.parseURL(url);
       const source = feed.title || new URL(url).hostname;
       for (const entry of (feed.items || []).slice(0, 10)) {

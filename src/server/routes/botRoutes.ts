@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
+import { botViewSchema } from "../../types/apiViews.js";
 import {
   createBot,
   getBotById,
@@ -23,6 +24,7 @@ import {
   presetIdForCapabilities,
   getPresetDisplayName,
   invalidateBotCapabilitiesCache,
+  isGuildAssistantBot,
   type BotPresetId,
 } from "../../services/botCapabilities.js";
 import type { BotRecord } from "../../db/botRepo.js";
@@ -36,18 +38,69 @@ import {
 // ─── Botインスタンス管理・共有 HTTPルート（§5.1, §5.2） ───────────────────────
 
 /**
+ * Botのランタイム稼働状態を、実際のメッセージルーティングモデルに合わせて判定する。
+ *
+ * liveness は必ず Client.isReady() で見る。discord.js は destroy / ゲートウェイ切断時に
+ * readyTimestamp(=readyAt) をクリアしないため、readyAt は「一度でも接続したか」のスティッキー
+ * フラグでしかなく、現在接続中かの判定には使えない（切断後も稼働中と誤判定する）。
+ *
+ * - 管理者に停止されたBot（suspended）は常にオフライン。
+ * - system_default は共有デフォルト接続そのもの。
+ * - 独自トークンを持つBotは専用クライアント（customClients）の状態に従う。
+ *   client オブジェクトが存在＝起動を意図している（running）。実際の接続可否は isReady()。
+ * - 独自トークン未設定の「秘書系」Botは専用接続を持たないが、リマインダー等の送信は
+ *   notifier.ts resolveClientForUser() がデフォルトクライアントへフォールバックして届ける。
+ *   よって稼働状態はデフォルトBotの接続に従い shared=true で示す（＝共有Botで送信）。
+ * - 独自トークン未設定の「汎用モード(mcp_assistant)」Botはギルド常駐に専用トークンが必須で、
+ *   デフォルト接続では一切機能しないため停止扱いとする。
+ */
+function botHealth(bot: BotRecord): { running: boolean; connected: boolean; shared: boolean } {
+  if (bot.suspended === 1) return { running: false, connected: false, shared: false };
+  if (bot.id === "system_default") {
+    const up = defaultBotClient.isReady();
+    return { running: up, connected: up, shared: false };
+  }
+  if (bot.discord_token_encrypted) {
+    const c = customClients.get(bot.id);
+    return { running: !!c, connected: !!c && c.isReady(), shared: false };
+  }
+  if (isGuildAssistantBot(bot.id)) {
+    return { running: false, connected: false, shared: false };
+  }
+  const up = defaultBotClient.isReady();
+  return { running: up, connected: up, shared: true };
+}
+
+/**
  * Bot一覧レスポンス用にレコードを整形する。
- * Bot専用Gemini APIキーの暗号文はUIに不要のため除外し、属性情報を付与する。
+ * セキュリティ: 応答に出してよいフィールドは zod の botViewSchema（types/apiViews.ts）で一元定義し、
+ * 必ず schema.parse() を通して返す。スキーマ外のキーは parse 時に除去されるため、Bot専用Gemini
+ * APIキー・Discordトークンの暗号文（_encrypted/_iv/_tag）や将来追加され得る機密列は構造的に応答へ
+ * 出ない。UIへは有無（has_*）と稼働状態（running/connected/shared）のみを付与する。
  */
 function toBotView(bot: BotRecord) {
-  const { gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag, ...rest } = bot;
   const preset = presetIdForCapabilities(parseCapabilities(bot.capabilities));
-  return {
-    ...rest,
+  const health = botHealth(bot);
+  return botViewSchema.parse({
+    id: bot.id,
+    user_id: bot.user_id,
+    name: bot.name,
+    recommended_persona_id: bot.recommended_persona_id,
+    persona_id: bot.persona_id,
+    capabilities: bot.capabilities,
+    discord_username: bot.discord_username,
+    discord_avatar_url: bot.discord_avatar_url,
+    suspended: bot.suspended,
+    created_at: bot.created_at,
+    updated_at: bot.updated_at,
     preset,
     preset_display_name: getPresetDisplayName(preset),
-    has_gemini_key: !!(gemini_api_key_encrypted && gemini_api_key_iv && gemini_api_key_tag),
-  };
+    has_gemini_key: !!(bot.gemini_api_key_encrypted && bot.gemini_api_key_iv && bot.gemini_api_key_tag),
+    has_token: !!bot.discord_token_encrypted,
+    running: health.running,
+    connected: health.connected,
+    shared: health.shared,
+  });
 }
 
 export const botRoutes: RouteDef[] = [

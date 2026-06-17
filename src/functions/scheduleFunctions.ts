@@ -94,7 +94,7 @@ const handlers: FunctionModule["handlers"] = {
     let googleEventId: string | undefined = undefined;
     let googleCalendarId: string | undefined = undefined;
 
-    if (isCalendarEnabled(userId) && !args.local_only) {
+    if (isCalendarEnabled(userId, ctx.botId) && !args.local_only) {
       try {
         const eventResult = await createCalendarEvent(
           userId,
@@ -102,7 +102,8 @@ const handlers: FunctionModule["handlers"] = {
           args.start_at,
           args.end_at,
           args.description,
-          args.calendar_id
+          args.calendar_id,
+          ctx.botId
         );
         if (eventResult) {
           googleEventId = eventResult.eventId;
@@ -138,7 +139,7 @@ const handlers: FunctionModule["handlers"] = {
 
     const syncMessage = googleEventId
       ? "（Googleカレンダーにも同期しました📅）"
-      : (isCalendarEnabled(userId) ? "（ローカルリマインダーとして登録しました🔔）" : "");
+      : (isCalendarEnabled(userId, ctx.botId) ? "（ローカルリマインダーとして登録しました🔔）" : "");
 
     return JSON.stringify({
       success: true,
@@ -199,9 +200,9 @@ const handlers: FunctionModule["handlers"] = {
     }
 
     // Googleカレンダーからも削除
-    if (isCalendarEnabled(userId) && schedule.google_event_id) {
+    if (isCalendarEnabled(userId, ctx.botId) && schedule.google_event_id) {
       try {
-        await deleteCalendarEvent(userId, schedule.google_event_id, schedule.google_calendar_id || undefined);
+        await deleteCalendarEvent(userId, schedule.google_event_id, schedule.google_calendar_id || undefined, ctx.botId);
       } catch (err) {
         console.error(`予定削除時のGoogleカレンダー同期に失敗しました (EventID: ${schedule.google_event_id}):`, err);
       }

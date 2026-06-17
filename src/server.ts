@@ -20,6 +20,7 @@ import { reminderRoutes } from "./server/routes/reminderRoutes.js";
 import { personalRoutes } from "./server/routes/personalRoutes.js";
 import { personaRoutes } from "./server/routes/personaRoutes.js";
 import { mcpRoutes } from "./server/routes/mcpRoutes.js";
+import { integratedRoutes } from "./server/routes/integratedRoutes.js";
 import { webhookRoutes } from "./server/routes/webhookRoutes.js";
 import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
 
@@ -37,6 +38,7 @@ registerRoutes(reminderRoutes);  // リマインド（§3.3）
 registerRoutes(personalRoutes);  // ノート・クリップボード・連絡先（§3.7, §3.10, §3.11）
 registerRoutes(personaRoutes);   // ペルソナ・マーケットプレイス（§4.1）
 registerRoutes(mcpRoutes);       // MCPサーバー拡張（§4.4）
+registerRoutes(integratedRoutes); // Bot統合管理（owner単位の横断ページ, v5）
 registerRoutes(webhookRoutes);   // 外部Webhook受信（§3.13）
 registerRoutes(deliveryRoutes);  // 朝報・日報・週報（§3.8, §3.9）
 
@@ -44,10 +46,21 @@ registerRoutes(deliveryRoutes);  // 朝報・日報・週報（§3.8, §3.9）
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-ancestors 'self';";
+// MCP管理ダッシュボード（ywrk-mcp の SPA）は、サンドボックス iframe（sandbox="allow-scripts" のみ＝
+// 不透明オリジン）に隔離して埋め込む。iframe 内のドキュメントは専用ルート
+// （/api/mcp-servers/:id/dashboard, mcpRoutes.ts）が独自の CSP を付けて返すため、本体（この CSP）は
+// akizakura.css 等のダッシュボード固有オリジンを許可する必要はない（iframe 内に閉じる）。
+// frame-src は default-src 'self' にフォールバックし、同一オリジンの dashboard ルートを許可する。
+// （注意: この CSP を変更したら dist を再ビルドし、稼働中の node プロセスを再起動すること。
+//  古いプロセスはメモリ上の旧 CSP を返し続ける。）
+// script-src から 'unsafe-inline' を除去（インラインscript/イベントハンドラは全て排除済み）。
+// これによりCSPがXSSに対する実効的な多層防御として機能する。インラインJSを追加する場合は
+// nonce/hash 方式へ移行すること。style-src の 'unsafe-inline' はテンプレート内の style= のため当面維持。
+const CSP = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-src 'self'; frame-ancestors 'self';";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
   "Content-Security-Policy": CSP,
 } as const;
 
@@ -194,19 +207,10 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 3. MCP プロキシへの CORS プリフライト（null-origin iframe から Authorization ヘッダー付き fetch が来る）
-  if (req.method === "OPTIONS" && pathname.startsWith("/proxy/mcp/")) {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version",
-      "Access-Control-Max-Age": "86400",
-    });
-    res.end();
-    return;
-  }
-
-  // 4. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
+  // 3. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
+  //    （MCP ダッシュボードは隔離 iframe = 不透明オリジンで動くため /proxy/mcp/ への呼び出しは
+  //     クロスオリジンになるが、その CORS プリフライト(OPTIONS)とACAO:null は mcpRoutes 側の
+  //     専用ルートが処理する。ここで特別扱いする必要はない。）
   try {
     const handled = await dispatchRoute(req, res, parsedUrl, () => getSessionUser(req));
     if (handled) return;
@@ -219,7 +223,7 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // 5. 未登録の /api/* は404、それ以外は静的ファイル（SPA）として配信
+  // 4. 未登録の /api/* は404、それ以外は静的ファイル（SPA）として配信
   if (pathname.startsWith("/api/")) {
     res.writeHead(404, { "Content-Type": "application/json", ...SECURITY_HEADERS });
     res.end(JSON.stringify({ success: false, message: "APIエンドポイントが見つかりません。" }));

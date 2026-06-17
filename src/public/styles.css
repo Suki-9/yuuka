@@ -168,8 +168,9 @@
 [data-theme="light"] #trend-line-path { stroke: var(--color-primary) !important; }
 
 [data-theme="light"] .urgent-item:hover { color: var(--color-primary); }
-[data-theme="light"] .bot-item-card:hover { border-bottom-color: var(--color-primary); }
-[data-theme="light"] .bot-item-card.default-bot { border-bottom-color: rgba(98, 0, 238, 0.3); }
+[data-theme="light"] .bot-item-card:hover { border-color: var(--color-primary); }
+[data-theme="light"] .bot-item-card.default-bot { border-color: rgba(98, 0, 238, 0.3); }
+[data-theme="light"] .bot-item-card { background: var(--surface-1dp); }
 [data-theme="light"] .sidebar { box-shadow: none; }
 
 [data-theme="light"] .modal { background-color: rgba(0, 0, 0, 0.5); }
@@ -404,6 +405,123 @@ button, input, select, textarea {
   transform: scale(1);
 }
 
+/* ── 全体管理オーバーレイ（Bot統合管理 / 管理者用設定）。Bot選択画面から開く独立フルスクリーンページ ── */
+.management-overlay-card {
+  width: min(1100px, 96vw);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface-1dp);
+  border: 1px solid var(--border-matte);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transform: scale(0.98);
+  transition: var(--transition-smooth);
+}
+.overlay.active .management-overlay-card {
+  transform: scale(1);
+}
+.management-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-divider);
+  flex-shrink: 0;
+}
+.management-overlay-header h1 {
+  font-size: 1.35rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.management-overlay-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+/* オーバーレイ内に移したセクションは常に表示（.tab-view の表示制御から外す） */
+.management-overlay-body > section {
+  display: block;
+}
+@media (max-width: 768px) {
+  .management-overlay-card {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+  .management-overlay-header {
+    padding: 12px 14px;
+  }
+  .management-overlay-body {
+    padding: 14px 12px;
+  }
+}
+
+/* ── Bot行の ⋮ オーバーフローメニュー（統合管理ページ） ── */
+.int-action-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  min-width: 190px;
+  background-color: var(--surface-2dp);
+  border: 1px solid var(--border-matte);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+.int-action-menu.open {
+  display: block;
+}
+.int-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-high);
+  cursor: pointer;
+  font-size: 0.83rem;
+}
+.int-menu-item:hover:not(:disabled) {
+  background-color: var(--surface-1dp);
+}
+.int-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.int-menu-danger {
+  color: #f87171;
+}
+/* ⋮ トグルは枠なしのテキストボタン（主ボタンと高さを揃える） */
+.int-menu-toggle {
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.int-menu-toggle:hover {
+  color: var(--text-high);
+  background-color: var(--surface-1dp);
+}
+
 .usage-content {
   max-height: 60vh;
   overflow-y: auto;
@@ -525,6 +643,39 @@ button, input, select, textarea {
   letter-spacing: 0.05em;
 }
 
+/* 折りたたみセクション（<details class="collapsible-group">）。
+   <summary> は .form-group label と同じ見た目にし、左にシェブロンを付ける。 */
+.collapsible-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none; /* Firefox のデフォルト三角を消す */
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.collapsible-group > summary::-webkit-details-marker {
+  display: none; /* WebKit/Blink のデフォルト三角を消す */
+}
+.collapsible-group > summary::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+.collapsible-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+.collapsible-group > summary:hover {
+  color: var(--text-primary);
+}
+
 /* Base input, select, textarea styling */
 input[type="text"],
 input[type="password"],
@@ -627,6 +778,13 @@ textarea:focus {
 
 .btn-secondary:hover {
   background-color: rgba(187, 134, 252, 0.08);
+}
+
+/* 小サイズボタン（多数の箇所で使われているが未定義だった＝フルサイズで不揃いになっていた）。 */
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
 }
 
 .btn-icon {
@@ -1825,7 +1983,10 @@ textarea:focus {
 }
 
 .wide-modal {
-  max-width: 600px;
+  /* MCP管理ダッシュボード等の埋め込みコンテンツ（内部 .container は760px幅想定）が窮屈に
+     ならないよう余裕を持たせる。狭幅ビューでは 94vw で端に貼り付かないよう余白を確保
+     （≤768px は下のメディアクエリで 100% に上書きされる）。 */
+  max-width: min(820px, 94vw);
 }
 
 .modal.active .modal-content {
@@ -2207,17 +2368,41 @@ textarea:focus {
     gap: 8px;
   }
 
-  /* Modal padding/width adjustments */
+  /* モバイル: モーダルを全画面化（外周の余白を無くし画面を覆う。余白は極力少なめ） */
   .modal {
-    padding: 16px;
+    padding: 0;
   }
 
   .modal-content {
     max-width: 100%;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    padding: 12px;
+    border: 0;
+    border-radius: 0;
   }
 
   .wide-modal {
     max-width: 100%;
+  }
+
+  /* MCP管理ダッシュボードは全画面モーダル内をiframeで縦いっぱいに埋める */
+  #modal-mcp-dashboard .modal-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #mcp-dashboard-container {
+    flex: 1 1 auto;
+    min-height: 0 !important;   /* index.html のインライン min-height:70vh を上書き */
+    border-radius: 0;
+  }
+
+  #mcp-dashboard-container > iframe {
+    height: 100% !important;    /* app.js のインライン height:75vh を上書き */
   }
 
   /* Theme options - allow wrapping & full width */
@@ -2434,93 +2619,224 @@ textarea:focus {
 }
 
 /* ==============================================================================
-   BOT SELECTION HUD (Discord Applications Dashboard)
+   HOME DASHBOARD (ログイン後 "/" ルート)
    ============================================================================== */
-.bot-selection-card {
-  background-color: transparent;
-  border: none;
-  width: 90%;
-  max-width: 860px;
-  padding: 32px 0;
-  text-align: left;
-  transform: scale(0.98);
-  transition: var(--transition-smooth);
-  box-shadow: none;
-}
 
-.overlay.active .bot-selection-card {
-  transform: scale(1);
-}
-
-.bot-selection-card .login-header {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--border-divider);
-  padding-bottom: 24px;
-}
-
-.bot-selection-card .login-header .logo-icon-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: rgba(187, 134, 252, 0.1);
-  color: var(--color-primary);
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-}
-
-.bot-selection-card .login-header h1 {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: var(--color-white);
-  margin-bottom: 4px;
-  letter-spacing: 0.5px;
-}
-
-.bot-selection-card .login-header p {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  margin-bottom: 0;
-}
-
-.bot-list-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-top: 24px;
-  max-height: 400px;
+/* オーバーレイをフルスクロール対応に */
+#bot-selection-overlay.overlay {
+  align-items: flex-start;
   overflow-y: auto;
   padding: 0;
 }
 
-.bot-item-card {
-  background-color: transparent;
-  border: none;
+.home-dashboard {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 28px 56px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.overlay.active .home-dashboard {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── ナビバー ── */
+.home-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 18px;
   border-bottom: 1px solid var(--border-divider);
-  border-radius: 0;
-  padding: 16px 12px;
+  margin-bottom: 36px;
+  gap: 12px;
+}
+
+.home-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.home-nav-logo {
+  font-size: 22px !important;
+  color: var(--color-primary);
+}
+
+.home-nav-title {
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-white);
+}
+
+.home-nav-subtitle {
+  font-size: 0.65rem;
+  font-family: var(--font-family-mono);
+  color: var(--text-secondary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-left: 1px solid var(--border-matte);
+  padding-left: 10px;
+  margin-left: 2px;
+}
+
+.home-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.home-nav-btn {
+  white-space: nowrap;
+}
+
+/* ── グリーティング ── */
+.home-hero {
+  margin-bottom: 32px;
+}
+
+.home-greeting-title {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--color-white);
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.home-greeting-title span {
+  color: var(--color-primary);
+}
+
+.home-greeting-sub {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+/* ── 統計カード行 ── */
+.home-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.home-stat-card {
+  background: var(--surface-1dp);
+  border: 1px solid var(--border-matte);
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s ease;
+}
+
+.home-stat-card:hover {
+  border-color: var(--border-focus);
+}
+
+.home-stat-label {
+  font-size: 0.68rem;
+  font-family: var(--font-family-mono);
+  color: var(--text-secondary);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.home-stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--color-white);
+  line-height: 1;
+}
+
+.home-stat-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-family: var(--font-family-mono);
+}
+
+.home-stat-card.stat-online .home-stat-value { color: #10b981; }
+.home-stat-card.stat-warning .home-stat-value { color: #f59e0b; }
+.home-stat-card.stat-accent .home-stat-value { color: var(--color-primary); }
+
+/* ── Botセクション ── */
+.home-section {
+  margin-top: 36px;
+}
+
+.home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.home-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-section-icon {
+  font-size: 18px !important;
+  color: var(--text-secondary);
+}
+
+.home-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+
+/* ── Bot カードグリッド ── */
+.bot-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.bot-item-card {
+  background: var(--surface-1dp);
+  border: 1px solid var(--border-matte);
+  border-radius: 12px;
+  padding: 18px;
   cursor: pointer;
   transition: var(--transition-smooth);
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 14px;
   position: relative;
   text-align: left;
 }
 
 .bot-item-card:hover {
-  background-color: var(--card-matte-hover);
-  border-bottom-color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: var(--card-matte-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.bot-item-card .bot-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .bot-item-card .bot-avatar {
-  background-color: var(--surface-1dp);
-  width: 48px;
-  height: 48px;
+  background-color: var(--surface-2dp);
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -2532,7 +2848,7 @@ textarea:focus {
 }
 
 .bot-item-card:hover .bot-avatar {
-  border-radius: 30%; /* Squircle avatar animation */
+  border-radius: 30%;
 }
 
 .bot-item-card .bot-avatar img {
@@ -2546,12 +2862,12 @@ textarea:focus {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .bot-item-card .bot-name {
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: var(--color-white);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2559,31 +2875,75 @@ textarea:focus {
 }
 
 .bot-item-card .bot-status {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
   font-family: var(--font-family-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.bot-item-card.default-bot {
-  border-bottom-color: rgba(187, 134, 252, 0.35);
+/* ステータスバー (カード下部) */
+.bot-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-matte);
 }
 
-.bot-item-card.default-bot:hover {
-  border-bottom-color: var(--color-primary);
+.bot-run-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-family: var(--font-family-mono);
+  color: var(--text-secondary);
+}
+
+.bot-run-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.bot-run-dot.dot-online {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.bot-run-dot.dot-connecting {
+  background: #f59e0b;
+}
+
+.bot-run-dot.dot-offline {
+  background: var(--text-secondary);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Bot list action buttons */
 .bot-item-actions {
   display: flex;
-  gap: 8px;
+  gap: 5px;
   flex-shrink: 0;
   align-items: center;
-  opacity: 0.5;
+  opacity: 0;
   transition: opacity 0.15s ease;
 }
 
 .bot-item-card:hover .bot-item-actions {
   opacity: 1;
+}
+
+.bot-item-card.default-bot {
+  border-color: rgba(187, 134, 252, 0.2);
 }
 
 /* Delete Bot Button */
@@ -3372,8 +3732,8 @@ textarea:focus {
 [data-theme="blue-archive"] #expenses-sparkline-path { stroke: var(--ba-cyan); }
 
 [data-theme="blue-archive"] .urgent-item:hover { color: var(--ba-cyan-hover); }
-[data-theme="blue-archive"] .bot-item-card:hover { border-bottom-color: var(--ba-cyan); }
-[data-theme="blue-archive"] .bot-item-card.default-bot { border-bottom-color: rgba(2, 211, 251, 0.3); }
+[data-theme="blue-archive"] .bot-item-card:hover { border-color: var(--ba-cyan); }
+[data-theme="blue-archive"] .bot-item-card.default-bot { border-color: rgba(2, 211, 251, 0.3); }
 [data-theme="blue-archive"] .sidebar { box-shadow: none; }
 
 /* ハードコードされた白系ホバーはライト背景では見えないため置き換え */
@@ -3628,6 +3988,60 @@ textarea:focus {
 .ba-preview .preview-card {
   background-color: #E7F0F7;
 }
+
+/* ==============================================================================
+   HOME DASHBOARD — レスポンシブ
+   ============================================================================== */
+@media (max-width: 860px) {
+  .home-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .home-nav-subtitle {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .home-dashboard {
+    padding: 0 16px 40px;
+  }
+  .home-greeting-title {
+    font-size: 1.35rem;
+  }
+  .home-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .home-nav-actions .home-nav-btn span.icon-button-left {
+    display: none;
+  }
+  .bot-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ライトテーマ対応 */
+[data-theme="light"] .home-stat-card {
+  background: var(--surface-1dp);
+}
+[data-theme="light"] .home-dashboard {
+  background: transparent;
+}
+
+/* BAテーマ対応 */
+[data-theme="blue-archive"] .home-stat-card {
+  background: #F2F7F8;
+  border-color: #DDE6ED;
+}
+[data-theme="blue-archive"] .home-greeting-title span {
+  color: var(--ba-cyan);
+}
+[data-theme="blue-archive"] .home-stat-card.stat-online .home-stat-value { color: #10b981; }
+[data-theme="blue-archive"] .home-stat-card.stat-accent .home-stat-value { color: var(--ba-cyan); }
+[data-theme="blue-archive"] .home-nav-logo { color: var(--ba-cyan); }
+[data-theme="blue-archive"] .bot-item-card { background: #F2F7F8; border-color: #DDE6ED; }
+[data-theme="blue-archive"] .bot-item-card:hover { background: #E7F0F7; }
+[data-theme="blue-archive"] .bot-card-footer { border-top-color: #DDE6ED; }
 
 .ba-preview .preview-card:first-child {
   background-color: #02D3FB;

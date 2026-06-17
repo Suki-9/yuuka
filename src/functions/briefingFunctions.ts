@@ -2,6 +2,7 @@ import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import cron from "node-cron";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { isLikelyPublicHttpUrl } from "../utils/ssrfGuard.js";
 import {
   getBriefingConfig,
   upsertBriefingConfig,
@@ -84,10 +85,9 @@ const handlers: FunctionModule["handlers"] = {
       return JSON.stringify({ success: false, message: "schedule_cron のcron式が不正です。" });
     }
     if (args.add_news_feed !== undefined) {
-      try {
-        new URL(String(args.add_news_feed));
-      } catch {
-        return JSON.stringify({ success: false, message: "add_news_feed のURL形式が不正です。" });
+      // SSRF対策: 内部/ローカル宛先や非http(s)スキームのフィードは拒否
+      if (!isLikelyPublicHttpUrl(String(args.add_news_feed))) {
+        return JSON.stringify({ success: false, message: "add_news_feed は http(s) の公開URLのみ指定できます（内部アドレスは不可）。" });
       }
     }
 

@@ -7,9 +7,6 @@ import {
   type BotRecord,
 } from "../../db/botRepo.js";
 import {
-  linkMcpServer,
-  unlinkMcpServer,
-  listLinkedMcpServerIds,
   addAllowedGuild,
   removeAllowedGuild,
   listAllowedGuilds,
@@ -30,7 +27,7 @@ import {
 import { getRateLimitSettings, RATE_LIMIT_DEFAULTS } from "../../services/botRateLimit.js";
 import { setSystemSetting } from "../../db/systemSettingsRepo.js";
 import { listPersonasForUser, listPublicPersonas, getPersonaById } from "../../db/personaRepo.js";
-import { listServers } from "../../db/mcpRepo.js";
+import { listServersGrantedToBot } from "../../db/mcpRepo.js";
 import { countBotDailyUsage } from "../../db/messageLogRepo.js";
 import { isAdmin } from "../../db/userRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
@@ -131,21 +128,13 @@ export const botAttributeRoutes: RouteDef[] = [
         .filter((p) => !ownIds.has(p.id))
         .map((p) => ({ id: p.id, name: `${p.name}（公開: ${p.owner_username}）`, scope: "public" as const }));
 
-      // MCPサーバー: owner自身の登録分（紐付け対象）+ システムレベル（常時利用可の表示用）
-      const linkedIds = new Set(listLinkedMcpServerIds(bot.id));
-      const ownServers = listServers(bot.user_id).map((s) => ({
+      // MCPサーバー: v5では当該Botに利用許可(bot_mcp_access)されたサーバー + システムレベル（常時利用可）。
+      // 登録・許可付与は統合管理ページで行うため、ここは読み取り表示のみ。
+      const grantedServers = listServersGrantedToBot(bot.id).map((s) => ({
         id: s.id,
         name: s.name,
         enabled: s.enabled === 1,
-        system: false,
-        linked: linkedIds.has(s.id),
-      }));
-      const systemServers = listServers(null).map((s) => ({
-        id: s.id,
-        name: s.name,
-        enabled: s.enabled === 1,
-        system: true,
-        linked: true, // システムレベルは常に利用可（要件 §4.5）
+        system: s.user_id === null,
       }));
 
       sendJson(ctx.res, 200, {
@@ -156,7 +145,7 @@ export const botAttributeRoutes: RouteDef[] = [
         has_discord_token: !!(bot.discord_token_encrypted && bot.discord_token_iv && bot.discord_token_tag),
         persona_id: bot.persona_id,
         personas: [...ownPersonas, ...publicPersonas],
-        mcp_servers: [...ownServers, ...systemServers],
+        mcp_servers: grantedServers,
         guilds: listAllowedGuilds(bot.id),
         members: listBotMembers(bot.id),
         usage: countBotDailyUsage(bot.id, 14),
@@ -228,44 +217,6 @@ export const botAttributeRoutes: RouteDef[] = [
       sendJson(ctx.res, 200, {
         success: ok,
         message: ok ? (personaId === null ? "ペルソナ設定を解除しました（デフォルトに戻ります）。" : "Botのペルソナを設定しました。") : "ペルソナの設定に失敗しました。",
-      });
-    },
-  },
-
-  // ── MCPサーバー紐付け（owner 自身の登録サーバーのみ §4.5） ──
-  {
-    method: "POST",
-    path: "/api/bots/assistant/mcp-links",
-    auth: "user",
-    async handler(ctx) {
-      const bot = requireOwnedBot(ctx);
-      if (!bot) return;
-
-      const mcpServerId = Number(ctx.body.mcpServerId);
-      const linked = ctx.body.linked === true;
-      if (!Number.isInteger(mcpServerId)) {
-        return sendJson(ctx.res, 400, { success: false, message: "mcpServerId が不正です。" });
-      }
-
-      const { getServerById } = await import("../../db/mcpRepo.js");
-      const server = getServerById(mcpServerId);
-      // 紐付けできるのは owner 自身が登録したサーバーのみ（システムレベルは常時利用可のため紐付け不要）
-      if (!server || server.user_id !== bot.user_id) {
-        return sendJson(ctx.res, 403, {
-          success: false,
-          message: "Bot作成者自身が登録したMCPサーバーのみ紐付けできます。",
-        });
-      }
-
-      const ok = linked ? linkMcpServer(bot.id, mcpServerId) : unlinkMcpServer(bot.id, mcpServerId);
-      addAuditLog(ctx.user!.discordId, "bot.mcp_link_change", bot.id, `${mcpServerId}:${linked ? "link" : "unlink"}`);
-      sendJson(ctx.res, 200, {
-        success: true,
-        message: ok
-          ? linked
-            ? `MCPサーバー「${server.name}」をBotへ紐付けました。`
-            : `MCPサーバー「${server.name}」の紐付けを解除しました。`
-          : "変更はありませんでした。",
       });
     },
   },
@@ -360,11 +311,20 @@ export const botAttributeRoutes: RouteDef[] = [
       if (!isSnowflake(guildId)) {
         return sendJson(ctx.res, 400, { success: false, message: "guildId が必要です。" });
       }
+      // バリデーションはハンドラ内で明示的に行いユーザー向けメッセージを返す。
+      // 想定外（DB/IO）の例外はサーバーログに留め、内部詳細をクライアントへ漏らさない。
+      if (content.length > BOT_NOTE_MAX_LENGTH) {
+        return sendJson(ctx.res, 400, {
+          success: false,
+          message: `共有ノートは${BOT_NOTE_MAX_LENGTH.toLocaleString()}文字以内です（現在: ${content.length.toLocaleString()}文字）`,
+        });
+      }
       try {
         setBotGuildNote(bot.id, guildId, content);
         sendJson(ctx.res, 200, { success: true, message: "共有ノートを保存しました。" });
       } catch (err) {
-        sendJson(ctx.res, 400, { success: false, message: (err as Error).message });
+        console.error("[guild-note] 保存エラー:", err);
+        sendJson(ctx.res, 500, { success: false, message: "共有ノートの保存に失敗しました。" });
       }
     },
   },

@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { spawn, ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
+import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 
 const SCREENSHOT_DIR = path.resolve(process.cwd(), "data/screenshots");
 const DEBUG_SCRAPES_DIR = path.resolve(process.cwd(), "data/debug_scrapes");
@@ -538,6 +539,8 @@ async function extractPageMarkdown(page: Page, isInteractive: boolean): Promise<
  * ヘッドレスブラウザでウェブページを開き、不要なタグを削除して可視部分をMarkdown形式にパースして取得する
  */
 export async function fetchCleanPageContent(url: string): Promise<{ title: string; markdown: string }> {
+  // SSRF対策: 内部/予約レンジ・非http(s)スキームへの取得を拒否
+  await assertSafeOutboundUrl(url);
   let result: { title: string; markdown: string } | null = null;
 
   // まず Rust クローラーによる高速フェッチを試みる
@@ -631,6 +634,8 @@ export async function fetchCleanPageContent(url: string): Promise<{ title: strin
  * @returns 保存された画像ファイルの相対パス
  */
 export async function takePageScreenshot(url: string, filename: string = `screenshot_${Date.now()}.png`): Promise<string> {
+  // SSRF対策: 内部/予約レンジ・非http(s)スキームへの取得を拒否
+  await assertSafeOutboundUrl(url);
   const safeFilename = path.basename(filename);
   const savePath = path.join(SCREENSHOT_DIR, safeFilename);
 
@@ -798,6 +803,8 @@ export async function annotateInteractiveElements(page: Page): Promise<void> {
  * 永続ブラウザで指定URLを開く
  */
 export async function browserInteractiveOpen(userId: string, url: string): Promise<{ success: boolean; title: string; url: string; message: string }> {
+  // SSRF対策: 内部/予約レンジ・非http(s)スキームへの取得を拒否
+  await assertSafeOutboundUrl(url);
   const { page } = await getInteractiveBrowser(userId);
   try {
     console.log(`[Interactive Browser] Navigating to: ${url}`);

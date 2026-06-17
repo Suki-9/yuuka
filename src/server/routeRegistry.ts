@@ -1,9 +1,75 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RouteDef, RouteRequestCtx, SessionUser } from "../types/contracts.js";
 import { sendJson } from "../types/contracts.js";
+import { config } from "../config.js";
 
 // 登録済みルート（モジュール起動時に registerRoutes で追加される）
 const routes: RouteDef[] = [];
+
+/** リクエスト元オリジン（Origin/Referer）が自サイトと同一かを判定する（CSRF対策）。 */
+function isAllowedHost(hostname: string): boolean {
+  if (config.baseUrl) {
+    try {
+      return hostname === new URL(config.baseUrl).hostname;
+    } catch {
+      return false;
+    }
+  }
+  // baseUrl 未設定（ローカル開発）時は localhost / 127.0.0.1 を許可
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+/**
+ * 認証必須の状態変更リクエスト（POST/DELETE）に対するCSRF防御。
+ * Cookie の SameSite=Lax に加え、Origin/Referer の同一サイト検証と
+ * Sec-Fetch-Site: cross-site の明示拒否を行う（多層防御）。
+ * 判定不能（ヘッダ無し）の場合は SameSite=Lax に委ねて許可する。
+ */
+function isCrossSiteStateChange(req: IncomingMessage): boolean {
+  const secFetchSite = req.headers["sec-fetch-site"];
+  if (typeof secFetchSite === "string" && secFetchSite === "cross-site") {
+    return true;
+  }
+  const origin = req.headers.origin;
+  if (origin && origin !== "null") {
+    try {
+      return !isAllowedHost(new URL(origin).hostname);
+    } catch {
+      return true;
+    }
+  }
+  const referer = req.headers.referer;
+  if (referer) {
+    try {
+      return !isAllowedHost(new URL(referer).hostname);
+    } catch {
+      return true;
+    }
+  }
+  // Origin/Referer 共に無い場合は判定不能 → SameSite=Lax に委ねる
+  return false;
+}
+
+/**
+ * パースしたJSONボディからプロトタイプ汚染に使われ得るキーを除去する。
+ * （__proto__ / constructor / prototype をネスト含め削除する）
+ */
+function stripProtoKeys(value: unknown, depth = 0): void {
+  if (depth > 6 || value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) stripProtoKeys(v, depth + 1);
+    return;
+  }
+  const obj = value as Record<string, unknown>;
+  for (const key of ["__proto__", "constructor", "prototype"]) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      delete obj[key];
+    }
+  }
+  for (const k of Object.keys(obj)) {
+    stripProtoKeys(obj[k], depth + 1);
+  }
+}
 
 /** ルートモジュールの RouteDef[] をレジストリへ登録する */
 export function registerRoutes(defs: RouteDef[]): void {
@@ -68,6 +134,15 @@ export async function dispatchRoute(
     const params = matchPath(route.path, url.pathname);
     if (params === null) continue;
 
+    // CSRF対策: 認証必須の状態変更（POST/DELETE）はクロスサイト元を拒否する。
+    // 外部Webhook受信など auth:"none" のルートは対象外（クロスオリジンが正当なため）。
+    if ((method === "POST" || method === "DELETE") && route.auth !== "none") {
+      if (isCrossSiteStateChange(req)) {
+        sendJson(res, 403, { success: false, message: "クロスサイトからのリクエストは許可されていません。" });
+        return true;
+      }
+    }
+
     // 認可チェック
     let user: SessionUser | null = null;
     if (route.auth !== "none") {
@@ -98,7 +173,11 @@ export async function dispatchRoute(
         if (rawBody.length > 0) {
           try {
             const parsed = JSON.parse(rawBody.toString("utf-8"));
-            if (parsed && typeof parsed === "object") body = parsed as Record<string, unknown>;
+            if (parsed && typeof parsed === "object") {
+              // プロトタイプ汚染対策: 危険キーを除去してからハンドラへ渡す
+              stripProtoKeys(parsed);
+              body = parsed as Record<string, unknown>;
+            }
           } catch {
             // JSONでないボディ（Webhookの生ペイロード等）は rawBody のみ提供
           }

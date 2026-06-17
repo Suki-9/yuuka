@@ -103,10 +103,15 @@ export const webhookRoutes: RouteDef[] = [
       if (!name) {
         return sendJson(ctx.res, 400, { success: false, message: "name は必須です。" });
       }
+      // セキュリティ: 署名検証を必須化するため、シークレットを必須にする（未署名受信を拒否）
+      const secret = typeof ctx.body.secret === "string" ? ctx.body.secret.trim() : "";
+      if (secret.length < 16) {
+        return sendJson(ctx.res, 400, { success: false, message: "Webhookシークレット（16文字以上）は必須です。受信は HMAC-SHA256 署名で検証されます。" });
+      }
 
       const endpoint = createEndpoint(ctx.user!.discordId, {
         name,
-        secret: typeof ctx.body.secret === "string" ? ctx.body.secret : undefined,
+        secret,
         notifyTargetType: ctx.body.notifyTargetType === "channel" ? "channel" : "dm",
         notifyTargetId:
           typeof ctx.body.notifyTargetId === "string" && ctx.body.notifyTargetId.trim()
@@ -136,10 +141,17 @@ export const webhookRoutes: RouteDef[] = [
       if (!Number.isInteger(id)) {
         return sendJson(ctx.res, 400, { success: false, message: "id は必須です。" });
       }
+      // セキュリティ: シークレットを更新する場合は16文字以上を要求し、空へのクリアは許可しない
+      if (ctx.body.secret !== undefined) {
+        const s = typeof ctx.body.secret === "string" ? ctx.body.secret.trim() : "";
+        if (s.length < 16) {
+          return sendJson(ctx.res, 400, { success: false, message: "Webhookシークレットは16文字以上が必要です（署名検証のため空にはできません）。" });
+        }
+      }
 
       const ok = updateEndpoint(ctx.user!.discordId, id, {
         ...(typeof ctx.body.name === "string" && ctx.body.name.trim() ? { name: ctx.body.name } : {}),
-        ...(ctx.body.secret !== undefined ? { secret: typeof ctx.body.secret === "string" ? ctx.body.secret : null } : {}),
+        ...(ctx.body.secret !== undefined ? { secret: typeof ctx.body.secret === "string" ? ctx.body.secret.trim() : null } : {}),
         ...(ctx.body.notifyTargetType !== undefined
           ? { notifyTargetType: ctx.body.notifyTargetType === "channel" ? ("channel" as const) : ("dm" as const) }
           : {}),

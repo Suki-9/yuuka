@@ -1,13 +1,15 @@
 import { getDb } from "./database.js";
 
 /**
- * スキーマバージョン2（仕様書 v0.6.1 準拠）への全面再構築マイグレーション。
+ * スキーマバージョン4（仕様書 v0.6.1 + Bot別分離 + MCPサーバー (user_id, bot_id) スコープ化）。
  *
  * データ分離の原則: ユーザーデータは全て user_id (DiscordユーザーID) を必須スコープとする。
  * 旧スキーマ（bot_id スコープ）のデータは破棄してよい方針のため、
  * バージョン不一致を検出した場合は旧テーブルを DROP して作り直す。
+ *
+ * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "3";
+const SCHEMA_VERSION = "7";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -167,6 +169,317 @@ function migrateToBotScopedData(db: ReturnType<typeof getDb>): void {
   }
 }
 
+/**
+ * v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行する（一回限り・冪等）。
+ * - mcp_servers に bot_id 列を追加し、bot_mcp_links の紐付けを元に既存行をバックフィルする。
+ * - bot_mcp_links テーブルは廃止し、バックフィル完了後に DROP する。
+ * - 新規DB（mcp_servers 作成時から bot_id を含む）ではこのブロック全体をスキップする。
+ */
+function migrateMcpToBotScope(db: ReturnType<typeof getDb>): void {
+  // bot_id 列が既に存在する場合（新規DB or 移行済み）はスキップ
+  if (hasColumn(db, "mcp_servers", "bot_id")) return;
+
+  console.log("🔧 mcp_servers を (user_id, bot_id) スコープへ移行しています...");
+
+  // 1. bot_id 列を追加（既存行は DEFAULT 'system_default'）
+  db.exec(`ALTER TABLE mcp_servers ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'system_default'`);
+
+  // 2. bot_mcp_links が存在すれば、紐付け情報を使ってバックフィルする
+  const linkTableExists = (db.pragma("table_info(bot_mcp_links)") as { name: string }[]).length > 0;
+  if (linkTableExists) {
+    // 各 mcp_server について、紐付く bot を created_at 昇順で取得する
+    const servers = db
+      .prepare("SELECT * FROM mcp_servers ORDER BY id ASC")
+      .all() as Array<{
+        id: number;
+        user_id: string | null;
+        bot_id: string;
+        name: string;
+        endpoint_url: string;
+        auth_credential_encrypted: string | null;
+        auth_credential_iv: string | null;
+        auth_credential_tag: string | null;
+        tools_cache: string;
+        tools_cache_updated: string | null;
+        requires_confirmation: number;
+        enabled: number;
+        created_at: string;
+      }>;
+
+    for (const server of servers) {
+      // user_id IS NULL のシステムレベル行は bot_id='system_default' のままでよい
+      if (server.user_id === null) continue;
+
+      const links = db
+        .prepare(
+          "SELECT bot_id FROM bot_mcp_links WHERE mcp_server_id = ? ORDER BY created_at ASC"
+        )
+        .all(server.id) as { bot_id: string }[];
+
+      if (links.length === 0) {
+        // 未紐付け: user_id で分離されるため 'system_default' のまま（後方互換）
+        continue;
+      }
+
+      // 最初の紐付けBot: 当該行を UPDATE で bot_id に書き換える
+      db.prepare("UPDATE mcp_servers SET bot_id = ? WHERE id = ?").run(links[0].bot_id, server.id);
+
+      // 2件目以降の紐付けBot: 全列コピーして INSERT し、新しい行の bot_id をそのBotにする
+      for (let i = 1; i < links.length; i++) {
+        db.prepare(
+          `INSERT INTO mcp_servers
+           (user_id, bot_id, name, endpoint_url, auth_credential_encrypted, auth_credential_iv,
+            auth_credential_tag, tools_cache, tools_cache_updated, requires_confirmation, enabled, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          server.user_id,
+          links[i].bot_id,
+          server.name,
+          server.endpoint_url,
+          server.auth_credential_encrypted,
+          server.auth_credential_iv,
+          server.auth_credential_tag,
+          server.tools_cache,
+          server.tools_cache_updated,
+          server.requires_confirmation,
+          server.enabled,
+          server.created_at
+        );
+      }
+    }
+
+    // 3. bot_mcp_links テーブルを廃止する
+    db.exec("DROP TABLE IF EXISTS bot_mcp_links");
+    console.log("✅ bot_mcp_links テーブルを廃止しました（v4 移行完了）。");
+  }
+
+  // インデックスを追加（IF NOT EXISTS のため冪等）
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_mcp_servers_user_bot ON mcp_servers(user_id, bot_id);
+  `);
+
+  console.log("✅ mcp_servers の (user_id, bot_id) スコープ移行が完了しました。");
+}
+
+/**
+ * v5: owner単位の統合管理（Bot横断）へ向けたスキーマ追加。
+ * - リソース（認証情報 / MCP / Google）は owner（user_id）所有のまま、使わせる Bot を「許可リスト」で選ぶ共有モデルへ。
+ * - Google は複数アカウント連携可能（user_google_accounts）＋ Bot ごとに使用アカウントを選択（bot_google_account）。
+ *
+ * テーブル作成は常に冪等（IF NOT EXISTS）。データのバックフィルは marker（v5_grants_backfilled）で一度きりに保護し、
+ * 途中クラッシュでの二重投入を避けるためトランザクションで包む。既存挙動を壊さないよう、既存リソースは
+ * 既定で owner の Bot へ許可（grant）する。
+ */
+function migrateOwnerResourceGrants(db: ReturnType<typeof getDb>): void {
+  // ── 1. テーブル作成（冪等） ──
+  db.exec(`
+    -- MCP 許可リスト（mcp_servers.bot_id の「占有」意味を退役させ、owner所有＋Bot許可へ）
+    -- v7: owner_id 次元を追加（クロステナント露出の修正）。許可を付与した owner に紐付け、
+    --     共有秘書(system_default)では発話者所有分のみがランタイムで解決される。
+    CREATE TABLE IF NOT EXISTS bot_mcp_access (
+      bot_id        TEXT    NOT NULL,
+      owner_id      TEXT    NOT NULL,
+      mcp_server_id INTEGER NOT NULL,
+      created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (bot_id, owner_id, mcp_server_id),
+      FOREIGN KEY (bot_id)        REFERENCES bots(id)          ON DELETE CASCADE,
+      FOREIGN KEY (owner_id)      REFERENCES users(discord_id) ON DELETE CASCADE,
+      FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id)   ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_server    ON bot_mcp_access(mcp_server_id);
+    CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_bot_owner ON bot_mcp_access(bot_id, owner_id);
+
+    -- 認証情報 許可リスト（credentials は (user_id, service_name)。owner_id を非正規化保持）
+    CREATE TABLE IF NOT EXISTS bot_credential_access (
+      bot_id       TEXT NOT NULL,
+      owner_id     TEXT NOT NULL,
+      service_name TEXT NOT NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (bot_id, owner_id, service_name),
+      FOREIGN KEY (bot_id)   REFERENCES bots(id)          ON DELETE CASCADE,
+      FOREIGN KEY (owner_id) REFERENCES users(discord_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bot_cred_access_bot ON bot_credential_access(bot_id);
+
+    -- Google 複数アカウント（owner 単位）。リフレッシュトークンは既存と同じ「システム鍵」で暗号化。
+    CREATE TABLE IF NOT EXISTS user_google_accounts (
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id                 TEXT NOT NULL,
+      email                   TEXT,
+      refresh_token_encrypted TEXT NOT NULL,
+      refresh_token_iv        TEXT NOT NULL,
+      refresh_token_tag       TEXT NOT NULL,
+      calendar_id             TEXT,
+      calendars               TEXT NOT NULL DEFAULT '[]',
+      is_primary              INTEGER NOT NULL DEFAULT 0,
+      created_at              TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at              TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      UNIQUE(user_id, email),
+      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_google_accounts_user ON user_google_accounts(user_id);
+
+    -- Bot ごとに使う Google アカウント。
+    --   行なし          = 未設定（ランタイムで owner の primary へフォールバック）
+    --   google_account_id IS NULL = 「連携なし」（明示的に Google を使わせない）
+    --   google_account_id = N      = そのアカウントを使う
+    CREATE TABLE IF NOT EXISTS bot_google_account (
+      bot_id            TEXT    NOT NULL,
+      google_account_id INTEGER,
+      created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (bot_id),
+      FOREIGN KEY (bot_id)            REFERENCES bots(id)                  ON DELETE CASCADE,
+      FOREIGN KEY (google_account_id) REFERENCES user_google_accounts(id) ON DELETE CASCADE
+    );
+  `);
+
+  // ── 2. バックフィル（marker で一度きり・トランザクション） ──
+  const marker = db
+    .prepare("SELECT value FROM system_settings WHERE key = 'v5_grants_backfilled'")
+    .get() as { value: string } | undefined;
+  if (marker) return;
+
+  const backfill = db.transaction(() => {
+    // (a) MCP: 既存 mcp_servers の bot_id を許可へ変換（owner所有行のみ・存在する bot のみ）。
+    //     owner_id は当該サーバーの所有者(s.user_id)。v7 で owner スコープへ揃えた。
+    db.exec(`
+      INSERT OR IGNORE INTO bot_mcp_access (bot_id, owner_id, mcp_server_id)
+      SELECT s.bot_id, s.user_id, s.id
+        FROM mcp_servers s
+       WHERE s.user_id IS NOT NULL
+         AND s.bot_id IN (SELECT id FROM bots)
+    `);
+
+    // (b) 認証情報: 既存の各 credential を、その owner の全Bot＋共有の system_default へ許可（現挙動を維持）。
+    //     system_default が user X を秘書として応対する際は X の認証情報を使うため、(system_default, X, svc) を付与。
+    db.exec(`
+      INSERT OR IGNORE INTO bot_credential_access (bot_id, owner_id, service_name)
+      SELECT b.id, c.user_id, c.service_name
+        FROM credentials c
+        JOIN bots b ON (b.user_id = c.user_id OR b.id = 'system_default')
+    `);
+
+    // (c) Google: 既存の単一アカウント（users 行）を user_google_accounts(primary) へ移行。
+    //     bot_google_account は backfill しない（未設定時は owner primary へフォールバック＝現挙動維持）。
+    db.exec(`
+      INSERT INTO user_google_accounts
+        (user_id, email, refresh_token_encrypted, refresh_token_iv, refresh_token_tag, calendar_id, calendars, is_primary)
+      SELECT discord_id, google_calendar_id,
+             google_refresh_token_encrypted, google_refresh_token_iv, google_refresh_token_tag,
+             google_calendar_id, COALESCE(google_calendars, '[]'), 1
+        FROM users
+       WHERE google_refresh_token_encrypted IS NOT NULL
+         AND discord_id NOT IN (SELECT user_id FROM user_google_accounts)
+    `);
+
+    db.prepare(
+      `INSERT INTO system_settings (key, value) VALUES ('v5_grants_backfilled', '1')
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now', 'localtime')`
+    ).run();
+  });
+  backfill();
+  console.log("✅ v5: owner単位リソース許可（MCP/認証情報/Google）のバックフィルが完了しました。");
+}
+
+/**
+ * v7: bot_mcp_access に owner_id 次元を追加する（クロステナント権限昇格の修正）。
+ *
+ * 旧 bot_mcp_access は (bot_id, mcp_server_id) のみをキーとしていたため、共有秘書
+ * (system_default) に対して任意のユーザーが自分のMCPサーバーを許可すると、その owner の
+ * 認証情報・ツールが「全ユーザー」の会話へ注入されてしまう（クロステナント露出）。
+ * これを bot_credential_access と同じ owner スコープ（bot_id, owner_id, service_name 相当）へ
+ * 揃え、許可を「付与した owner」に紐付ける。ランタイムは system_default では発話者所有分＋
+ * システムレベル(user_id IS NULL)のみを解決する。
+ *
+ * SQLite は PRIMARY KEY をその場で変更できないため、v2テーブルを作って入れ替える。冪等。
+ */
+function migrateMcpAccessOwnerScope(db: ReturnType<typeof getDb>): void {
+  // 既に owner_id 列があれば移行済み（新規DBは下記 CREATE 定義で最初から owner_id を含む）。
+  const cols = db.pragma("table_info(bot_mcp_access)") as { name: string }[];
+  if (cols.length === 0 || cols.some((c) => c.name === "owner_id")) return;
+
+  console.log("🔧 bot_mcp_access に owner_id 次元を追加します（クロステナント露出の修正）...");
+  db.pragma("foreign_keys = OFF");
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE bot_mcp_access_v2 (
+        bot_id        TEXT    NOT NULL,
+        owner_id      TEXT    NOT NULL,
+        mcp_server_id INTEGER NOT NULL,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        PRIMARY KEY (bot_id, owner_id, mcp_server_id),
+        FOREIGN KEY (bot_id)        REFERENCES bots(id)          ON DELETE CASCADE,
+        FOREIGN KEY (owner_id)      REFERENCES users(discord_id) ON DELETE CASCADE,
+        FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id)   ON DELETE CASCADE
+      );
+    `);
+
+    // 旧行をバックフィル。owner_id は許可を付与した owner とみなす:
+    //   1) 当該MCPサーバーの所有者 (mcp_servers.user_id)
+    //   2) システムレベルサーバー(user_id IS NULL)は per-user owner が無いため、Botの owner
+    //      (bots.user_id) で代用する。
+    // owner_id が解決できない行（システムサーバー × system_default 等で bots.user_id も無い）は
+    // 取り込まない。システムサーバーは user_id IS NULL として全Bot常時利用可のため、許可行が
+    // 無くてもランタイムで解決でき、欠落しても挙動は変わらない。NOT NULL 制約違反も避けられる。
+    db.exec(`
+      INSERT OR IGNORE INTO bot_mcp_access_v2 (bot_id, owner_id, mcp_server_id, created_at)
+      SELECT a.bot_id,
+             COALESCE(
+               (SELECT s.user_id FROM mcp_servers s WHERE s.id = a.mcp_server_id),
+               (SELECT b.user_id FROM bots b        WHERE b.id = a.bot_id)
+             ) AS owner_id,
+             a.mcp_server_id,
+             a.created_at
+        FROM bot_mcp_access a
+       WHERE COALESCE(
+               (SELECT s.user_id FROM mcp_servers s WHERE s.id = a.mcp_server_id),
+               (SELECT b.user_id FROM bots b        WHERE b.id = a.bot_id)
+             ) IS NOT NULL
+    `);
+
+    db.exec(`
+      DROP TABLE bot_mcp_access;
+      ALTER TABLE bot_mcp_access_v2 RENAME TO bot_mcp_access;
+      CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_server     ON bot_mcp_access(mcp_server_id);
+      CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_bot_owner  ON bot_mcp_access(bot_id, owner_id);
+    `);
+  });
+  tx();
+  db.pragma("foreign_keys = ON");
+  console.log("✅ bot_mcp_access を owner スコープへ移行しました（v7）。");
+}
+
+/**
+ * v6: bot_google_account.google_account_id を NULL 許可へ再構築する（「連携なし」表現のため）。
+ * v5 で NOT NULL で作られた既存DBのみ対象。新規DBは v5 定義で既に nullable のためスキップ。冪等。
+ */
+function migrateBotGoogleAccountNullable(db: ReturnType<typeof getDb>): void {
+  const cols = db.pragma("table_info(bot_google_account)") as { name: string; notnull: number }[];
+  const col = cols.find((c) => c.name === "google_account_id");
+  if (!col || col.notnull === 0) return; // テーブル無し or 既に nullable
+
+  console.log("🔧 bot_google_account.google_account_id を NULL 許可へ再構築します（連携なし表現のため）...");
+  db.pragma("foreign_keys = OFF");
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE bot_google_account_new (
+        bot_id            TEXT    NOT NULL PRIMARY KEY,
+        google_account_id INTEGER,
+        created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (bot_id)            REFERENCES bots(id)                  ON DELETE CASCADE,
+        FOREIGN KEY (google_account_id) REFERENCES user_google_accounts(id) ON DELETE CASCADE
+      );
+      INSERT INTO bot_google_account_new (bot_id, google_account_id, created_at)
+        SELECT bot_id, google_account_id, created_at FROM bot_google_account;
+      DROP TABLE bot_google_account;
+      ALTER TABLE bot_google_account_new RENAME TO bot_google_account;
+    `);
+  });
+  tx();
+  db.pragma("foreign_keys = ON");
+  console.log("✅ bot_google_account を NULL 許可へ再構築しました。");
+}
+
 function getCurrentSchemaVersion(db: ReturnType<typeof getDb>): string {
   try {
     const row = db
@@ -312,19 +625,8 @@ export async function runMigrations(): Promise<void> {
   ]);
 
   // ─── Bot属性 関連テーブル（bot_attributes_requirements.md §5） ──────────────
+  // 注意: bot_mcp_links テーブルは v4 で廃止。MCPサーバーは (user_id, bot_id) 複合スコープへ移行。
   db.exec(`
-    -- BotとMCPサーバーの紐付け（要件 §4.5: owner所有サーバーのみ。検証はアプリ層）
-    CREATE TABLE IF NOT EXISTS bot_mcp_links (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bot_id TEXT NOT NULL,
-      mcp_server_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      UNIQUE(bot_id, mcp_server_id),
-      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
-      FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_bot_mcp_links_bot ON bot_mcp_links(bot_id);
-
     -- 個人ノート（要件 §4.6.2: bot_id × ユーザー単位。context_notes は秘書用に現状維持）
     -- データ分離原則（architecture_v2.md §0-1）の正式な例外パターン: bot_id × user_id 複合スコープ。
     -- user_id はWebアカウント未登録のDiscordユーザーIDも可のため users へのFKは張らない。
@@ -767,6 +1069,7 @@ export async function runMigrations(): Promise<void> {
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT,                            -- NULL = システムレベル登録（Adminのみ）
+      bot_id TEXT NOT NULL DEFAULT 'system_default', -- (user_id, bot_id) 複合スコープ（§4.5）
       name TEXT NOT NULL,
       endpoint_url TEXT NOT NULL,
       auth_credential_encrypted TEXT,
@@ -781,6 +1084,10 @@ export async function runMigrations(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_mcp_servers_user ON mcp_servers(user_id);
   `);
+  // 注意: idx_mcp_servers_user_bot（bot_id 複合インデックス）はここでは作らない。
+  // 既存DBでは CREATE TABLE IF NOT EXISTS が no-op となり bot_id 列がまだ無く、
+  // インデックス作成が "no such column: bot_id" で失敗するため。bot_id 列の存在が保証される
+  // migrateMcpToBotScope(db) の後（下記）でまとめて作成する。
 
   // ─── 監査ログ（§6.3.3, §5.3） ────────────────────────────────────────────
   db.exec(`
@@ -812,6 +1119,28 @@ export async function runMigrations(): Promise<void> {
   // 既存行は bot_id = 'system_default'（早瀬ユウカ）に帰属させる。
   // 一意制約を含まないテーブルは列追加のみ。PK/UNIQUE に user_id を含むテーブルは再構築する。
   migrateToBotScopedData(db);
+
+  // ─── v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行（bot_mcp_links廃止） ──
+  // 新規DBでは mcp_servers 作成時から bot_id を含むためスキップされる。
+  migrateMcpToBotScope(db);
+
+  // bot_id 列の存在が保証された後で複合インデックスを作成する（新規DB・既存DBの両方を網羅）。
+  // 新規DB: CREATE TABLE で bot_id 作成済み。既存DB: 直前の migrateMcpToBotScope が ALTER で追加済み。
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mcp_servers_user_bot ON mcp_servers(user_id, bot_id)");
+
+  // ─── v7: bot_mcp_access に owner_id 次元を追加（クロステナント露出の修正） ──
+  // 既存DB（旧 (bot_id, mcp_server_id) テーブル）に owner_id を先に追加しておく必要があるため、
+  // v5 の migrateOwnerResourceGrants（owner_id を前提とするインデックス・バックフィルを行う）より
+  // 前に実行する。新規DBでは bot_mcp_access 未作成のため v7 は早期 return し、v5 の CREATE TABLE が
+  // 最初から owner_id 付きで作成する。
+  migrateMcpAccessOwnerScope(db);
+
+  // ─── v5: owner単位の統合管理（リソース許可リスト共有＋Google複数アカウント） ──
+  // mcp_servers.bot_id が存在する前提でバックフィルするため、上の v4 ブロックより後に呼ぶ。
+  migrateOwnerResourceGrants(db);
+
+  // ─── v6: bot_google_account を NULL 許可へ（「連携なし」表現のため） ──
+  migrateBotGoogleAccountNullable(db);
 
   // スキーマバージョンを記録
   db.prepare(

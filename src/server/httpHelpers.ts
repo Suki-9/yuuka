@@ -35,10 +35,39 @@ export function parseCookies(cookieHeader?: string): Record<string, string> {
   return list;
 }
 
+/** HTTPS本番デプロイか（BASE_URL が https）。Cookieのハードニング判定に使う。 */
+function isHttpsDeployment(): boolean {
+  return !!config.baseUrl && config.baseUrl.toLowerCase().startsWith("https://");
+}
+
 /** リクエストからセッショントークンを取り出す */
 export function getSessionToken(req: IncomingMessage): string | null {
   const cookies = parseCookies(req.headers.cookie);
+  // HTTPS本番では Secure な __Host- 付きCookieのみを受理し、非Secure名は無視する
+  if (isHttpsDeployment()) {
+    return cookies["__Host-yuuka-session"] || null;
+  }
   return cookies["__Host-yuuka-session"] || cookies["yuuka-session"] || null;
+}
+
+/**
+ * クライアントの実IPを取得する（レート制限等の識別に使用）。
+ * 直前のpeerが config.trustedProxies に含まれる場合のみ X-Forwarded-For を信頼し、
+ * 右端（直近プロキシが付与した側）から最初の「信頼プロキシでない」アドレスを採用する。
+ * 信頼プロキシ未設定時は socket.remoteAddress のみを信頼する（XFFは攻撃者が偽装可能なため）。
+ */
+export function getClientIp(req: IncomingMessage): string {
+  const peer = req.socket.remoteAddress || "unknown";
+  if (config.trustedProxies.length > 0 && config.trustedProxies.includes(peer)) {
+    const xff = req.headers["x-forwarded-for"];
+    if (typeof xff === "string" && xff.trim()) {
+      const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (!config.trustedProxies.includes(parts[i])) return parts[i];
+      }
+    }
+  }
+  return peer;
 }
 
 /**
@@ -51,7 +80,9 @@ export function setSessionCookie(
   token: string,
   maxAge?: number
 ): void {
-  const isHttps = checkHttps(req);
+  // Cookieのハードニングはリクエスト毎の推定ではなくデプロイ設定で決める。
+  // BASE_URL が https の本番では、当該リクエストの proto 検出に関わらず常に Secure + __Host- を付与する。
+  const isHttps = isHttpsDeployment() || checkHttps(req);
   const name = isHttps ? "__Host-yuuka-session" : "yuuka-session";
   const secure = isHttps ? "; Secure" : "";
   const expires =

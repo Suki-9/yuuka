@@ -247,7 +247,7 @@ const MODULE_CAPABILITY_MAP: Array<{ module: FunctionModule; cap: "core" | BotCa
 
 /**
  * 静的な FunctionModule 群を返す（秘書相当のフルセット。後方互換用）。
- * gemini.ts はこれに加えて MCP動的モジュール（getMcpFunctionModuleForUser）をマージし、
+ * gemini.ts はこれに加えて MCP動的モジュール（getMcpFunctionModuleForBot）をマージし、
  * functions/registry.ts の buildFunctionRegistry でレジストリを構築する。
  */
 export function getBaseFunctionModules(): FunctionModule[] {

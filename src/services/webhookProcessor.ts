@@ -20,6 +20,27 @@ export interface WebhookProcessResult {
   detail: string;
 }
 
+// ─── リプレイ防止（直近に受理した署名を一定時間記憶し、同一署名の再送を拒否する） ──
+const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5分
+const seenSignatures = new Map<string, number>(); // `${endpointId}:${sigHex}` -> expiresAt
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, exp] of seenSignatures) {
+    if (exp <= now) seenSignatures.delete(k);
+  }
+}, REPLAY_WINDOW_MS).unref();
+
+/** 同一署名が直近に受理済みなら true（リプレイ）。未受理なら記録して false。 */
+function isReplayedSignature(endpointId: number, sigHex: string): boolean {
+  const key = `${endpointId}:${sigHex}`;
+  const now = Date.now();
+  const exp = seenSignatures.get(key);
+  if (exp && exp > now) return true;
+  seenSignatures.set(key, now + REPLAY_WINDOW_MS);
+  return false;
+}
+
 /**
  * HMAC署名を検証する（X-Hub-Signature-256: sha256=<hex> 形式 §3.13.4）
  */
@@ -29,7 +50,9 @@ function verifyHmacSignature(
   signatureHeader?: string
 ): boolean {
   if (!endpoint.secret_encrypted || !endpoint.secret_iv || !endpoint.secret_tag) {
-    return true; // シークレット未設定の場合は検証なし
+    // シークレット未設定のエンドポイントは認証不能のため受理しない（デフォルト拒否）。
+    // 新規作成時にシークレットを必須化しているため、これは旧データの保護にも働く。
+    return false;
   }
   if (!signatureHeader) return false;
 
@@ -95,6 +118,15 @@ export async function processIncomingWebhook(
   //    検証失敗は監査ログを膨らませないよう deliveries のみに記録する
   if (!verifyHmacSignature(endpoint, rawBody, signatureHeader)) {
     const detail = "HMAC署名の検証に失敗しました";
+    addDelivery(endpoint.id, userId, payloadText, "failed", detail);
+    console.warn(`[Webhook] ${endpoint.name}: ${detail}`);
+    return { status: "failed", detail };
+  }
+
+  // 1b. リプレイ検出（同一署名の再送を一定時間内は拒否する §3.13.4）
+  const sigHex = (signatureHeader || "").replace(/^sha256=/i, "").trim().toLowerCase();
+  if (sigHex && isReplayedSignature(endpoint.id, sigHex)) {
+    const detail = "リプレイ（同一署名の再送）を検出したため拒否しました";
     addDelivery(endpoint.id, userId, payloadText, "failed", detail);
     console.warn(`[Webhook] ${endpoint.name}: ${detail}`);
     return { status: "failed", detail };

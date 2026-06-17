@@ -72,6 +72,16 @@ export function listBotsForUser(userId: string): BotRecord[] {
 }
 
 /**
+ * 統合管理画面用: ユーザーが「所有する」Bot のみ（共有・system_default は含めない）。
+ * 起動停止やリソース許可付与の対象は所有Botに限る。
+ */
+export function listBotsOwnedBy(userId: string): BotRecord[] {
+  return getDb()
+    .prepare("SELECT * FROM bots WHERE user_id = ? ORDER BY created_at ASC")
+    .all(userId) as BotRecord[];
+}
+
+/**
  * ユーザーが指定Botへアクセス可能か検証する（§5.5）
  */
 export function hasBotAccess(userId: string, botId: string): boolean {

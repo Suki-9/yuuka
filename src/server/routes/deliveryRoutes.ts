@@ -14,6 +14,7 @@ import {
 import { runBriefingForUser } from "../../services/briefingService.js";
 import { runReportForUser } from "../../services/reportService.js";
 import { hasBotAccess } from "../../db/botRepo.js";
+import { isLikelyPublicHttpUrl } from "../../utils/ssrfGuard.js";
 
 // ─── 朝報・日報・週報 配信設定 HTTPルート（§3.8.3, §3.9.3） ──────────────────
 
@@ -58,6 +59,15 @@ export const deliveryRoutes: RouteDef[] = [
       }
       const rawBotId = (b.botId as string | undefined) ?? ctx.url.searchParams.get("botId") ?? undefined;
       const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+
+      // SSRF対策: ニュースフィードURLにローカル/内部宛先や非http(s)を許可しない
+      if (Array.isArray(b.news_feeds)) {
+        const feeds = (b.news_feeds as unknown[]).map(String).filter((s) => s.trim());
+        const bad = feeds.find((f) => !isLikelyPublicHttpUrl(f));
+        if (bad) {
+          return sendJson(ctx.res, 400, { success: false, message: `不正なフィードURLです（http(s)の公開URLのみ指定できます）: ${bad}` });
+        }
+      }
 
       upsertBriefingConfig(userId, botId, {
         ...(b.enabled !== undefined ? { enabled: b.enabled === true } : {}),

@@ -3,6 +3,11 @@ import type { FunctionDeclaration } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import * as secretService from "../services/secretService.js";
 import { browserInteractiveType } from "../services/browserService.js";
+import {
+  isCredentialGrantedToBot,
+  grantCredentialToBot,
+  deleteAllGrantsForCredential,
+} from "../db/credentialAccessRepo.js";
 
 // ─── パスワードマネージャ Function 群（§6.4） ────────────────────────────────
 //
@@ -183,6 +188,9 @@ const handlers: FunctionModule["handlers"] = {
 
     try {
       secretService.registerCredential(ctx.userId, serviceName, username, password, asOptionalString(args.url));
+      // v5: 会話から登録した場合は、いま応対している（秘書）Bot自身へ即時に利用許可する（UX維持）。
+      // 他Botへの共有は統合管理ページで行う。
+      grantCredentialToBot(ctx.botId, ctx.userId, serviceName.trim().toLowerCase());
     } catch (err) {
       return JSON.stringify({
         success: false,
@@ -255,6 +263,8 @@ const handlers: FunctionModule["handlers"] = {
         message: `サービス「${serviceName}」の認証情報が見つかりません。listCredentialServices で登録済みサービス名を確認してください。`,
       });
     }
+    // v5: 削除に伴い全Botの利用許可も掃除する（credentials への DB FK が無いため明示的に）。
+    deleteAllGrantsForCredential(ctx.userId, serviceName.trim().toLowerCase());
     return JSON.stringify({
       success: true,
       message: `「${serviceName.trim().toLowerCase()}」の認証情報を削除しました🗑️`,
@@ -278,6 +288,16 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
+    // v5: 当該Botがこの認証情報の利用を許可されているか検証する（許可リスト）。
+    // 認証情報・ブラウザ操作は秘書専用capabilityのため、発話者 ctx.userId が認証情報のowner。
+    const cleanServiceName = serviceName.trim().toLowerCase();
+    if (!isCredentialGrantedToBot(ctx.botId, ctx.userId, cleanServiceName)) {
+      return JSON.stringify({
+        success: false,
+        message: `このBotは認証情報「${cleanServiceName}」の利用を許可されていません。統合管理ページ（Bot統合管理）で当該Botへ利用を許可してください。`,
+      });
+    }
+
     // 復号（監査ログ credential.read は secretService 層で記録される）
     let credential: secretService.DecryptedCredential | null;
     try {
@@ -292,7 +312,6 @@ const handlers: FunctionModule["handlers"] = {
       });
     }
 
-    const cleanServiceName = serviceName.trim().toLowerCase();
     console.log(`🔐 [PWマネージャ] ブラウザへ認証情報を入力します: ${cleanServiceName} (User: ${ctx.userId})`);
 
     // 復号値は browserService へ直接渡す（LLMの応答・ログに含めない。§6.3.2）
