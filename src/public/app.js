@@ -281,6 +281,7 @@ document.addEventListener("DOMContentLoaded", () => {
       webhooks: "Webhook 連携",
       mcp: "MCPサーバー管理",
       playbooks: "Playbook 設定",
+      discord: "Discord 連携設定",
       config: "システム設定情報"
     };
     currentTabTitle.textContent = titles[tabId] || "ダッシュボード";
@@ -397,7 +398,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navigateTo("/", false);
         return;
       }
-      const BOT_TABS = ["dashboard", "tasks", "schedules", "expenses", "reminders", "personal", "personas", "delivery", "webhooks", "mcp", "playbooks", "config"];
+      const BOT_TABS = ["dashboard", "tasks", "schedules", "expenses", "reminders", "personal", "personas", "delivery", "webhooks", "mcp", "playbooks", "discord", "config"];
       let tabId = cleanPath === "/bot" ? "config" : cleanPath.slice(5); // "/bot/".length === 5
       if (!BOT_TABS.includes(tabId)) tabId = "config";
       window.currentBotId = botId;
@@ -556,6 +557,11 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (activeTab === "personas") {
       fetchPersonasList();
       fetchPersonaMarketplace();
+      // 旧「Bot設定」から移設した Bot単位ペルソナ／推奨ペルソナのカードもこのタブで読み込む
+      fetchBotAttributeConfig();
+      fetchBotShares();
+    } else if (activeTab === "discord") {
+      fetchDiscordSettings();
     } else if (activeTab === "delivery") {
       fetchBriefingConfig();
       fetchReportConfigs();
@@ -2787,10 +2793,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const assistantCard = document.getElementById("config-assistant-card");
     const nameCard = document.getElementById("config-bot-name-card");
     const inviteCard = document.getElementById("config-bot-invite-card");
+    // 移設した汎用モード関連カード（Discord連携タブ・ペルソナタブに配置）
+    const assistantDiscordCard = document.getElementById("config-assistant-discord-card");
+    const assistantPersonaCard = document.getElementById("config-assistant-persona-card");
     if (attrCard) attrCard.classList.add("hidden");
     if (assistantCard) assistantCard.classList.add("hidden");
     if (nameCard) nameCard.classList.add("hidden");
     if (inviteCard) inviteCard.classList.add("hidden");
+    if (assistantDiscordCard) assistantDiscordCard.classList.add("hidden");
+    if (assistantPersonaCard) assistantPersonaCard.classList.add("hidden");
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
@@ -2849,14 +2860,42 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // ── 汎用モード設定カード ──
-      if (bot.preset === "mcp_assistant" && assistantCard) {
-        assistantCard.classList.remove("hidden");
+      // ── 汎用モード設定カード（本体は「Bot設定」、ギルド/メンバー/ノートは「Discord連携」、
+      //     Bot単位ペルソナは「ペルソナ」タブに分割配置。loadAssistantConfig が ID 単位で全カードを描画する） ──
+      if (bot.preset === "mcp_assistant") {
+        if (assistantCard) assistantCard.classList.remove("hidden");
+        if (assistantDiscordCard) assistantDiscordCard.classList.remove("hidden");
+        if (assistantPersonaCard) assistantPersonaCard.classList.remove("hidden");
         await loadAssistantConfig(botId);
       }
     } catch (e) {
       console.error("Bot属性設定の読み込みに失敗しました:", e);
     }
+  }
+
+  /**
+   * 「Discord連携」タブの読み込み。Discordトークン（マスク表示）を反映し、
+   * 招待リンクカード＋汎用モードのギルド/メンバー/共有ノートカードを fetchBotAttributeConfig 経由で描画する。
+   */
+  async function fetchDiscordSettings() {
+    const botId = window.currentBotId;
+    const isSystemDefault = !botId || botId === "system_default";
+    const isAdminUser = activeUserRole === "admin";
+
+    // Discord 独自Botトークン（マスク表示）。system_default は管理者のみ取得可。
+    const tokenInput = document.getElementById("discord-token");
+    if (tokenInput && (!isSystemDefault || isAdminUser)) {
+      try {
+        const res = await fetch("/api/settings/discord");
+        const data = await res.json();
+        if (data.success) tokenInput.value = data.tokenMasked;
+      } catch (err) {
+        console.error("Failed to load Discord settings:", err);
+      }
+    }
+
+    // 招待リンク・プロフィールカード＋汎用モードDiscord設定（ギルド/メンバー/共有ノート）を描画
+    await fetchBotAttributeConfig();
   }
 
   /** 汎用モード設定タブの内容を取得して描画する */
@@ -2878,7 +2917,7 @@ document.addEventListener("DOMContentLoaded", () => {
           warnings.appendChild(div);
         };
         if (!data.has_gemini_key) warn("⚠️ Bot専用のGemini APIキーが未設定です。設定されるまでこのBotは応答しません。");
-        if (!data.has_discord_token) warn("⚠️ 独自のDiscord Botトークンが未設定です。汎用モードは専用のDiscordクライアントとして動作するため、上の「Discord 独自Bot設定」から設定してください。");
+        if (!data.has_discord_token) warn("⚠️ 独自のDiscord Botトークンが未設定です。汎用モードは専用のDiscordクライアントとして動作するため、「Discord連携」ページの「Discord 独自Bot設定」から設定してください。");
         if ((data.guilds || []).length === 0) warn("⚠️ 応答許可ギルドが未設定です。許可したギルドでのみ応答します。");
       }
 
@@ -3371,14 +3410,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ペルソナ / コンテキストノートへの誘導リンク
-  const btnGotoPersonas = document.getElementById("btn-goto-personas");
-  if (btnGotoPersonas) {
-    btnGotoPersonas.addEventListener("click", () => navigateTo("/bot/personas"));
-  }
-  const btnGotoContextNote = document.getElementById("btn-goto-context-note");
-  if (btnGotoContextNote) {
-    btnGotoContextNote.addEventListener("click", () => navigateTo("/bot/personal"));
-  }
 
   // Handle password change
   const passwordConfigForm = document.getElementById("password-config-form");
@@ -3474,11 +3505,18 @@ document.addEventListener("DOMContentLoaded", () => {
   async function fetchBotShares() {
     const shareCard = document.getElementById("config-share-card");
     const sharesList = document.getElementById("bot-shares-list");
+    // 推奨ペルソナカードは「ペルソナ」タブに移設済み。共有カードと同じ owner 限定の可視条件で連動させる。
+    const recommendedPersonaCard = document.getElementById("config-recommended-persona-card");
     if (!shareCard || !sharesList) return;
+
+    const hideOwnerCards = () => {
+      shareCard.classList.add("hidden");
+      if (recommendedPersonaCard) recommendedPersonaCard.classList.add("hidden");
+    };
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default") {
-      shareCard.classList.add("hidden");
+      hideOwnerCards();
       return;
     }
 
@@ -3487,14 +3525,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       if (!data.success) {
         // 403 = オーナーではない → カードを隠す
-        shareCard.classList.add("hidden");
+        hideOwnerCards();
         return;
       }
       shareCard.classList.remove("hidden");
+      if (recommendedPersonaCard) recommendedPersonaCard.classList.remove("hidden");
       renderBotShares(data.shares || []);
       populateRecommendedPersonaSelect(data.recommended_persona_id ?? null);
     } catch (err) {
-      shareCard.classList.add("hidden");
+      hideOwnerCards();
     }
   }
 

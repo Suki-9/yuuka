@@ -623,7 +623,12 @@ export function countBotDailyUsage(
     .all(botId, `-${clamped} days`) as Array<{ date: string; count: number }>;
 }
 
-/** YYYY-MM-DD 形式のローカル日付文字列（offsetDays 日前。message_logs の date(created_at,'localtime') と一致させる） */
+/**
+ * YYYY-MM-DD 形式のローカル日付文字列（offsetDays 日前）。
+ * message_logs.created_at は列DEFAULT datetime('now','localtime') によりローカル時刻で保存されるため、
+ * 集計側は bare date(created_at)（'localtime' 修飾子なし）で一致する。ここに 'localtime' を足すと
+ * 二重変換になり日付がUTCオフセット分ずれるため付けないこと。
+ */
 function localDateString(offsetDays: number): string {
   const d = new Date();
   d.setDate(d.getDate() - offsetDays);

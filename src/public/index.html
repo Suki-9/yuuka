@@ -615,6 +615,10 @@
           <span class="material-symbols-outlined menu-icon-symbol">description</span> <span class="menu-text">Playbook
             管理</span>
         </a>
+        <a href="/bot/discord" class="menu-item" data-tab="discord">
+          <span class="material-symbols-outlined menu-icon-symbol">forum</span> <span
+            class="menu-text">Discord連携</span>
+        </a>
         <a href="/bot/config" class="menu-item" data-tab="config">
           <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
             設定</span>
@@ -1261,57 +1265,6 @@
             </form>
           </details>
 
-          <!-- Discord Bot Token Settings -->
-          <details id="config-discord-card" class="config-card card" style="margin-top: 24px;" name="config-acc">
-            <summary class="column-header badge-right">
-              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
-              <span class="badge badge-accent">任意設定</span>
-            </summary>
-            <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
-            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-              <div class="form-group" style="margin-bottom: 12px;">
-                <label for="discord-token">Discord Bot Token (任意)</label>
-                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
-                  autocomplete="new-password">
-                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
-              </div>
-              <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
-            </form>
-          </details>
-
-          <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
-          <details id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
-            <summary class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
-            </summary>
-            <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
-
-            <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="bot-invite-url">導入リンク（サーバーに追加）</label>
-                <div style="display: flex; gap: 12px;">
-                  <input type="text" id="bot-invite-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
-                  <button type="button" id="btn-copy-bot-invite" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
-                  <a id="bot-invite-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
-                </div>
-                <span class="field-sub">※チャンネル表示・メッセージ送信／履歴閲覧・埋め込みリンク・ファイル添付の権限を付与した状態で開きます。</span>
-              </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="bot-profile-url">プロフィールURL</label>
-                <div style="display: flex; gap: 12px;">
-                  <input type="text" id="bot-profile-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
-                  <button type="button" id="btn-copy-bot-profile" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
-                  <a id="bot-profile-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
-                </div>
-              </div>
-            </div>
-
-            <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
-              <span class="field-sub">導入リンクを生成するには、このBotのDiscordトークンを設定してください（「Discord連携」カード）。トークンを設定すると、Botを起動していなくても導入リンク・プロフィールURLを表示できます。</span>
-              <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
-            </div>
-          </details>
-
           <!-- Bot属性（プリセット）設定: owner のみ表示 -->
           <!-- Bot登録名: owner / Admin のみ表示 -->
           <details id="config-bot-name-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
@@ -1358,49 +1311,9 @@
             </details>
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">
-              <summary>ペルソナ（Bot単位）</summary>
-              <div style="display: flex; gap: 12px;">
-                <select id="assistant-persona-select" style="flex-grow: 1;"></select>
-                <button type="button" id="btn-save-assistant-persona" class="btn btn-primary" style="white-space: nowrap;">適用</button>
-              </div>
-              <span class="field-sub">※ギルドの全利用者に同じ人格で応答します。変更はこのページからのみ行えます（会話からの変更は不可）。</span>
-            </details>
-
-            <details class="form-group collapsible-group" style="margin-top: 16px;">
               <summary>利用中のMCPサーバー</summary>
               <p class="description-text" style="margin: 4px 0 8px;">このBotに紐づくMCPサーバーの一覧です（読み取り専用）。システムレベルのサーバーは常に利用可能です。</p>
               <div id="assistant-mcp-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
-            </details>
-
-            <details class="form-group collapsible-group" style="margin-top: 16px;">
-              <summary>応答許可ギルド</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">登録したギルド（DiscordサーバーID）でのみ応答します。未許可ギルドでは一切応答・記録しません。</p>
-              <div style="display: flex; gap: 12px;">
-                <input type="text" id="assistant-guild-input" placeholder="ギルドID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
-                <button type="button" id="btn-add-assistant-guild" class="btn btn-primary" style="white-space: nowrap;">追加</button>
-              </div>
-              <div id="assistant-guild-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
-            </details>
-
-            <details class="form-group collapsible-group" style="margin-top: 16px;">
-              <summary>利用メンバー</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
-              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
-                <input type="text" id="assistant-member-input" placeholder="ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
-                <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
-              </div>
-              <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
-            </details>
-
-            <details class="form-group collapsible-group" style="margin-top: 16px;">
-              <summary>共有ノート（ギルドノート）</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
-              <div style="display: flex; gap: 12px; margin-bottom: 8px;">
-                <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
-                <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
-              </div>
-              <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
             </details>
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">
@@ -1408,26 +1321,6 @@
               <div id="assistant-usage" style="margin-top: 8px;"></div>
               <span class="field-sub" id="assistant-rate-limits"></span>
             </details>
-          </details>
-
-          <!-- Persona / Context Note へ誘導するリンクカード -->
-          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
-            <summary class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">switch_account</span>ペルソナと長期メモの管理</h3>
-            </summary>
-            <p class="description-text">AIのペルソナ（キャラクター設定）と長期メモ（コンテキストノート）の管理は、専用画面に移動しました。</p>
-            <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
-              <button type="button" id="btn-goto-personas" class="btn btn-secondary"
-                style="display: flex; align-items: center; gap: 6px;">
-                <span class="material-symbols-outlined" style="font-size: 18px;">theater_comedy</span>
-                ペルソナはペルソナタブへ
-              </button>
-              <button type="button" id="btn-goto-context-note" class="btn btn-secondary"
-                style="display: flex; align-items: center; gap: 6px;">
-                <span class="material-symbols-outlined" style="font-size: 18px;">sticky_note_2</span>
-                長期メモはコンテキストノートへ
-              </button>
-            </div>
           </details>
 
           <!-- Assistant (User) Settings -->
@@ -1483,17 +1376,6 @@
                 style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">招待を送信</button>
             </form>
-            <div class="form-group" style="margin-top: 20px;">
-              <label for="recommended-persona-select">推奨ペルソナ (公開ペルソナのみ)</label>
-              <div style="display: flex; gap: 12px;">
-                <select id="recommended-persona-select" style="flex-grow: 1;">
-                  <option value="">-- 推奨ペルソナなし --</option>
-                </select>
-                <button type="button" id="btn-save-recommended-persona" class="btn btn-secondary"
-                  style="white-space: nowrap;">設定</button>
-              </div>
-              <span class="field-sub">※共有招待時に相手へ推奨ペルソナとして案内されます。</span>
-            </div>
           </details>
 
           <!-- Google Drive Backup Settings Card -->
@@ -1574,6 +1456,105 @@
         </section>
 
         <!-- ==========================================
+             Discord 連携設定 VIEW
+             （独自Botトークン・招待リンク・汎用モードのギルド/メンバー/共有ノートを集約）
+             ========================================== -->
+        <section id="tab-discord" class="tab-view">
+
+          <!-- Discord Bot Token Settings -->
+          <details id="config-discord-card" class="config-card card" style="margin-top: 24px;" name="discord-acc">
+            <summary class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
+              <span class="badge badge-accent">任意設定</span>
+            </summary>
+            <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
+            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="discord-token">Discord Bot Token (任意)</label>
+                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
+                  autocomplete="new-password">
+                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
+              </div>
+              <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
+            </form>
+          </details>
+
+          <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
+          <details id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;" name="discord-acc">
+            <summary class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
+            </summary>
+            <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
+
+            <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-invite-url">導入リンク（サーバーに追加）</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-invite-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-invite" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-invite-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+                <span class="field-sub">※チャンネル表示・メッセージ送信／履歴閲覧・埋め込みリンク・ファイル添付の権限を付与した状態で開きます。</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-profile-url">プロフィールURL</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-profile-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-profile" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-profile-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+              </div>
+            </div>
+
+            <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+              <span class="field-sub">導入リンクを生成するには、このBotのDiscordトークンを設定してください（上の「Discord 独自Bot設定」カード）。トークンを設定すると、Botを起動していなくても導入リンク・プロフィールURLを表示できます。</span>
+              <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
+            </div>
+          </details>
+
+          <!-- 汎用モード（MCPアシスタント）の Discord 関連設定: owner かつ mcp_assistant のみ表示 -->
+          <details id="config-assistant-discord-card" class="config-card card hidden" style="margin-top: 24px;" name="discord-acc">
+            <summary class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">dns</span>汎用モード Discord 設定</h3>
+              <span class="badge badge-accent">OWNER専用</span>
+            </summary>
+            <p class="description-text">サーバー常駐アシスタントの応答許可ギルド・利用メンバー・共有ノートを設定します。応答にはBot専用のGemini APIキー・独自Discordトークンも必要です（「Bot設定」ページ）。</p>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>応答許可ギルド</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">登録したギルド（DiscordサーバーID）でのみ応答します。未許可ギルドでは一切応答・記録しません。</p>
+              <div style="display: flex; gap: 12px;">
+                <input type="text" id="assistant-guild-input" placeholder="ギルドID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
+                <button type="button" id="btn-add-assistant-guild" class="btn btn-primary" style="white-space: nowrap;">追加</button>
+              </div>
+              <div id="assistant-guild-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用メンバー</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
+              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
+                <input type="text" id="assistant-member-input" placeholder="ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
+                <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
+              </div>
+              <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>共有ノート（ギルドノート）</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
+              <div style="display: flex; gap: 12px; margin-bottom: 8px;">
+                <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
+                <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+              </div>
+              <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
+            </details>
+          </details>
+
+        </section>
+
+        <!-- ==========================================
              7. PERSONAS VIEW
              ========================================== -->
         <section id="tab-personas" class="tab-view">
@@ -1606,6 +1587,35 @@
             <div id="persona-marketplace-list" class="list-container" style="margin-top: 12px;">
               <!-- Generated dynamically -->
             </div>
+          </div>
+
+          <!-- 汎用モード: Bot単位ペルソナ（owner かつ mcp_assistant のみ表示。旧「汎用モード設定」から移設） -->
+          <div class="card hidden" id="config-assistant-persona-card" style="margin-top: 24px;">
+            <div class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">smart_toy</span>汎用モード Bot単位ペルソナ</h3>
+              <span class="badge badge-accent">OWNER専用</span>
+            </div>
+            <p class="description-text">サーバー常駐アシスタント（汎用モード）が全利用者へ同じ人格で応答する際のペルソナです。変更はこのページからのみ行えます（会話からの変更は不可）。</p>
+            <div style="display: flex; gap: 12px; margin-top: 12px;">
+              <select id="assistant-persona-select" style="flex-grow: 1;"></select>
+              <button type="button" id="btn-save-assistant-persona" class="btn btn-primary" style="white-space: nowrap;">適用</button>
+            </div>
+          </div>
+
+          <!-- Bot共有時の推奨ペルソナ（owner のみ表示。旧「Bot共有管理」から移設） -->
+          <div class="card hidden" id="config-recommended-persona-card" style="margin-top: 24px;">
+            <div class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">recommend</span>共有時の推奨ペルソナ</h3>
+              <span class="badge badge-accent">オーナー専用</span>
+            </div>
+            <p class="description-text">このBotを共有する際、招待相手へ案内する推奨ペルソナ（公開ペルソナのみ）です。</p>
+            <div style="display: flex; gap: 12px; margin-top: 12px;">
+              <select id="recommended-persona-select" style="flex-grow: 1;">
+                <option value="">-- 推奨ペルソナなし --</option>
+              </select>
+              <button type="button" id="btn-save-recommended-persona" class="btn btn-secondary" style="white-space: nowrap;">設定</button>
+            </div>
+            <span class="field-sub">※共有招待時に相手へ推奨ペルソナとして案内されます。</span>
           </div>
         </section>
 
