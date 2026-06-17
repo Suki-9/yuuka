@@ -1,4 +1,4 @@
-const CACHE = 'yuuka-v9';
+const CACHE = 'yuuka-v10';
 const PRECACHE = [
   '/',
   '/styles.css',
@@ -10,8 +10,12 @@ const PRECACHE = [
 ];
 
 self.addEventListener('install', e => {
+  // 個別 add に分割し allSettled で待つ。1つのアセットが404等で失敗しても
+  // install 全体を reject させない（旧 SW が居座り続ける再発を防ぐ）。
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(c => Promise.allSettled(PRECACHE.map(u => c.add(u))))
+      .then(() => self.skipWaiting())
   );
 });
 
