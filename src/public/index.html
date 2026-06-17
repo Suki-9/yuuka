@@ -1195,10 +1195,10 @@
           </details>
 
           <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
-          <div id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
-            </div>
+            </summary>
             <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
 
             <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
@@ -1222,10 +1222,10 @@
             </div>
 
             <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
-              <span class="field-sub">Discordプロフィールが未取得です。Botを起動して「同期」すると、導入リンクとプロフィールURLが表示されます。</span>
+              <span class="field-sub">導入リンクを生成するには、このBotのDiscordトークンを設定してください（「Discord連携」カード）。トークンを設定すると、Botを起動していなくても導入リンク・プロフィールURLを表示できます。</span>
               <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
             </div>
-          </div>
+          </details>
 
           <!-- Bot属性（プリセット）設定: owner のみ表示 -->
           <!-- Bot登録名: owner / Admin のみ表示 -->

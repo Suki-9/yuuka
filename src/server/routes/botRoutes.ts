@@ -28,6 +28,7 @@ import {
   type BotPresetId,
 } from "../../services/botCapabilities.js";
 import type { BotRecord } from "../../db/botRepo.js";
+import { decryptText } from "../../utils/crypto.js";
 import {
   stopCustomBot,
   client as defaultBotClient,
@@ -78,6 +79,31 @@ function botHealth(bot: BotRecord): { running: boolean; connected: boolean; shar
  * APIキー・Discordトークンの暗号文（_encrypted/_iv/_tag）や将来追加され得る機密列は構造的に応答へ
  * 出ない。UIへは有無（has_*）と稼働状態（running/connected/shared）のみを付与する。
  */
+/**
+ * Bot の application/client ID を解決する。
+ * 同期済みの discord_application_id があればそれを使い、無ければ保存済みトークンから導出する。
+ * Discord Bot トークンは「<base64url(application_id)>.<...>.<...>」形式で、先頭セグメントが
+ * application ID を base64url エンコードしたものなので、Botがオフライン（未起動・未同期）でも
+ * トークンが設定されていれば招待リンク・プロフィールURLを常時生成できる。
+ */
+function resolveBotApplicationId(bot: BotRecord): string | null {
+  if (bot.discord_application_id) return bot.discord_application_id;
+  if (bot.discord_token_encrypted && bot.discord_token_iv && bot.discord_token_tag) {
+    try {
+      const token = decryptText(bot.discord_token_encrypted, bot.discord_token_iv, bot.discord_token_tag);
+      const firstSegment = token.split(".")[0];
+      if (firstSegment) {
+        const decoded = Buffer.from(firstSegment, "base64url").toString("utf8");
+        // Discord の snowflake ID（17〜20桁の数値）であることを確認
+        if (/^\d{17,20}$/.test(decoded)) return decoded;
+      }
+    } catch {
+      // 復号失敗・不正トークン形式は黙って null（招待カードは未取得表示にフォールバック）
+    }
+  }
+  return null;
+}
+
 function toBotView(bot: BotRecord) {
   const preset = presetIdForCapabilities(parseCapabilities(bot.capabilities));
   const health = botHealth(bot);
@@ -90,6 +116,7 @@ function toBotView(bot: BotRecord) {
     capabilities: bot.capabilities,
     discord_username: bot.discord_username,
     discord_avatar_url: bot.discord_avatar_url,
+    discord_application_id: resolveBotApplicationId(bot),
     suspended: bot.suspended,
     created_at: bot.created_at,
     updated_at: bot.updated_at,

@@ -17,6 +17,9 @@ export const botViewSchema = z.object({
   capabilities: z.string(),
   discord_username: z.string().nullable(),
   discord_avatar_url: z.string().nullable(),
+  // application/client ID は招待リンク・プロフィールURLの生成に必要。Discord上で公開される
+  // 識別子のため応答に含めてよい（暗号文トークン等の機密値とは性質が異なる）。
+  discord_application_id: z.string().nullable(),
   suspended: z.number(),
   created_at: z.string(),
   updated_at: z.string(),
