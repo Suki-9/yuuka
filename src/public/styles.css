@@ -3141,30 +3141,30 @@ details.config-card > summary.column-header > h3::before {
 details.config-card[open] > summary.column-header > h3::before {
   transform: rotate(90deg);
 }
-/* バッジをヘッダ左端（チェブロン・タイトルより前）へ寄せるバリアント */
-summary.column-header.badge-left {
+/* バッジをヘッダ右端（タイトルの反対側）へ寄せるバリアント */
+summary.column-header.badge-right {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-summary.column-header.badge-left > .badge {
-  order: -1;
+summary.column-header.badge-right > .badge {
+  margin-left: auto;
 }
-summary.column-header.badge-left > h3 {
+summary.column-header.badge-right > h3 {
   margin: 0;
 }
-/* 追加ボタンをヘッダ左端（タイトルより前）へ寄せるバリアント */
-.column-header.action-left {
+/* 追加ボタンをヘッダ右端（タイトルの反対側）へ寄せるバリアント */
+.column-header.action-right {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
-.column-header.action-left > .btn {
-  order: -1;
+.column-header.action-right > .btn {
+  margin-left: auto;
 }
-.column-header.action-left > h3 {
+.column-header.action-right > h3 {
   margin: 0;
 }
 
