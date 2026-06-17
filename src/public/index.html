@@ -153,7 +153,7 @@
             </div>
             <div class="form-group">
               <label for="reg-gemini-key">Gemini API Key *</label>
-              <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+              <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="new-password">
               <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank"
                   rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
             </div>
@@ -191,7 +191,7 @@
             </div>
             <div class="form-group">
               <label for="setup-gemini-key">Gemini API Key *</label>
-              <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+              <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="new-password">
               <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey"
                   target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
             </div>
@@ -212,7 +212,7 @@
           <form id="bot-setup-form">
             <div class="form-group">
               <label for="bot-setup-token">デフォルト Bot トークン *</label>
-              <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力">
+              <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力" autocomplete="new-password">
               <span class="field-sub">※Discord Developer Portalから取得したBotのトークン</span>
             </div>
             <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">デフォルトBotをセットアップする</button>
@@ -557,49 +557,49 @@
       </div>
 
       <nav class="sidebar-menu">
-        <a href="/dashboard" class="menu-item active" data-tab="dashboard">
+        <a href="/bot/dashboard" class="menu-item active" data-tab="dashboard">
           <span class="material-symbols-outlined menu-icon-symbol">info</span> <span class="menu-text">一般情報</span>
         </a>
-        <a href="/tasks" class="menu-item" data-tab="tasks">
+        <a href="/bot/tasks" class="menu-item" data-tab="tasks">
           <span class="material-symbols-outlined menu-icon-symbol">checklist</span> <span class="menu-text">タスク管理</span>
         </a>
-        <a href="/schedules" class="menu-item" data-tab="schedules">
+        <a href="/bot/schedules" class="menu-item" data-tab="schedules">
           <span class="material-symbols-outlined menu-icon-symbol">calendar_today</span> <span
             class="menu-text">予定スケジュール</span>
         </a>
-        <a href="/expenses" class="menu-item" data-tab="expenses">
+        <a href="/bot/expenses" class="menu-item" data-tab="expenses">
           <span class="material-symbols-outlined menu-icon-symbol">payments</span> <span
             class="menu-text">経費・収支管理</span>
         </a>
-        <a href="/reminders" class="menu-item" data-tab="reminders">
+        <a href="/bot/reminders" class="menu-item" data-tab="reminders">
           <span class="material-symbols-outlined menu-icon-symbol">alarm</span> <span
             class="menu-text">リマインダー</span>
         </a>
-        <a href="/personal" class="menu-item" data-tab="personal">
+        <a href="/bot/personal" class="menu-item" data-tab="personal">
           <span class="material-symbols-outlined menu-icon-symbol">contacts</span> <span
             class="menu-text">メモ・連絡先</span>
         </a>
-        <a href="/personas" class="menu-item" data-tab="personas">
+        <a href="/bot/personas" class="menu-item" data-tab="personas">
           <span class="material-symbols-outlined menu-icon-symbol">theater_comedy</span> <span
             class="menu-text">ペルソナ</span>
         </a>
-        <a href="/delivery" class="menu-item" data-tab="delivery">
+        <a href="/bot/delivery" class="menu-item" data-tab="delivery">
           <span class="material-symbols-outlined menu-icon-symbol">campaign</span> <span
             class="menu-text">配信設定</span>
         </a>
-        <a href="/webhooks" class="menu-item" data-tab="webhooks">
+        <a href="/bot/webhooks" class="menu-item" data-tab="webhooks">
           <span class="material-symbols-outlined menu-icon-symbol">webhook</span> <span
             class="menu-text">Webhook</span>
         </a>
-        <a href="/mcp" class="menu-item" data-tab="mcp">
+        <a href="/bot/mcp" class="menu-item" data-tab="mcp">
           <span class="material-symbols-outlined menu-icon-symbol">extension</span> <span
             class="menu-text">MCPサーバー</span>
         </a>
-        <a href="/playbooks" class="menu-item" data-tab="playbooks">
+        <a href="/bot/playbooks" class="menu-item" data-tab="playbooks">
           <span class="material-symbols-outlined menu-icon-symbol">description</span> <span class="menu-text">Playbook
             管理</span>
         </a>
-        <a href="/config" class="menu-item" data-tab="config">
+        <a href="/bot/config" class="menu-item" data-tab="config">
           <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
             設定</span>
         </a>
@@ -1197,7 +1197,7 @@
             <form id="gemini-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="gemini-api-key">Gemini API Key</label>
-                <input type="password" id="gemini-api-key" placeholder="APIキーを変更する場合は入力してください (マスク表示中)">
+                <input type="password" id="gemini-api-key" placeholder="APIキーを変更する場合は入力してください (マスク表示中)" autocomplete="new-password">
               </div>
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="gemini-model-select">Gemini モデル</label>
@@ -1224,7 +1224,7 @@
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="discord-token">Discord Bot Token (任意)</label>
                 <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
-                  autocomplete="off">
+                  autocomplete="new-password">
                 <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
               </div>
               <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
@@ -1257,7 +1257,7 @@
             <details class="form-group collapsible-group" style="margin-top: 16px;">
               <summary>Bot専用 Gemini APIキー（必須）</summary>
               <div style="display: flex; gap: 12px;">
-                <input type="password" id="assistant-gemini-key" placeholder="このBot専用のAPIキーを入力" autocomplete="off" style="flex-grow: 1;">
+                <input type="password" id="assistant-gemini-key" placeholder="このBot専用のAPIキーを入力" autocomplete="new-password" style="flex-grow: 1;">
                 <button type="button" id="btn-save-assistant-key" class="btn btn-primary" style="white-space: nowrap;">保存</button>
               </div>
               <span class="field-sub">※あなた個人のAPIキーとは別に管理・暗号化保存されます。空欄で保存すると削除され、Botは応答を停止します。</span>
@@ -1864,7 +1864,7 @@
                 </div>
                 <div class="form-group">
                   <label for="mcp-auth-credential">認証情報 (Bearerトークン等・任意)</label>
-                  <input type="password" id="mcp-auth-credential" placeholder="登録後は表示されません" autocomplete="off">
+                  <input type="password" id="mcp-auth-credential" placeholder="登録後は表示されません" autocomplete="new-password">
                 </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                   <input type="checkbox" id="mcp-requires-confirmation" checked style="width: 20px; height: 20px;">
@@ -1957,7 +1957,7 @@
                 <form id="int-mcp-form" style="display:flex;flex-direction:column;gap:10px;">
                   <div class="form-group"><label>名前 *</label><input type="text" id="int-mcp-name" required placeholder="例: my-tools"></div>
                   <div class="form-group"><label>エンドポイントURL *</label><input type="url" id="int-mcp-endpoint" required placeholder="https://example.com/mcp" style="font-family:var(--font-family-mono);"></div>
-                  <div class="form-group"><label>認証情報（Bearerトークン等・任意）</label><input type="password" id="int-mcp-auth" autocomplete="off" placeholder="登録後は表示されません"></div>
+                  <div class="form-group"><label>認証情報（Bearerトークン等・任意）</label><input type="password" id="int-mcp-auth" autocomplete="new-password" placeholder="登録後は表示されません"></div>
                   <div class="form-group" style="display:flex;align-items:center;gap:10px;"><input type="checkbox" id="int-mcp-confirm" checked style="width:20px;height:20px;"><label for="int-mcp-confirm" style="margin:0;">Tool実行前にユーザー確認を必須</label></div>
                   <div class="form-group" id="int-mcp-scope-group" style="display:none;"><label>登録スコープ (Adminのみ)</label><select id="int-mcp-scope"><option value="user">ユーザーレベル（自分のみ）</option><option value="system">システムレベル（全ユーザー）</option></select></div>
                   <button type="submit" class="btn btn-primary btn-block">MCPサーバーを登録</button>
@@ -2045,7 +2045,7 @@
                 <label for="admin-default-bot-token">デフォルト Bot トークン *</label>
                 <div style="display: flex; gap: 12px; margin-top: 8px;">
                   <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力"
-                    style="flex-grow: 1;">
+                    autocomplete="new-password" style="flex-grow: 1;">
                   <button type="submit" class="btn btn-primary" style="white-space: nowrap;">設定を更新</button>
                 </div>
                 <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
@@ -2670,7 +2670,7 @@
         </div>
         <div class="form-group">
           <label for="webhook-secret">署名シークレット (任意)</label>
-          <input type="password" id="webhook-secret" placeholder="HMAC-SHA256 署名検証に使用" autocomplete="off">
+          <input type="password" id="webhook-secret" placeholder="HMAC-SHA256 署名検証に使用" autocomplete="new-password">
         </div>
         <div class="form-row">
           <div class="form-group">

@@ -287,7 +287,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 全体管理（owner/システム）の独立オーバーレイ。Bot個別画面（#app-container）の外で表示する。
     if (cleanPath === "/integrated" || cleanPath === "/admin") {
       if (!activeUserId) { initAppSession(); return; }
-      if (cleanPath === "/admin" && activeUserRole !== "admin") { navigateTo("/bots", false); return; }
+      if (cleanPath === "/admin" && activeUserRole !== "admin") { navigateTo("/", false); return; }
       loginOverlay.classList.remove("active");
       appContainer.classList.add("hidden");
       botSelectionOverlay.classList.remove("active");
@@ -340,7 +340,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (cleanPath === "/bots") {
+    // Bot選択画面 = ルート "/"（旧 "/bots" はエイリアスとして維持）
+    if (cleanPath === "/" || cleanPath === "/bots" || cleanPath === "/index.html") {
       if (!activeUserId) {
         initAppSession();
         return;
@@ -352,23 +353,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const tabMap = {
-      "/dashboard": "dashboard",
-      "/tasks": "tasks",
-      "/schedules": "schedules",
-      "/expenses": "expenses",
-      "/reminders": "reminders",
-      "/personal": "personal",
-      "/personas": "personas",
-      "/delivery": "delivery",
-      "/webhooks": "webhooks",
-      "/mcp": "mcp",
-      "/playbooks": "playbooks",
-      "/config": "config"
-    };
-
-    const tabId = tabMap[cleanPath];
-    if (tabId) {
+    // Bot個別の管理画面 = "/bot"（既定タブ）/ "/bot/<tab>"（例: /bot/personas, /bot/mcp）
+    if (cleanPath === "/bot" || cleanPath.startsWith("/bot/")) {
       if (!activeUserId) {
         initAppSession();
         return;
@@ -376,9 +362,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const botId = localStorage.getItem("currentBotId");
       const botName = localStorage.getItem("currentBotName");
       if (!botId) {
-        navigateTo("/bots", false);
+        navigateTo("/", false);
         return;
       }
+      const BOT_TABS = ["dashboard", "tasks", "schedules", "expenses", "reminders", "personal", "personas", "delivery", "webhooks", "mcp", "playbooks", "config"];
+      let tabId = cleanPath === "/bot" ? "config" : cleanPath.slice(5); // "/bot/".length === 5
+      if (!BOT_TABS.includes(tabId)) tabId = "config";
       window.currentBotId = botId;
       if (activeBotDisplay) {
         activeBotDisplay.textContent = botName || "ボット名";
@@ -393,17 +382,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (cleanPath === "/" || cleanPath === "/index.html") {
-      if (activeUserId) {
-        const botId = localStorage.getItem("currentBotId");
-        if (botId) {
-          navigateTo("/config", false);
-        } else {
-          navigateTo("/bots", false);
-        }
-      } else {
-        initAppSession();
-      }
+    // 未知のパス: ログイン済みなら Bot選択（ルート）へ、未ログインならログインへ。
+    if (activeUserId) {
+      navigateTo("/", false);
     } else {
       navigateTo("/login", false);
     }
@@ -413,7 +394,7 @@ document.addEventListener("DOMContentLoaded", () => {
     item.addEventListener("click", (e) => {
       e.preventDefault();
       const tabId = item.getAttribute("data-tab");
-      navigateTo(`/${tabId}`);
+      navigateTo(`/bot/${tabId}`);
     });
   });
 
@@ -755,7 +736,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     updateSidebarBotBranding();
 
-    navigateTo("/config");
+    navigateTo("/bot/config");
   }
 
   // Bot Profile Edit Modal
@@ -796,13 +777,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // Switch Bot handler
   if (btnSwitchBot) {
     btnSwitchBot.addEventListener("click", () => {
-      navigateTo("/bots");
+      navigateTo("/");
     });
   }
   const sidebarBtnBackBots = document.getElementById("sidebar-btn-back-bots");
   if (sidebarBtnBackBots) {
     sidebarBtnBackBots.addEventListener("click", () => {
-      navigateTo("/bots");
+      navigateTo("/");
     });
   }
 
@@ -810,7 +791,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-open-integrated")?.addEventListener("click", () => navigateTo("/integrated"));
   document.getElementById("btn-open-admin")?.addEventListener("click", () => navigateTo("/admin"));
   document.querySelectorAll("[data-management-back]").forEach((btn) =>
-    btn.addEventListener("click", () => navigateTo("/bots"))
+    btn.addEventListener("click", () => navigateTo("/"))
   );
 
   /** プリセット表示名（管理ページから変更可能）を作成フォームへ反映する */
@@ -1024,9 +1005,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (currentPath !== "/" && currentPath !== "/index.html" && currentPath !== "/login") {
           applyRoute(currentPath);
         } else {
-          // Root or login page: route to bot selection or main app
-          const botId = localStorage.getItem("currentBotId") || "system_default";
-          navigateTo(botId ? "/config" : "/bots", false);
+          // ルート/ログインからの初期表示は Bot選択画面（"/"）へ。
+          navigateTo("/", false);
         }
       } else {
         activeUserId = "";
@@ -1127,7 +1107,7 @@ document.addEventListener("DOMContentLoaded", () => {
           updateSidebarBotBranding();
           
           loginOverlay.classList.remove("active");
-          navigateTo("/dashboard");
+          navigateTo("/bot/dashboard");
         } else {
           loginError.textContent = data.message;
         }
@@ -2896,11 +2876,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // ペルソナ / コンテキストノートへの誘導リンク
   const btnGotoPersonas = document.getElementById("btn-goto-personas");
   if (btnGotoPersonas) {
-    btnGotoPersonas.addEventListener("click", () => navigateTo("/personas"));
+    btnGotoPersonas.addEventListener("click", () => navigateTo("/bot/personas"));
   }
   const btnGotoContextNote = document.getElementById("btn-goto-context-note");
   if (btnGotoContextNote) {
-    btnGotoContextNote.addEventListener("click", () => navigateTo("/personal"));
+    btnGotoContextNote.addEventListener("click", () => navigateTo("/bot/personal"));
   }
 
   // Handle password change
