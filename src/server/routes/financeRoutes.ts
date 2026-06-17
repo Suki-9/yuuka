@@ -21,8 +21,20 @@ import {
 import { completeTodoByPaymentLink } from "../../db/todoRepo.js";
 import { hasBotAccess } from "../../db/botRepo.js";
 import { parseReceipt } from "../../services/receiptParser.js";
+import { consumeRateLimit, rateLimitMessage } from "../../services/botRateLimit.js";
 
 // ─── 家計簿・予算・支払い予定 HTTPルート（§3.4） ─────────────────────────────
+
+// レシート画像のMIME許可リスト（LLMに渡せる画像形式に限定）
+const ALLOWED_RECEIPT_MIME = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "image/gif",
+]);
 
 export const financeRoutes: RouteDef[] = [
   // ── 収支一覧・集計 ──
@@ -86,8 +98,19 @@ export const financeRoutes: RouteDef[] = [
       if (!imageBase64 || !mimeType) {
         return sendJson(ctx.res, 400, { success: false, message: "画像データ(base64)とMIMEタイプが必要です。" });
       }
+      // MIME検証: 画像以外をLLMへ渡さない
+      if (!ALLOWED_RECEIPT_MIME.has(mimeType.toLowerCase().split(";")[0].trim())) {
+        return sendJson(ctx.res, 400, { success: false, message: "対応していない画像形式です（png/jpeg/webp/heic/gif）。" });
+      }
 
       const resolvedBotId = botId && hasBotAccess(userId, botId) ? botId : "system_default";
+
+      // コスト増幅DoS対策: LLM呼び出し前にユーザー単位のレート制限を消費する
+      const rl = await consumeRateLimit(resolvedBotId, "web", userId);
+      if (!rl.allowed) {
+        return sendJson(ctx.res, 429, { success: false, message: rateLimitMessage(rl.exceeded!) });
+      }
+
       console.log(`📸 [User: ${userId}] WEB管理画面より画像解析要求を受信 (MIME: ${mimeType})`);
       const response = await parseReceipt(resolvedBotId, userId, imageBase64, mimeType, additionalText || undefined);
       sendJson(ctx.res, 200, { success: true, response });

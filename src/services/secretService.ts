@@ -27,9 +27,31 @@ export interface CredentialUpdateFields {
 
 // ─── ヘルパー ────────────────────────────────────────────────────────────────
 
+/** 各フィールドの最大長（DoS・肥大化対策）。暗号化・DB書き込み前に検証する */
+const MAX_SERVICE_NAME = 128;
+const MAX_USERNAME = 256;
+const MAX_PASSWORD = 1024;
+const MAX_URL = 2048;
+
 /** サービス名の正規化（trim + 小文字化）。全公開関数の入口で必ず通す */
 function normalizeServiceName(serviceName: string): string {
   return serviceName.trim().toLowerCase();
+}
+
+/** フィールド長の検証（超過時は例外） */
+function assertFieldLengths(fields: { serviceName?: string; username?: string; password?: string; url?: string | null }): void {
+  if (fields.serviceName !== undefined && fields.serviceName.length > MAX_SERVICE_NAME) {
+    throw new Error(`サービス名が長すぎます（最大${MAX_SERVICE_NAME}文字）。`);
+  }
+  if (fields.username !== undefined && fields.username.length > MAX_USERNAME) {
+    throw new Error(`ユーザー名が長すぎます（最大${MAX_USERNAME}文字）。`);
+  }
+  if (fields.password !== undefined && fields.password.length > MAX_PASSWORD) {
+    throw new Error(`パスワードが長すぎます（最大${MAX_PASSWORD}文字）。`);
+  }
+  if (fields.url != null && fields.url.length > MAX_URL) {
+    throw new Error(`URLが長すぎます（最大${MAX_URL}文字）。`);
+  }
 }
 
 /** ユーザー鍵導出用ソルトの取得（未登録ユーザーは認証情報を保持できない） */
@@ -63,6 +85,7 @@ export function registerCredential(
     throw new Error("ユーザー名とパスワードは必須です。");
   }
   const cleanUrl = url?.trim() || null;
+  assertFieldLengths({ serviceName: cleanServiceName, username: cleanUsername, password, url: cleanUrl });
 
   const salt = requireUserSalt(userId);
   const existing = credentialRepo.getCredentialRecord(userId, cleanServiceName);
@@ -89,6 +112,13 @@ export function updateCredential(
   const cleanServiceName = normalizeServiceName(serviceName);
   const record = credentialRepo.getCredentialRecord(userId, cleanServiceName);
   if (!record) return false;
+
+  assertFieldLengths({
+    serviceName: cleanServiceName,
+    username: fields.username,
+    password: fields.password,
+    url: fields.url ?? null,
+  });
 
   const changedFields: string[] = [];
 

@@ -84,8 +84,8 @@ export const integratedRoutes: RouteDef[] = [
           connected: status.connected,
           discord_username: bot.discord_username ?? null,
           discord_avatar_url: bot.discord_avatar_url ?? null,
-          // 許可サマリ
-          granted_mcp_ids: listServerIdsForBot(bot.id),
+          // 許可サマリ（owner本人の許可分のみ。共有秘書では自分が付与した分だけを表示）
+          granted_mcp_ids: listServerIdsForBot(bot.id, userId),
           granted_credentials: listCredentialNamesForBot(bot.id, userId),
           // google_setting: "primary"(既定) | "none"(連携なし) | <accountId number>
           google_setting: getBotGoogleMode(bot.id),
@@ -240,8 +240,10 @@ export const integratedRoutes: RouteDef[] = [
       if (!server || server.user_id !== userId) {
         return sendJson(ctx.res, 403, { success: false, message: "対象MCPサーバーの所有者ではありません。" });
       }
-      if (granted) grantMcpToBot(botId, serverId);
-      else revokeMcpFromBot(botId, serverId);
+      // v7: owner_id = 許可を付与した呼び出し元。共有秘書(system_default)では発話者本人にのみ
+      //     スコープされ、他ユーザーの会話へは漏れない（クロステナント露出の修正）。
+      if (granted) grantMcpToBot(botId, userId, serverId);
+      else revokeMcpFromBot(botId, userId, serverId);
       return sendJson(ctx.res, 200, { success: true });
     },
   },

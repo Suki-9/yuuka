@@ -7,6 +7,12 @@
 document.addEventListener("DOMContentLoaded", () => {
   document.documentElement.classList.remove('theme-no-transition');
 
+  // HTMLエスケープ（element-text / 二重・一重引用属性のいずれでも安全）。Stored-XSS対策の共通ヘルパー。
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
   // Override native fetch to auto-inject currentBotId
   const originalFetch = window.fetch;
   window.fetch = async function (resource, options) {
@@ -579,6 +585,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderBotList(bots) {
     botList.innerHTML = "";
+
+    // ── 統計カードを更新 ──
+    const statsEl = document.getElementById("home-stats");
+    if (statsEl) {
+      const total = bots.length;
+      const online = bots.filter(b => b.connected).length;
+      const running = bots.filter(b => b.running && !b.connected).length;
+      const stopped = bots.filter(b => !b.running).length;
+      statsEl.innerHTML = `
+        <div class="home-stat-card">
+          <div class="home-stat-label">TOTAL BOTS</div>
+          <div class="home-stat-value">${total}</div>
+          <div class="home-stat-sub">登録済みアシスタント</div>
+        </div>
+        <div class="home-stat-card stat-online">
+          <div class="home-stat-label">ONLINE</div>
+          <div class="home-stat-value">${online}</div>
+          <div class="home-stat-sub">Discord接続中</div>
+        </div>
+        <div class="home-stat-card${running > 0 ? " stat-warning" : ""}">
+          <div class="home-stat-label">CONNECTING</div>
+          <div class="home-stat-value">${running}</div>
+          <div class="home-stat-sub">接続処理中</div>
+        </div>
+        <div class="home-stat-card">
+          <div class="home-stat-label">STOPPED</div>
+          <div class="home-stat-value">${stopped}</div>
+          <div class="home-stat-sub">停止中</div>
+        </div>
+      `;
+    }
+
+    // ── Botカードを描画 ──
     bots.forEach(bot => {
       const item = document.createElement("div");
       item.className = "bot-item-card";
@@ -586,14 +625,25 @@ document.addEventListener("DOMContentLoaded", () => {
         item.classList.add("default-bot");
       }
 
-      const isCustomToken = !!bot.discord_token_encrypted;
+      const isCustomToken = !!(bot.has_token || bot.discord_token_encrypted);
       const isAssistant = bot.preset === "mcp_assistant";
-      // 属性バッジ: 汎用モード（MCPアシスタント）はプリセット表示名を冠する
-      const presetLabel = isAssistant ? (bot.preset_display_name || "汎用モード") + " ・ " : "";
-      const statusText = presetLabel + (isCustomToken ? "独自Bot起動中" : "デフォルト共有");
       const accentColor = isAssistant ? "#a78bfa" : isCustomToken ? "#10b981" : "#3b82f6";
+      const presetLabel = bot.preset_display_name || (isAssistant ? "汎用モード" : "パーソナル秘書");
 
-      // アバター部分
+      // 稼働ステータス（バックエンドの botHealth と対応）
+      let dotClass, statusLabel;
+      if (bot.suspended) {
+        dotClass = "dot-offline"; statusLabel = "停止（管理者）";
+      } else if (bot.connected) {
+        // shared=独自トークン未設定。専用接続は持たず、通知等は共有(デフォルト)Bot経由で届く。
+        dotClass = "dot-online"; statusLabel = bot.shared ? "共有Botで稼働" : "稼働中";
+      } else if (bot.running) {
+        dotClass = "dot-connecting"; statusLabel = "接続中…";
+      } else {
+        dotClass = "dot-offline"; statusLabel = "停止中";
+      }
+
+      // アバター
       const avatarDiv = document.createElement("div");
       avatarDiv.className = "bot-avatar";
       if (bot.discord_avatar_url) {
@@ -609,16 +659,27 @@ document.addEventListener("DOMContentLoaded", () => {
         avatarDiv.innerHTML = `<span class="material-symbols-outlined" style="font-size: 22px; color: ${accentColor};">robot_2</span>`;
       }
 
-      // Bot情報部分
+      // カード上部（アバター + 名前）
+      const cardTop = document.createElement("div");
+      cardTop.className = "bot-card-top";
       const infoDiv = document.createElement("div");
       infoDiv.className = "bot-info";
       const displayName = bot.discord_username || bot.name;
       infoDiv.innerHTML = `
-        <div class="bot-name" title="${displayName}">${displayName}</div>
-        <div class="bot-status">${statusText}</div>
+        <div class="bot-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div>
+        <div class="bot-status">${escapeHtml(presetLabel)}</div>
       `;
+      cardTop.appendChild(avatarDiv);
+      cardTop.appendChild(infoDiv);
 
-      // アクションボタン群
+      // カード下部（ステータス + アクション）
+      const cardFooter = document.createElement("div");
+      cardFooter.className = "bot-card-footer";
+
+      const runStatus = document.createElement("div");
+      runStatus.className = "bot-run-status";
+      runStatus.innerHTML = `<span class="bot-run-dot ${dotClass}"></span>${statusLabel}`;
+
       const actionsDiv = document.createElement("div");
       actionsDiv.className = "bot-item-actions";
 
@@ -640,7 +701,6 @@ document.addEventListener("DOMContentLoaded", () => {
           });
           const data = await res.json();
           if (data.success) {
-            // UIをその場で更新
             bot.discord_username = data.discord_username;
             bot.discord_avatar_url = data.discord_avatar_url;
             if (data.discord_avatar_url) {
@@ -667,7 +727,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       actionsDiv.appendChild(syncBtn);
 
-      // 編集ボタン（デフォルトBot以外、所有者のみ）
+      // 編集ボタン（デフォルトBot以外）
       if (!bot.id.startsWith("bot_default_") && bot.id !== "system_default") {
         const editBtn = document.createElement("button");
         editBtn.className = "btn-sync-discord";
@@ -713,9 +773,11 @@ document.addEventListener("DOMContentLoaded", () => {
         actionsDiv.appendChild(delBtn);
       }
 
-      item.appendChild(avatarDiv);
-      item.appendChild(infoDiv);
-      item.appendChild(actionsDiv);
+      cardFooter.appendChild(runStatus);
+      cardFooter.appendChild(actionsDiv);
+
+      item.appendChild(cardTop);
+      item.appendChild(cardFooter);
 
       item.addEventListener("click", () => {
         selectBot(bot);
@@ -978,6 +1040,8 @@ document.addEventListener("DOMContentLoaded", () => {
         activeUserId = data.user.discordId;
         activeUserRole = data.user.role || "user";
         document.getElementById("current-user-display").textContent = `${data.user.username} (${activeUserId})`;
+        const homeUsernameEl = document.getElementById("home-username-display");
+        if (homeUsernameEl) homeUsernameEl.textContent = data.user.username;
 
         // Admin 入口（Bot選択画面の「管理者用設定」ボタン）の表示/非表示制御
         const adminEntryBtn = document.getElementById("btn-open-admin");
@@ -991,7 +1055,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const botsRes = await originalFetch("/api/bots");
             const botsData = await botsRes.json();
             const systemDefaultBot = botsData.success && botsData.bots.find(b => b.id === "system_default");
-            if (!systemDefaultBot || !systemDefaultBot.discord_token_encrypted) {
+            // has_token は新バックエンドのフィールド。デプロイ前の旧バックエンドは
+            // discord_token_encrypted を返すため、両方を見てトークン有無を判定する
+            // （バージョン齟齬でセットアップ画面が誤表示されるのを防ぐ）。
+            const hasDefaultToken = systemDefaultBot && (systemDefaultBot.has_token || !!systemDefaultBot.discord_token_encrypted);
+            if (!hasDefaultToken) {
               showDefaultBotSetupScreen();
               return;
             }
@@ -1135,10 +1203,55 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await res.json();
 
-      if (data.success) {
+      if (data.success && data.pending) {
+        // DMチャレンジ: 確認コード入力ステップへ遷移（G1）
+        pendingRegisterDiscordId = discordId;
+        registerForm.style.display = "none";
+        registerVerifyForm.style.display = "";
+        document.getElementById("reg-verify-code").value = "";
+        document.getElementById("reg-verify-code").focus();
+      } else if (data.success) {
         alert("アカウントが作成されました！ログインを行ってください。");
         btnTabLogin.click();
         document.getElementById("login-discord-id").value = discordId;
+      } else {
+        loginError.textContent = data.message;
+      }
+    } catch (err) {
+      loginError.textContent = "サーバー接続に失敗しました。";
+    }
+  });
+
+  // 登録 確認コードの検証（DMチャレンジ）
+  let pendingRegisterDiscordId = "";
+  const registerVerifyForm = document.getElementById("register-verify-form");
+  function resetRegisterToForm() {
+    registerVerifyForm.style.display = "none";
+    registerForm.style.display = "";
+    pendingRegisterDiscordId = "";
+  }
+  document.getElementById("reg-verify-back").addEventListener("click", () => {
+    loginError.textContent = "";
+    resetRegisterToForm();
+  });
+  registerVerifyForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    loginError.textContent = "";
+    const code = document.getElementById("reg-verify-code").value.trim();
+    try {
+      const res = await originalFetch("/api/register/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discordId: pendingRegisterDiscordId, code })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const did = pendingRegisterDiscordId;
+        resetRegisterToForm();
+        registerForm.reset();
+        alert("アカウントが作成されました！ログインを行ってください。");
+        btnTabLogin.click();
+        document.getElementById("login-discord-id").value = did;
       } else {
         loginError.textContent = data.message;
       }
@@ -1956,7 +2069,7 @@ document.addEventListener("DOMContentLoaded", () => {
       row.style.cssText = "display:flex;flex-direction:column;gap:3px;";
       row.innerHTML = `
         <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-secondary);">
-          <span>${lim.category}</span>
+          <span>${escapeHtml(lim.category)}</span>
           <span>¥${spent.toLocaleString()} / ¥${lim.limit_amount.toLocaleString()} (${Math.round(pct)}%)</span>
         </div>
         <div style="background:var(--surface-4dp);border-radius:3px;height:6px;overflow:hidden;">
@@ -2175,7 +2288,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-divider);";
         row.innerHTML = `
-          <span style="font-size:0.9rem;font-weight:500;color:var(--text-primary);">${lim.category}</span>
+          <span style="font-size:0.9rem;font-weight:500;color:var(--text-primary);">${escapeHtml(lim.category)}</span>
           <div class="limit-right-content" style="display:flex;align-items:center;gap:12px;">
             <span style="font-size:0.9rem;font-weight:700;color:var(--text-primary);">¥${lim.limit_amount.toLocaleString()}</span>
           </div>
@@ -2569,7 +2682,7 @@ document.addEventListener("DOMContentLoaded", () => {
           usageEl.innerHTML = `<span class="field-sub">まだ利用がありません。</span>`;
         } else {
           usageEl.innerHTML = usage
-            .map(u => `<div style="display:flex; justify-content:space-between; max-width:280px;"><span class="field-sub">${u.date}</span><span>${u.count} 回</span></div>`)
+            .map(u => `<div style="display:flex; justify-content:space-between; max-width:280px;"><span class="field-sub">${escapeHtml(u.date)}</span><span>${u.count} 回</span></div>`)
             .join("");
         }
       }
@@ -2636,7 +2749,7 @@ document.addEventListener("DOMContentLoaded", () => {
       row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
       const label = document.createElement("span");
       label.className = "field-sub";
-      label.innerHTML = `<span style="font-family:var(--font-family-mono);">${m.user_id}</span> @ ギルド ${m.guild_id}`;
+      label.innerHTML = `<span style="font-family:var(--font-family-mono);">${escapeHtml(m.user_id)}</span> @ ギルド ${escapeHtml(m.guild_id)}`;
       const removeBtn = document.createElement("button");
       removeBtn.className = "btn btn-secondary btn-sm";
       removeBtn.textContent = "削除";
@@ -4423,10 +4536,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const info = document.createElement("div");
         info.style.cssText = "flex: 1; min-width: 0;";
         info.innerHTML = `
-          <div style="font-weight: 600; font-size: 0.9rem; truncate; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${sc.playbook_name}</div>
-          <div style="font-family: var(--font-family-mono); font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">${sc.cron_expression}</div>
-          ${sc.description ? `<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">${sc.description}</div>` : ""}
-          ${sc.last_run_at ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">最終実行: ${sc.last_run_at}</div>` : ""}
+          <div style="font-weight: 600; font-size: 0.9rem; truncate; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(sc.playbook_name)}</div>
+          <div style="font-family: var(--font-family-mono); font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(sc.cron_expression)}</div>
+          ${sc.description ? `<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">${escapeHtml(sc.description)}</div>` : ""}
+          ${sc.last_run_at ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">最終実行: ${escapeHtml(sc.last_run_at)}</div>` : ""}
         `;
 
         const actions = document.createElement("div");
@@ -4532,9 +4645,9 @@ document.addEventListener("DOMContentLoaded", () => {
         row.innerHTML = `
           <span class="material-symbols-outlined" style="font-size: 1.1rem; color: ${statusColor}; flex-shrink: 0; margin-top: 2px;">${statusIcon}</span>
           <div style="flex: 1; min-width: 0;">
-            <div style="font-weight: 600; font-size: 0.85rem;">${run.playbook_name}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted);">${run.started_at}${duration ? " (" + duration + ")" : ""}</div>
-            ${run.output ? `<div style="font-size: 0.78rem; margin-top: 4px; color: var(--text-secondary); max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">${run.output.substring(0, 300)}${run.output.length > 300 ? "..." : ""}</div>` : ""}
+            <div style="font-weight: 600; font-size: 0.85rem;">${escapeHtml(run.playbook_name)}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(run.started_at)}${duration ? " (" + duration + ")" : ""}</div>
+            ${run.output ? `<div style="font-size: 0.78rem; margin-top: 4px; color: var(--text-secondary); max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">${escapeHtml(run.output.substring(0, 300))}${run.output.length > 300 ? "..." : ""}</div>` : ""}
           </div>
         `;
         container.appendChild(row);
@@ -6117,9 +6230,24 @@ document.addEventListener("DOMContentLoaded", () => {
     return (intOverview?.bots || []).map((b) => {
       const checked = grantedSet.has(b.id) ? "checked" : "";
       return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;background:var(--surface-1dp,rgba(255,255,255,0.04));border:1px solid var(--border-matte,#333);border-radius:6px;padding:3px 8px;cursor:pointer;">
-        <input type="checkbox" ${checked} style="width:14px;height:14px;" onchange="${onToggleFnName}('${b.id}', ${JSON.stringify(itemKey).replace(/"/g, "&quot;")}, this.checked)">
+        <input type="checkbox" ${checked} style="width:14px;height:14px;" data-int-grant-fn="${intEsc(onToggleFnName)}" data-int-grant-bot="${intEsc(b.id)}" data-int-grant-key="${intEsc(JSON.stringify(itemKey))}">
         ${intEsc(intBotName(b.id))}</label>`;
     }).join("");
+  }
+
+  // 許可チップ（チェックボックス）の change を委譲処理（CSP対応: inline onchange を排除）
+  function wireIntGrantChips(containerEl) {
+    if (!containerEl) return;
+    containerEl.querySelectorAll("[data-int-grant-fn]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const fnName = cb.getAttribute("data-int-grant-fn");
+        const botId = cb.getAttribute("data-int-grant-bot");
+        let key;
+        try { key = JSON.parse(cb.getAttribute("data-int-grant-key")); } catch (e) { key = cb.getAttribute("data-int-grant-key"); }
+        const fn = window[fnName];
+        if (typeof fn === "function") fn(botId, key, cb.checked);
+      });
+    });
   }
 
   async function fetchIntegratedOverview() {
@@ -6249,6 +6377,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleCred", c.service_name)}</div>`;
       el.appendChild(card);
     });
+    wireIntGrantChips(el);
     el.querySelectorAll("[data-int-cred-del]").forEach((btn) => btn.addEventListener("click", async () => {
       const svc = btn.getAttribute("data-int-cred-del");
       if (!confirm(`認証情報「${svc}」を削除しますか？`)) return;
@@ -6287,6 +6416,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleMcp", s.id)}</div>`;
       el.appendChild(card);
     });
+    wireIntGrantChips(el);
     el.querySelectorAll("[data-int-mcp-toggle]").forEach((btn) => btn.addEventListener("click", async () => {
       const id = Number(btn.getAttribute("data-int-mcp-toggle"));
       const enabled = btn.getAttribute("data-enabled") === "1";

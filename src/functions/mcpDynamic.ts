@@ -4,6 +4,7 @@ import { SchemaType } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
   listServersGrantedToBot,
+  listServersGrantedToBotScoped,
   parseToolsCache,
   type McpServerRecord,
   type McpToolDef,
@@ -273,18 +274,36 @@ async function buildMcpFunctionModule(
 /**
  * Botインスタンスが利用可能なMCP Toolを FunctionModule として動的生成する。
  * v5: 利用許可(bot_mcp_access)で当該Botに付与されたサーバー + システムレベルサーバー。
- * 呼び出し時の再検証クロージャは ctx.botId を使う（発話者 ctx.userId には依存しない）。
+ *
+ * v7（クロステナント露出の修正）: 発話者(speakerUserId)を考慮する。
+ * - 共有秘書(system_default)は全ユーザーが会話するため、「発話者本人が付与した許可」分のみ
+ *   ＋システムレベル(user_id IS NULL)に限定する。他人が付与した許可（他人の認証情報を抱えた
+ *   MCPサーバー）が発話者の会話へ漏れないようにする。
+ * - 所有Bot（単一owner）は owner が設定した許可をそのまま使う（現挙動を維持）。
+ * 呼び出し時の再検証クロージャも同じスコープ（system_default のみ ctx.userId で絞る）で行う。
  */
-export async function getMcpFunctionModuleForBot(botId: string): Promise<FunctionModule> {
+export async function getMcpFunctionModuleForBot(
+  botId: string,
+  speakerUserId: string
+): Promise<FunctionModule> {
+  const isSharedSecretary = botId === "system_default";
+
   let servers: McpServerRecord[];
   try {
-    servers = listServersGrantedToBot(botId).filter((s) => s.enabled === 1);
+    servers = (
+      isSharedSecretary
+        ? listServersGrantedToBotScoped(botId, speakerUserId)
+        : listServersGrantedToBot(botId)
+    ).filter((s) => s.enabled === 1);
   } catch (err) {
     console.error(`[MCP] Bot ${botId} のサーバー一覧の取得に失敗しました:`, err);
     return { declarations: [], handlers: {} };
   }
 
-  return buildMcpFunctionModule(servers, (ctx, serverId) =>
-    listServersGrantedToBot(ctx.botId).some((s) => s.id === serverId && s.enabled === 1)
-  );
+  return buildMcpFunctionModule(servers, (ctx, serverId) => {
+    const visible = isSharedSecretary
+      ? listServersGrantedToBotScoped(ctx.botId, ctx.userId)
+      : listServersGrantedToBot(ctx.botId);
+    return visible.some((s) => s.id === serverId && s.enabled === 1);
+  });
 }

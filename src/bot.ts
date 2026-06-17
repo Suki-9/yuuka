@@ -172,6 +172,28 @@ export async function sendShareInviteDM(
   }
 }
 
+/**
+ * 登録時の本人確認コードを、主張された Discord ID 宛にデフォルトBotからDMする（G1: DMチャレンジ方式）。
+ * Botがユーザーとサーバーを共有していない／DMが閉じている場合は false。コードはログに出さない。
+ */
+export async function sendRegistrationCodeDM(discordId: string, code: string): Promise<boolean> {
+  try {
+    if (!client.isReady()) return false;
+    const user = await client.users.fetch(discordId);
+    await user.send({
+      content:
+        `🔐 **Yuuka アカウント登録の確認コード**\n\n` +
+        `確認コード: **${code}**\n\n` +
+        `Web登録画面にこのコードを入力すると登録が完了します（10分間有効）。\n` +
+        `※ このDMに心当たりがない場合は、誰かがあなたのDiscord IDで登録を試みています。コードは入力しないでください。`,
+    });
+    return true;
+  } catch (err) {
+    console.error(`[Discord Bot] 登録確認コードのDM送信に失敗しました (user: ${discordId}):`, (err as Error).message);
+    return false;
+  }
+}
+
 /** ボタンインタラクション処理（共有招待の承認・推奨ペルソナのインポート） */
 async function handleInteraction(interaction: Interaction): Promise<void> {
   if (!interaction.isButton()) return;

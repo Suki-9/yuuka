@@ -181,8 +181,19 @@ export function rotateSecretKey(db: import("better-sqlite3").Database): void {
   }
 
   console.log("🔄 YUUKA_ENCRYPTION_SECRET ローテーションを開始します...");
-  // YUUKA_ENCRYPTION_SECRET が空の場合はプレリリース版のフォールバック鍵からの移行とみなす
+  // 旧鍵の決定: 通常は現行 YUUKA_ENCRYPTION_SECRET。空の場合のみプレリリース版の既知フォールバック鍵
+  // からの移行とみなす（ハードコード鍵で保護されていた可能性のあるデータの救済）。
+  // セキュリティ警告: フォールバック鍵で保護されていたデータは「漏えい済み」とみなし、移行後に
+  // 各プロバイダ側でトークン/APIキー等をローテーションすること。
+  const usingLegacyFallback = !config.secretKey;
   const oldSecret = config.secretKey || LEGACY_FALLBACK_SECRET;
+  if (usingLegacyFallback) {
+    console.warn(
+      "⚠️ YUUKA_ENCRYPTION_SECRET が未設定のため、既知のプレリリース版フォールバック鍵で復号して再暗号化します。\n" +
+      "   この鍵はソース公開の既知値です。移行完了後、保存済みの Discordトークン・APIキー・OAuthトークン・\n" +
+      "   Webhook/MCP シークレット等は漏えい済みとみなし、各プロバイダ側で必ずローテーションしてください。"
+    );
+  }
   const oldSystemKey = deriveSystemKey(oldSecret);
   const newSystemKey = deriveSystemKey(config.secretKeyNew);
 

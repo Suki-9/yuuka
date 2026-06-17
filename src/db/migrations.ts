@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "6";
+const SCHEMA_VERSION = "7";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -274,15 +274,20 @@ function migrateOwnerResourceGrants(db: ReturnType<typeof getDb>): void {
   // ── 1. テーブル作成（冪等） ──
   db.exec(`
     -- MCP 許可リスト（mcp_servers.bot_id の「占有」意味を退役させ、owner所有＋Bot許可へ）
+    -- v7: owner_id 次元を追加（クロステナント露出の修正）。許可を付与した owner に紐付け、
+    --     共有秘書(system_default)では発話者所有分のみがランタイムで解決される。
     CREATE TABLE IF NOT EXISTS bot_mcp_access (
       bot_id        TEXT    NOT NULL,
+      owner_id      TEXT    NOT NULL,
       mcp_server_id INTEGER NOT NULL,
       created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
-      PRIMARY KEY (bot_id, mcp_server_id),
-      FOREIGN KEY (bot_id)        REFERENCES bots(id)        ON DELETE CASCADE,
-      FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+      PRIMARY KEY (bot_id, owner_id, mcp_server_id),
+      FOREIGN KEY (bot_id)        REFERENCES bots(id)          ON DELETE CASCADE,
+      FOREIGN KEY (owner_id)      REFERENCES users(discord_id) ON DELETE CASCADE,
+      FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id)   ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_server ON bot_mcp_access(mcp_server_id);
+    CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_server    ON bot_mcp_access(mcp_server_id);
+    CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_bot_owner ON bot_mcp_access(bot_id, owner_id);
 
     -- 認証情報 許可リスト（credentials は (user_id, service_name)。owner_id を非正規化保持）
     CREATE TABLE IF NOT EXISTS bot_credential_access (
@@ -336,9 +341,10 @@ function migrateOwnerResourceGrants(db: ReturnType<typeof getDb>): void {
 
   const backfill = db.transaction(() => {
     // (a) MCP: 既存 mcp_servers の bot_id を許可へ変換（owner所有行のみ・存在する bot のみ）。
+    //     owner_id は当該サーバーの所有者(s.user_id)。v7 で owner スコープへ揃えた。
     db.exec(`
-      INSERT OR IGNORE INTO bot_mcp_access (bot_id, mcp_server_id)
-      SELECT s.bot_id, s.id
+      INSERT OR IGNORE INTO bot_mcp_access (bot_id, owner_id, mcp_server_id)
+      SELECT s.bot_id, s.user_id, s.id
         FROM mcp_servers s
        WHERE s.user_id IS NOT NULL
          AND s.bot_id IN (SELECT id FROM bots)
@@ -373,6 +379,74 @@ function migrateOwnerResourceGrants(db: ReturnType<typeof getDb>): void {
   });
   backfill();
   console.log("✅ v5: owner単位リソース許可（MCP/認証情報/Google）のバックフィルが完了しました。");
+}
+
+/**
+ * v7: bot_mcp_access に owner_id 次元を追加する（クロステナント権限昇格の修正）。
+ *
+ * 旧 bot_mcp_access は (bot_id, mcp_server_id) のみをキーとしていたため、共有秘書
+ * (system_default) に対して任意のユーザーが自分のMCPサーバーを許可すると、その owner の
+ * 認証情報・ツールが「全ユーザー」の会話へ注入されてしまう（クロステナント露出）。
+ * これを bot_credential_access と同じ owner スコープ（bot_id, owner_id, service_name 相当）へ
+ * 揃え、許可を「付与した owner」に紐付ける。ランタイムは system_default では発話者所有分＋
+ * システムレベル(user_id IS NULL)のみを解決する。
+ *
+ * SQLite は PRIMARY KEY をその場で変更できないため、v2テーブルを作って入れ替える。冪等。
+ */
+function migrateMcpAccessOwnerScope(db: ReturnType<typeof getDb>): void {
+  // 既に owner_id 列があれば移行済み（新規DBは下記 CREATE 定義で最初から owner_id を含む）。
+  const cols = db.pragma("table_info(bot_mcp_access)") as { name: string }[];
+  if (cols.length === 0 || cols.some((c) => c.name === "owner_id")) return;
+
+  console.log("🔧 bot_mcp_access に owner_id 次元を追加します（クロステナント露出の修正）...");
+  db.pragma("foreign_keys = OFF");
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE bot_mcp_access_v2 (
+        bot_id        TEXT    NOT NULL,
+        owner_id      TEXT    NOT NULL,
+        mcp_server_id INTEGER NOT NULL,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        PRIMARY KEY (bot_id, owner_id, mcp_server_id),
+        FOREIGN KEY (bot_id)        REFERENCES bots(id)          ON DELETE CASCADE,
+        FOREIGN KEY (owner_id)      REFERENCES users(discord_id) ON DELETE CASCADE,
+        FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id)   ON DELETE CASCADE
+      );
+    `);
+
+    // 旧行をバックフィル。owner_id は許可を付与した owner とみなす:
+    //   1) 当該MCPサーバーの所有者 (mcp_servers.user_id)
+    //   2) システムレベルサーバー(user_id IS NULL)は per-user owner が無いため、Botの owner
+    //      (bots.user_id) で代用する。
+    // owner_id が解決できない行（システムサーバー × system_default 等で bots.user_id も無い）は
+    // 取り込まない。システムサーバーは user_id IS NULL として全Bot常時利用可のため、許可行が
+    // 無くてもランタイムで解決でき、欠落しても挙動は変わらない。NOT NULL 制約違反も避けられる。
+    db.exec(`
+      INSERT OR IGNORE INTO bot_mcp_access_v2 (bot_id, owner_id, mcp_server_id, created_at)
+      SELECT a.bot_id,
+             COALESCE(
+               (SELECT s.user_id FROM mcp_servers s WHERE s.id = a.mcp_server_id),
+               (SELECT b.user_id FROM bots b        WHERE b.id = a.bot_id)
+             ) AS owner_id,
+             a.mcp_server_id,
+             a.created_at
+        FROM bot_mcp_access a
+       WHERE COALESCE(
+               (SELECT s.user_id FROM mcp_servers s WHERE s.id = a.mcp_server_id),
+               (SELECT b.user_id FROM bots b        WHERE b.id = a.bot_id)
+             ) IS NOT NULL
+    `);
+
+    db.exec(`
+      DROP TABLE bot_mcp_access;
+      ALTER TABLE bot_mcp_access_v2 RENAME TO bot_mcp_access;
+      CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_server     ON bot_mcp_access(mcp_server_id);
+      CREATE INDEX IF NOT EXISTS idx_bot_mcp_access_bot_owner  ON bot_mcp_access(bot_id, owner_id);
+    `);
+  });
+  tx();
+  db.pragma("foreign_keys = ON");
+  console.log("✅ bot_mcp_access を owner スコープへ移行しました（v7）。");
 }
 
 /**
@@ -1053,6 +1127,13 @@ export async function runMigrations(): Promise<void> {
   // bot_id 列の存在が保証された後で複合インデックスを作成する（新規DB・既存DBの両方を網羅）。
   // 新規DB: CREATE TABLE で bot_id 作成済み。既存DB: 直前の migrateMcpToBotScope が ALTER で追加済み。
   db.exec("CREATE INDEX IF NOT EXISTS idx_mcp_servers_user_bot ON mcp_servers(user_id, bot_id)");
+
+  // ─── v7: bot_mcp_access に owner_id 次元を追加（クロステナント露出の修正） ──
+  // 既存DB（旧 (bot_id, mcp_server_id) テーブル）に owner_id を先に追加しておく必要があるため、
+  // v5 の migrateOwnerResourceGrants（owner_id を前提とするインデックス・バックフィルを行う）より
+  // 前に実行する。新規DBでは bot_mcp_access 未作成のため v7 は早期 return し、v5 の CREATE TABLE が
+  // 最初から owner_id 付きで作成する。
+  migrateMcpAccessOwnerScope(db);
 
   // ─── v5: owner単位の統合管理（リソース許可リスト共有＋Google複数アカウント） ──
   // mcp_servers.bot_id が存在する前提でバックフィルするため、上の v4 ブロックより後に呼ぶ。

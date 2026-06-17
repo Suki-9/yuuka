@@ -1,4 +1,5 @@
 import { decryptText } from "../utils/crypto.js";
+import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 import {
   type McpServerRecord,
   type McpToolDef,
@@ -123,6 +124,8 @@ async function rpcRequest(
   }
 
   try {
+    // SSRF対策: 利用直前に宛先を再検証（DNSリバインディング含む内部到達を遮断）
+    await assertSafeOutboundUrl(server.endpoint_url);
     const response = await fetch(server.endpoint_url, {
       method: "POST",
       headers,
@@ -281,6 +284,8 @@ async function authedGet(server: McpServerRecord, url: string): Promise<Response
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
+    // SSRF対策: 利用直前に宛先を再検証
+    await assertSafeOutboundUrl(url);
     return await fetch(url, {
       method: "GET",
       headers: { ...buildAuthHeader(server) },

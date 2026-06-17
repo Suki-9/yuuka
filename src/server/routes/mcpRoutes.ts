@@ -75,6 +75,7 @@ import {
 } from "../../services/mcpClient.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 import { config } from "../../config.js";
+import { assertSafeOutboundUrl, BlockedUrlError } from "../../utils/ssrfGuard.js";
 
 /**
  * iframe 用エラーページ（text/html）を返す。ダッシュボードは iframe の src として読み込まれるため、
@@ -152,10 +153,12 @@ export const mcpRoutes: RouteDef[] = [
       if (!name || !endpointUrl) {
         return sendJson(ctx.res, 400, { success: false, message: "name と endpointUrl は必須です。" });
       }
+      // SSRF対策: 形式チェックに加え、内部/予約レンジ・非http(s)スキームを登録時点で拒否する
       try {
-        new URL(endpointUrl);
-      } catch {
-        return sendJson(ctx.res, 400, { success: false, message: "endpointUrl のURL形式が不正です。" });
+        await assertSafeOutboundUrl(endpointUrl);
+      } catch (err) {
+        const msg = err instanceof BlockedUrlError ? err.message : "endpointUrl のURL形式が不正です。";
+        return sendJson(ctx.res, 400, { success: false, message: msg });
       }
       if (scope === "system" && user.role !== "admin") {
         return sendJson(ctx.res, 403, { success: false, message: "システムレベルのMCPサーバー登録はAdminのみ可能です。" });
@@ -481,6 +484,8 @@ export const mcpRoutes: RouteDef[] = [
 
       let upstreamRes: Response;
       try {
+        // SSRF対策: 中継直前に宛先を再検証（DNSリバインディング含む内部到達を遮断）
+        await assertSafeOutboundUrl(server.endpoint_url);
         upstreamRes = await fetch(server.endpoint_url, {
           method: "POST",
           headers: {

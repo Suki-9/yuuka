@@ -24,18 +24,7 @@
   <!-- Google Material Symbols (Outlined version matches shadcn/ui aesthetic perfectly) -->
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <script>
-    (function() {
-      try {
-        var t = localStorage.getItem('yuuka-theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', t);
-        document.documentElement.classList.add('theme-no-transition');
-        var colors = { dark: '#121212', light: '#FAFAFA', 'blue-archive': '#FBFCFF' };
-        var m = document.querySelector('meta[name="theme-color"]');
-        if (m) m.setAttribute('content', colors[t] || colors.dark);
-      } catch(e) {}
-    })();
-  </script>
+  <script src="theme-init.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -161,7 +150,22 @@
               <label for="reg-invite-code">招待コード *</label>
               <input type="text" id="reg-invite-code" required placeholder="管理者から配布されたコード">
             </div>
-            <button type="submit" class="btn btn-primary btn-block">登録してログインする</button>
+            <button type="submit" class="btn btn-primary btn-block">確認コードを受け取る</button>
+          </form>
+
+          <!-- DMチャレンジ: 確認コード入力（登録送信後に表示。G1: Discord ID 所有確認） -->
+          <form id="register-verify-form" style="display: none;">
+            <div style="margin-bottom: 12px; font-size: 0.85rem; color: #a1a1aa;">
+              入力した Discord ID 宛に Bot から確認コードをDMしました。届いたコードを入力してください（10分間有効）。
+            </div>
+            <div class="form-group">
+              <label for="reg-verify-code">確認コード *</label>
+              <input type="text" id="reg-verify-code" inputmode="numeric" autocomplete="one-time-code"
+                pattern="[0-9]*" maxlength="6" required placeholder="6桁のコード">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">登録を完了する</button>
+            <button type="button" id="reg-verify-back" class="btn btn-secondary btn-block"
+              style="margin-top: 8px;">入力内容を修正する</button>
           </form>
         </div>
 
@@ -459,47 +463,56 @@
   </div>
 
   <!-- ==========================================
-       BOT SELECTION VIEW (Matte dark overlay)
+       HOME DASHBOARD (ログイン後 "/" ルート)
        ========================================== -->
   <div id="bot-selection-overlay" class="overlay">
-    <div class="bot-selection-card">
-      <div class="login-header">
-        <div style="display: flex; align-items: center; gap: 16px;">
-          <div class="logo-icon-container">
-            <span class="material-symbols-outlined"
-              style="font-size: 2.2rem !important; color: var(--color-primary);">robot_2</span>
-          </div>
-          <div class="logo-text-wrapper">
-            <h1>BOT SELECTION</h1>
-            <p>管理または作成するアシスタントボットを選択してください</p>
-          </div>
+    <div class="home-dashboard">
+
+      <!-- ナビゲーションバー -->
+      <nav class="home-nav">
+        <div class="home-nav-brand">
+          <span class="material-symbols-outlined home-nav-logo">calculate</span>
+          <span class="home-nav-title">Yuuka</span>
+          <span class="home-nav-subtitle">Management Portal</span>
         </div>
+        <div class="home-nav-actions">
+          <button id="btn-open-integrated" class="btn btn-secondary btn-sm home-nav-btn">
+            <span class="material-symbols-outlined icon-button-left">hub</span>統合管理
+          </button>
+          <button id="btn-open-admin" class="btn btn-secondary btn-sm home-nav-btn" style="display: none;">
+            <span class="material-symbols-outlined icon-button-left">admin_panel_settings</span>管理者設定
+          </button>
+          <button id="btn-bot-logout" class="btn btn-secondary btn-sm home-nav-btn">
+            <span class="material-symbols-outlined icon-button-left">logout</span>ログアウト
+          </button>
+        </div>
+      </nav>
+
+      <!-- グリーティング + サマリーステータス -->
+      <div class="home-hero">
+        <div class="home-greeting">
+          <h1 class="home-greeting-title">おかえりなさい、<span id="home-username-display">—</span></h1>
+          <p class="home-greeting-sub">AIアシスタントの管理ポータルへようこそ</p>
+        </div>
+        <!-- 統計カード（JSで動的レンダリング） -->
+        <div class="home-stats" id="home-stats"></div>
       </div>
 
-      <!-- Bot List Grid -->
-      <div id="bot-list" class="bot-list-grid">
-        <!-- Dynamically generated bot cards will go here -->
+      <!-- Botセクション -->
+      <div class="home-section">
+        <div class="home-section-header">
+          <div class="home-section-label">
+            <span class="material-symbols-outlined home-section-icon">robot_2</span>
+            <h2 class="home-section-title">アシスタント Bot</h2>
+          </div>
+          <button id="btn-show-add-bot" class="btn btn-primary btn-sm">
+            <span class="material-symbols-outlined icon-button-left">add</span>新規作成
+          </button>
+        </div>
+        <!-- Botカードグリッド（JSで動的レンダリング） -->
+        <div id="bot-list" class="bot-cards-grid"></div>
       </div>
 
-      <!-- 全体管理への入口（Bot個別ではなく owner/システム全体の管理） -->
-      <div class="bot-selection-management-row"
-        style="margin-top: 28px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
-        <button id="btn-open-integrated" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px;">
-          <span class="material-symbols-outlined">hub</span> Bot統合管理
-        </button>
-        <button id="btn-open-admin" class="btn btn-secondary" style="display: none; align-items: center; gap: 8px; padding: 10px 18px;">
-          <span class="material-symbols-outlined">admin_panel_settings</span> 管理者用設定
-        </button>
-      </div>
-
-      <!-- Actions -->
-      <div class="bot-selection-actions"
-        style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-        <button id="btn-bot-logout" class="btn btn-secondary"
-          style="min-width: 120px; padding: 10px 20px;">ログアウト</button>
-        <button id="btn-show-add-bot" class="btn btn-primary" style="min-width: 180px; padding: 10px 20px;">＋
-          新しいBotを作成</button>
-      </div>
     </div>
   </div>
 

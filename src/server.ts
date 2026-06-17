@@ -53,10 +53,14 @@ const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 // frame-src は default-src 'self' にフォールバックし、同一オリジンの dashboard ルートを許可する。
 // （注意: この CSP を変更したら dist を再ビルドし、稼働中の node プロセスを再起動すること。
 //  古いプロセスはメモリ上の旧 CSP を返し続ける。）
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-src 'self'; frame-ancestors 'self';";
+// script-src から 'unsafe-inline' を除去（インラインscript/イベントハンドラは全て排除済み）。
+// これによりCSPがXSSに対する実効的な多層防御として機能する。インラインJSを追加する場合は
+// nonce/hash 方式へ移行すること。style-src の 'unsafe-inline' はテンプレート内の style= のため当面維持。
+const CSP = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-src 'self'; frame-ancestors 'self';";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
   "Content-Security-Policy": CSP,
 } as const;
 

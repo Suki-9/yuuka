@@ -620,7 +620,8 @@ export async function processMessage(
   if (caps.has("mcp")) {
     try {
       // v5: 当該Botに利用許可(bot_mcp_access)されたサーバー＋システムレベルから取得する。
-      mcpModule = await getMcpFunctionModuleForBot(botId);
+      // v7: 共有秘書(system_default)では発話者(userId)所有分のみへスコープする（クロステナント露出防止）。
+      mcpModule = await getMcpFunctionModuleForBot(botId, userId);
     } catch (err) {
       console.error("MCP動的ツールの取得に失敗しました（スキップ）:", err);
     }
@@ -933,8 +934,8 @@ export async function processGuildMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      // ギルド経路: 当該Botに利用許可されたMCPサーバーのみ（発話者には依存しない）。
-      mcpModule = await getMcpFunctionModuleForBot(botId);
+      // ギルド経路: 当該Botに利用許可されたMCPサーバーのみ（単一owner Botのため owner設定分をそのまま使う）。
+      mcpModule = await getMcpFunctionModuleForBot(botId, speaker.userId);
     } catch (err) {
       console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
     }
@@ -1014,8 +1015,8 @@ export async function processBotDmMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      // owner DM: 当該Botに利用許可されたMCPサーバーのみ。
-      mcpModule = await getMcpFunctionModuleForBot(botId);
+      // owner DM: 当該Botに利用許可されたMCPサーバーのみ（単一owner Botのため owner設定分をそのまま使う）。
+      mcpModule = await getMcpFunctionModuleForBot(botId, owner.userId);
     } catch (err) {
       console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
     }

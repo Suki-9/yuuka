@@ -168,19 +168,28 @@ export function deleteGoogleAccount(userId: string, accountId: number): boolean 
 // ─── Bot ごとの使用アカウント（bot_google_account） ─────────────────────────
 
 /**
- * Botが使う Google アカウントを解決する。
- *   行なし          → 当該Bot所有者の primary へフォールバック
- *   account_id NULL → 「連携なし」（undefined を返す＝Google を使わせない）
- *   account_id = N  → そのアカウント（削除済み等で取れなければ primary フォールバック）
- * @param ownerUserId フォールバック先 owner（system_default では呼び出し側で発話者を渡す）
+ * Botが使う Google アカウントを解決する（発話者 speakerUserId のコンテキストで）。
+ *
+ * セキュリティ（クロステナント防止）: 共有Bot（system_default 等、複数ユーザーが発話する）では、
+ * Botに割り当てられた特定アカウントが「他人のGoogleトークン」を指していても、発話者がその所有者で
+ * ない限り使用させない。割当アカウントは発話者自身が所有する場合に限り採用し、それ以外は発話者自身の
+ * primary へフォールバックする（他人のカレンダー/Driveへ越権アクセスさせない）。
+ *   行なし                          → 発話者の primary へフォールバック
+ *   account_id NULL                 → 「連携なし」（undefined）
+ *   account_id = N かつ Nの所有者=発話者 → アカウント N
+ *   account_id = N かつ Nの所有者≠発話者 → 発話者の primary（越権防止）
+ * @param speakerUserId 発話者（＝このトークンを使う主体）の discord_id
  */
-export function getAccountForBot(botId: string, ownerUserId: string): UserGoogleAccount | undefined {
+export function getAccountForBot(botId: string, speakerUserId: string): UserGoogleAccount | undefined {
   const row = getDb()
     .prepare("SELECT google_account_id FROM bot_google_account WHERE bot_id = ?")
     .get(botId) as { google_account_id: number | null } | undefined;
-  if (!row) return getPrimaryGoogleAccount(ownerUserId); // 未設定 → primary
+  if (!row) return getPrimaryGoogleAccount(speakerUserId); // 未設定 → 発話者の primary
   if (row.google_account_id == null) return undefined; // 連携なし
-  return getGoogleAccountById(row.google_account_id) ?? getPrimaryGoogleAccount(ownerUserId);
+  const acct = getGoogleAccountById(row.google_account_id);
+  // 割当アカウントは発話者本人のものに限り使用する（他人のトークンを共有Bot経由で使わせない）
+  if (acct && acct.user_id === speakerUserId) return acct;
+  return getPrimaryGoogleAccount(speakerUserId);
 }
 
 /**

@@ -93,6 +93,14 @@ export const config = {
   /** 管理画面のバインドホスト (セキュリティのためデフォルトはローカルホスト) */
   host: getSetting("HOST", "127.0.0.1"),
 
+  /**
+   * 信頼するリバースプロキシのIP（カンマ区切り、任意）。
+   * 設定されている場合のみ、直前のpeerがこのリストに含まれるリクエストの
+   * X-Forwarded-For 最右要素をクライアントIPとして採用する（ログインレート制限等）。
+   * 未設定時は socket.remoteAddress のみを信頼する。
+   */
+  trustedProxies: getSettingArray("TRUSTED_PROXIES"),
+
   /** 招待コード一覧（起動時にDBに投入される） */
   inviteCodes: getSettingArray("INVITE_CODES"),
 

@@ -45,14 +45,26 @@ import {
   listGoogleAccountsSafe,
 } from "../../db/googleAccountRepo.js";
 import { extractDriveFolderId } from "../../services/googleDriveService.js";
+import { createOAuthState, consumeOAuthState } from "../../utils/oauthStateStore.js";
 
 // ─── ユーザー設定・ステータス HTTPルート ─────────────────────────────────────
 
-/** OAuthリダイレクトURIの構築（baseUrl 未設定時はリクエストヘッダから推定） */
+/**
+ * OAuthリダイレクトURIの構築。
+ * セキュリティ: redirect_uri はセキュリティ上重要な絶対URLのため、設定済みの BASE_URL からのみ導出する。
+ * BASE_URL 未設定時はローカル開発（localhost/127.0.0.1）に限り Host から構築し、それ以外は拒否する
+ * （攻撃者が操作可能な Host / X-Forwarded-Proto ヘッダから redirect_uri を作らせない）。
+ */
 function buildOAuthRedirectUri(ctx: RouteRequestCtx): string {
-  return config.baseUrl
-    ? `${config.baseUrl.replace(/\/$/, "")}/api/settings/google/oauth/callback`
-    : `${(ctx.req.headers["x-forwarded-proto"] as string) || "http"}://${ctx.req.headers.host}/api/settings/google/oauth/callback`;
+  if (config.baseUrl) {
+    return `${config.baseUrl.replace(/\/$/, "")}/api/settings/google/oauth/callback`;
+  }
+  const host = (ctx.req.headers.host || "").toLowerCase();
+  const hostname = host.split(":")[0];
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `http://${host}/api/settings/google/oauth/callback`;
+  }
+  throw new Error("OAuth リダイレクトURIを構築できません。環境変数 BASE_URL を設定してください。");
 }
 
 /** クレデンシャルの安全なマスキング */
@@ -289,9 +301,18 @@ export const settingsRoutes: RouteDef[] = [
     path: "/api/settings/discord",
     auth: "user",
     async handler(ctx) {
+      const userId = ctx.user!.discordId;
       const botId = ctx.url.searchParams.get("botId") || "system_default";
-      if (!hasBotAccess(ctx.user!.discordId, botId)) {
-        return sendJson(ctx.res, 403, { success: false, message: "アクセス権限がありません。" });
+      // トークン設定状態はオーナー（system_default は Admin）のみ閲覧可能（POSTと同一の権限）
+      if (botId === "system_default") {
+        if (!isAdmin(userId)) {
+          return sendJson(ctx.res, 403, { success: false, message: "システムBotのDiscord設定は管理者のみ閲覧できます。" });
+        }
+      } else {
+        const bot = getBotById(botId);
+        if (!bot || bot.user_id !== userId) {
+          return sendJson(ctx.res, 403, { success: false, message: "Botのトークン設定はオーナーのみが閲覧できます。" });
+        }
       }
       const current = getBotDiscordConfig(botId);
       const hasToken = !!(current?.tokenEncrypted && current?.tokenIv && current?.tokenTag);
@@ -390,10 +411,20 @@ export const settingsRoutes: RouteDef[] = [
         });
       }
 
+      let redirectUri: string;
+      try {
+        redirectUri = buildOAuthRedirectUri(ctx);
+      } catch {
+        return sendJson(ctx.res, 500, {
+          success: false,
+          message: "OAuth リダイレクトURIを構築できません。システム管理者に BASE_URL の設定を依頼してください。",
+        });
+      }
+
       const oauth2Client = new google.auth.OAuth2(
         config.googleClientId,
         config.googleClientSecret,
-        buildOAuthRedirectUri(ctx)
+        redirectUri
       );
 
       const scopes = [
@@ -404,11 +435,14 @@ export const settingsRoutes: RouteDef[] = [
         "https://www.googleapis.com/auth/drive.file",
       ];
 
+      // CSRF対策: セッションユーザーに束縛した一回限りの state nonce を発行する
+      const state = await createOAuthState(ctx.user!.discordId);
+
       const oauthUrl = oauth2Client.generateAuthUrl({
         access_type: "offline",
         scope: scopes,
         prompt: "consent",
-        state: "user-link", // 連携対象はセッションユーザー（コールバックで検証）
+        state,
       });
 
       sendJson(ctx.res, 200, { success: true, url: oauthUrl });
@@ -436,15 +470,26 @@ export const settingsRoutes: RouteDef[] = [
         return redirect("/?oauth=error&msg=missing_config");
       }
 
+      // CSRF対策: state を検証し、フロー開始時のセッションユーザーと一致することを確認する。
+      // （一回限りの nonce。攻撃者が用意した code を被害者セッションに紐付ける攻撃を防ぐ）
+      const state = ctx.url.searchParams.get("state") || "";
+      const stateUserId = await consumeOAuthState(state);
+      if (!stateUserId || stateUserId !== userId) {
+        return redirect("/?oauth=error&msg=invalid_state");
+      }
+
       try {
         const code = ctx.url.searchParams.get("code");
+        if (!code) {
+          return redirect("/?oauth=error&msg=missing_code");
+        }
         const oauth2Client = new google.auth.OAuth2(
           config.googleClientId,
           config.googleClientSecret,
           buildOAuthRedirectUri(ctx)
         );
 
-        const { tokens } = await oauth2Client.getToken(code!);
+        const { tokens } = await oauth2Client.getToken(code);
         oauth2Client.setCredentials(tokens);
 
         let googleEmail: string | null = null;
@@ -471,8 +516,9 @@ export const settingsRoutes: RouteDef[] = [
           redirect("/?oauth=error&msg=no_refresh_token");
         }
       } catch (err) {
+        // 情報漏えい対策: 上流エラーの生メッセージはURLに反映せず、固定コードのみ返す
         console.error("Google OAuth Callback Error:", err);
-        redirect(`/?oauth=error&msg=${encodeURIComponent((err as Error).message)}`);
+        redirect("/?oauth=error&msg=token_exchange_failed");
       }
     },
   },
