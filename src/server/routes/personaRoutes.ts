@@ -46,6 +46,17 @@ export const personaRoutes: RouteDef[] = [
       const prompt = typeof ctx.body.prompt === "string" ? ctx.body.prompt : "";
       const id = ctx.body.id != null ? Number(ctx.body.id) : null;
 
+      // バリデーションはハンドラ内で明示的に行いユーザー向けメッセージを返す。
+      // 想定外（DB/IO）の例外はサーバーログに留め、内部詳細をクライアントへ漏らさない。
+      if (!name) {
+        return sendJson(ctx.res, 400, { success: false, message: "ペルソナ名は必須です。" });
+      }
+      if (prompt.length > PERSONA_MAX_LENGTH) {
+        return sendJson(ctx.res, 400, {
+          success: false,
+          message: `ペルソナは${PERSONA_MAX_LENGTH.toLocaleString()}文字以内です（現在: ${prompt.length.toLocaleString()}文字）`,
+        });
+      }
       try {
         if (id != null && Number.isInteger(id)) {
           const ok = updatePersona(userId, id, { name, prompt });
@@ -58,7 +69,8 @@ export const personaRoutes: RouteDef[] = [
           sendJson(ctx.res, 200, { success: true, persona, message: `ペルソナ「${name}」を作成しました。` });
         }
       } catch (err) {
-        sendJson(ctx.res, 400, { success: false, message: (err as Error).message });
+        console.error("[persona/save] 保存エラー:", err);
+        sendJson(ctx.res, 500, { success: false, message: "ペルソナの保存に失敗しました。" });
       }
     },
   },

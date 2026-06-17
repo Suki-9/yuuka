@@ -581,8 +581,13 @@ export const settingsRoutes: RouteDef[] = [
         addAuditLog(ctx.user!.discordId, "backup.manual_run");
         sendJson(ctx.res, 200, { success: true, url: backupUrl, message: "手動バックアップが完了しました。" });
       } catch (err) {
+        // 上流（Google Drive API・ファイルシステム・OAuth）の生エラーは内部詳細
+        // （ファイルパス・トークン失効理由等）を含むためクライアントへは返さない。
         console.error("手動バックアップ実行エラー:", err);
-        sendJson(ctx.res, 500, { success: false, message: `手動バックアップに失敗しました: ${(err as Error).message}` });
+        sendJson(ctx.res, 500, {
+          success: false,
+          message: "手動バックアップに失敗しました。Google連携とバックアップ先フォルダの設定をご確認ください。",
+        });
       }
     },
   },

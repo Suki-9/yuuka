@@ -311,11 +311,20 @@ export const botAttributeRoutes: RouteDef[] = [
       if (!isSnowflake(guildId)) {
         return sendJson(ctx.res, 400, { success: false, message: "guildId が必要です。" });
       }
+      // バリデーションはハンドラ内で明示的に行いユーザー向けメッセージを返す。
+      // 想定外（DB/IO）の例外はサーバーログに留め、内部詳細をクライアントへ漏らさない。
+      if (content.length > BOT_NOTE_MAX_LENGTH) {
+        return sendJson(ctx.res, 400, {
+          success: false,
+          message: `共有ノートは${BOT_NOTE_MAX_LENGTH.toLocaleString()}文字以内です（現在: ${content.length.toLocaleString()}文字）`,
+        });
+      }
       try {
         setBotGuildNote(bot.id, guildId, content);
         sendJson(ctx.res, 200, { success: true, message: "共有ノートを保存しました。" });
       } catch (err) {
-        sendJson(ctx.res, 400, { success: false, message: (err as Error).message });
+        console.error("[guild-note] 保存エラー:", err);
+        sendJson(ctx.res, 500, { success: false, message: "共有ノートの保存に失敗しました。" });
       }
     },
   },

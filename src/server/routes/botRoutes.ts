@@ -72,23 +72,30 @@ function botHealth(bot: BotRecord): { running: boolean; connected: boolean; shar
 
 /**
  * Bot一覧レスポンス用にレコードを整形する。
- * Bot専用Gemini APIキー・Discordトークンの暗号文はUIに不要かつ機密のため除外し、
- * 有無（has_*）と稼働状態（running/connected/shared）を付与する。
+ * セキュリティ: UIへ返すフィールドは明示的な allowlist で列挙する（denylist の `...rest` は
+ * 将来 bots テーブルへ機密列が追加された際に自動的に漏えいするため使わない）。Bot専用Gemini
+ * APIキー・Discordトークンの暗号文（_encrypted/_iv/_tag）は構造的に応答へ含めず、有無（has_*）と
+ * 稼働状態（running/connected/shared）のみを付与する。
  */
 function toBotView(bot: BotRecord) {
-  const {
-    gemini_api_key_encrypted, gemini_api_key_iv, gemini_api_key_tag,
-    discord_token_encrypted, discord_token_iv, discord_token_tag,
-    ...rest
-  } = bot;
   const preset = presetIdForCapabilities(parseCapabilities(bot.capabilities));
   const health = botHealth(bot);
   return {
-    ...rest,
+    id: bot.id,
+    user_id: bot.user_id,
+    name: bot.name,
+    recommended_persona_id: bot.recommended_persona_id,
+    persona_id: bot.persona_id,
+    capabilities: bot.capabilities,
+    discord_username: bot.discord_username,
+    discord_avatar_url: bot.discord_avatar_url,
+    suspended: bot.suspended,
+    created_at: bot.created_at,
+    updated_at: bot.updated_at,
     preset,
     preset_display_name: getPresetDisplayName(preset),
-    has_gemini_key: !!(gemini_api_key_encrypted && gemini_api_key_iv && gemini_api_key_tag),
-    has_token: !!discord_token_encrypted,
+    has_gemini_key: !!(bot.gemini_api_key_encrypted && bot.gemini_api_key_iv && bot.gemini_api_key_tag),
+    has_token: !!bot.discord_token_encrypted,
     running: health.running,
     connected: health.connected,
     shared: health.shared,
