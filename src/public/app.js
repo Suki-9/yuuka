@@ -6176,11 +6176,27 @@ document.addEventListener("DOMContentLoaded", () => {
       row.className = "glass";
       row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:8px;";
       const canControl = !b.is_system_default;
-      const startBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-start="${b.id}" ${(b.running || b.suspended || !b.has_token) ? "disabled" : ""}>起動</button>` : "";
-      const restartBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-restart="${b.id}" ${(b.suspended || !b.has_token) ? "disabled" : ""}>再起動</button>` : "";
-      const stopBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-stop="${b.id}" ${!b.running ? "disabled" : ""}>停止</button>` : "";
-      // 履歴クリアは全Bot対象（system_default含む）。自分の会話のみに作用。
-      const clearBtn = `<button class="btn btn-secondary btn-sm" data-int-clear="${b.id}" title="このBotとの自分の会話履歴をクリア（Redisキャッシュ削除＋境界記録。永続ログは保持）">履歴クリア</button>`;
+
+      // 主ボタン: 状態に応じて 起動/停止 を1つだけ大きく出す（system_default は制御不可）。
+      let primaryBtn = "";
+      if (canControl) {
+        if (b.suspended || !b.has_token) {
+          primaryBtn = `<button class="btn btn-secondary btn-sm" disabled>${b.running ? "停止" : "起動"}</button>`;
+        } else if (b.running) {
+          primaryBtn = `<button class="btn btn-secondary btn-sm" data-int-do="stop" data-int-bot="${b.id}">停止</button>`;
+        } else {
+          primaryBtn = `<button class="btn btn-secondary btn-sm" data-int-do="start" data-int-bot="${b.id}">起動</button>`;
+        }
+      }
+
+      // ⋮ メニュー: 再起動（制御可Botのみ）＋ 会話履歴クリア（全Bot＝自分の会話に作用）。
+      const menuItems = [];
+      if (canControl) {
+        const rd = (b.suspended || !b.has_token) ? "disabled" : "";
+        menuItems.push(`<button class="int-menu-item" data-int-do="restart" data-int-bot="${b.id}" ${rd}>再起動</button>`);
+      }
+      menuItems.push(`<button class="int-menu-item int-menu-danger" data-int-do="clear" data-int-bot="${b.id}" title="このBotとの自分の会話履歴をクリア（Redisキャッシュ削除＋境界記録。永続ログは保持）">会話履歴をクリア</button>`);
+
       row.innerHTML = `
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
           <span class="material-symbols-outlined" style="color:${chipColor};">${b.is_system_default ? "shield_person" : "smart_toy"}</span>
@@ -6189,16 +6205,36 @@ document.addEventListener("DOMContentLoaded", () => {
             <div style="font-size:0.75rem;color:var(--color-zinc-muted,#a1a1aa);">${intEsc(b.preset)}・${intEsc(b.discord_username || b.id)}</div>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;position:relative;">
           <span style="font-size:0.75rem;color:${chipColor};font-weight:600;">${chip}</span>
-          ${startBtn}${restartBtn}${stopBtn}${clearBtn}
+          ${primaryBtn}
+          <button class="int-menu-toggle" data-int-menu="${b.id}" title="その他の操作">⋮</button>
+          <div class="int-action-menu" data-int-menu-for="${b.id}">${menuItems.join("")}</div>
         </div>`;
       el.appendChild(row);
     });
-    el.querySelectorAll("[data-int-start]").forEach((btn) => btn.addEventListener("click", () => intBotAction("start", btn.getAttribute("data-int-start"))));
-    el.querySelectorAll("[data-int-restart]").forEach((btn) => btn.addEventListener("click", () => intBotAction("restart", btn.getAttribute("data-int-restart"))));
-    el.querySelectorAll("[data-int-stop]").forEach((btn) => btn.addEventListener("click", () => intBotAction("stop", btn.getAttribute("data-int-stop"))));
-    el.querySelectorAll("[data-int-clear]").forEach((btn) => btn.addEventListener("click", () => intClearHistory(btn.getAttribute("data-int-clear"))));
+    // 操作ボタン（主ボタン＋メニュー内）。clear だけ確認付きハンドラ、他は起動/停止/再起動。
+    el.querySelectorAll("[data-int-do]").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const action = btn.getAttribute("data-int-do");
+      const botId = btn.getAttribute("data-int-bot");
+      closeIntMenus();
+      if (action === "clear") intClearHistory(botId);
+      else intBotAction(action, botId);
+    }));
+    // ⋮ トグル（他のメニューは閉じる）
+    el.querySelectorAll("[data-int-menu]").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const botId = btn.getAttribute("data-int-menu");
+      const menu = el.querySelector(`.int-action-menu[data-int-menu-for="${botId}"]`);
+      const willOpen = menu && !menu.classList.contains("open");
+      closeIntMenus();
+      if (willOpen) menu.classList.add("open");
+    }));
+  }
+
+  function closeIntMenus() {
+    document.querySelectorAll(".int-action-menu.open").forEach((m) => m.classList.remove("open"));
   }
 
   async function intClearHistory(botId) {
@@ -6362,6 +6398,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function wireIntegratedForms() {
     intWired = true;
+    // 画面のどこかをクリックしたら開いている ⋮ メニューを閉じる（一度きり登録）。
+    document.addEventListener("click", closeIntMenus);
     const refresh = document.getElementById("int-refresh");
     if (refresh) refresh.addEventListener("click", fetchIntegratedOverview);
 

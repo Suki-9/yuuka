@@ -463,6 +463,64 @@ button, input, select, textarea {
   }
 }
 
+/* ── Bot行の ⋮ オーバーフローメニュー（統合管理ページ） ── */
+.int-action-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  min-width: 190px;
+  background-color: var(--surface-2dp);
+  border: 1px solid var(--border-matte);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+.int-action-menu.open {
+  display: block;
+}
+.int-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-high);
+  cursor: pointer;
+  font-size: 0.83rem;
+}
+.int-menu-item:hover:not(:disabled) {
+  background-color: var(--surface-1dp);
+}
+.int-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.int-menu-danger {
+  color: #f87171;
+}
+/* ⋮ トグルは枠なしのテキストボタン（主ボタンと高さを揃える） */
+.int-menu-toggle {
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.int-menu-toggle:hover {
+  color: var(--text-high);
+  background-color: var(--surface-1dp);
+}
+
 .usage-content {
   max-height: 60vh;
   overflow-y: auto;
@@ -719,6 +777,13 @@ textarea:focus {
 
 .btn-secondary:hover {
   background-color: rgba(187, 134, 252, 0.08);
+}
+
+/* 小サイズボタン（多数の箇所で使われているが未定義だった＝フルサイズで不揃いになっていた）。 */
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
 }
 
 .btn-icon {
