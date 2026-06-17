@@ -12,6 +12,8 @@ export interface BotRecord {
   recommended_persona_id: number | null;
   discord_username: string | null;
   discord_avatar_url: string | null;
+  /** Discord側のbot user ID（= application/client ID）。招待リンク・プロフィールURLの生成に使用 */
+  discord_application_id: string | null;
   suspended: number;
   /** Bot属性: ケーパビリティのJSON配列（bot_attributes_requirements.md §3） */
   capabilities: string;
@@ -144,20 +146,22 @@ export function getBotDiscordConfig(botId: string): BotDiscordConfig | null {
   };
 }
 
-/** Discord側から取得したプロフィール（名前・アバター）をDBへ同期する（§4.3.2） */
+/** Discord側から取得したプロフィール（名前・アバター・application ID）をDBへ同期する（§4.3.2） */
 export function updateBotDiscordProfile(
   botId: string,
   discordUsername?: string,
-  avatarUrl?: string
+  avatarUrl?: string,
+  applicationId?: string
 ): boolean {
   const db = getDb();
   const result = db
     .prepare(
       `UPDATE bots SET discord_username = COALESCE(?, discord_username),
        discord_avatar_url = COALESCE(?, discord_avatar_url),
+       discord_application_id = COALESCE(?, discord_application_id),
        updated_at = datetime('now', 'localtime') WHERE id = ?`
     )
-    .run(discordUsername ?? null, avatarUrl ?? null, botId);
+    .run(discordUsername ?? null, avatarUrl ?? null, applicationId ?? null, botId);
   return result.changes > 0;
 }
 

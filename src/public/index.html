@@ -1194,6 +1194,39 @@
             </form>
           </details>
 
+          <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
+          <div id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
+            </div>
+            <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
+
+            <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-invite-url">導入リンク（サーバーに追加）</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-invite-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-invite" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-invite-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+                <span class="field-sub">※チャンネル表示・メッセージ送信／履歴閲覧・埋め込みリンク・ファイル添付の権限を付与した状態で開きます。</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-profile-url">プロフィールURL</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-profile-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-profile" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-profile-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+              </div>
+            </div>
+
+            <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+              <span class="field-sub">Discordプロフィールが未取得です。Botを起動して「同期」すると、導入リンクとプロフィールURLが表示されます。</span>
+              <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
+            </div>
+          </div>
+
           <!-- Bot属性（プリセット）設定: owner のみ表示 -->
           <!-- Bot登録名: owner / Admin のみ表示 -->
           <details id="config-bot-name-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">

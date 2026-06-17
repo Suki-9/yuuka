@@ -2531,14 +2531,48 @@ document.addEventListener("DOMContentLoaded", () => {
   // Bot属性（プリセット）+ 汎用モード（MCPアシスタント）設定
   // ==========================================
 
+  // Bot導入リンクで付与する権限（このBotが実際に使うAPIに対応:
+  // チャンネル表示(1024)+メッセージ送信(2048)+埋め込みリンク(16384)+ファイル添付(32768)+メッセージ履歴閲覧(65536) = 117760）
+  const BOT_INVITE_PERMISSIONS = "117760";
+
+  /** Bot招待リンク・プロフィールURLカードを更新する。application_id 未取得なら同期を促す */
+  function updateBotInviteCard(bot) {
+    const card = document.getElementById("config-bot-invite-card");
+    if (!card) return;
+    const fields = document.getElementById("bot-invite-fields");
+    const empty = document.getElementById("bot-invite-empty");
+    card.classList.remove("hidden");
+
+    const appId = bot.discord_application_id;
+    if (appId) {
+      const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(appId)}&scope=bot&permissions=${BOT_INVITE_PERMISSIONS}`;
+      const profileUrl = `https://discord.com/users/${encodeURIComponent(appId)}`;
+      const inviteInput = document.getElementById("bot-invite-url");
+      const profileInput = document.getElementById("bot-profile-url");
+      const inviteOpen = document.getElementById("bot-invite-open");
+      const profileOpen = document.getElementById("bot-profile-open");
+      if (inviteInput) inviteInput.value = inviteUrl;
+      if (profileInput) profileInput.value = profileUrl;
+      if (inviteOpen) inviteOpen.href = inviteUrl;
+      if (profileOpen) profileOpen.href = profileUrl;
+      if (fields) fields.classList.remove("hidden");
+      if (empty) empty.classList.add("hidden");
+    } else {
+      if (fields) fields.classList.add("hidden");
+      if (empty) empty.classList.remove("hidden");
+    }
+  }
+
   /** 現在のBotの属性カード・汎用モード設定カードの表示を更新する（owner のみ表示） */
   async function fetchBotAttributeConfig() {
     const attrCard = document.getElementById("config-bot-attribute-card");
     const assistantCard = document.getElementById("config-assistant-card");
     const nameCard = document.getElementById("config-bot-name-card");
+    const inviteCard = document.getElementById("config-bot-invite-card");
     if (attrCard) attrCard.classList.add("hidden");
     if (assistantCard) assistantCard.classList.add("hidden");
     if (nameCard) nameCard.classList.add("hidden");
+    if (inviteCard) inviteCard.classList.add("hidden");
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
@@ -2549,6 +2583,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!data.success) return;
       const bot = (data.bots || []).find(b => b.id === botId);
       if (!bot) return;
+
+      // ── Bot 招待リンク・プロフィールURLカード（アクセス権のあるBotに表示） ──
+      updateBotInviteCard(bot);
 
       // プリセットが変わっている可能性に備えて localStorage を同期
       if (bot.preset && bot.preset !== currentBotPreset()) {
@@ -2829,6 +2866,61 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ── 汎用モード設定のイベントハンドラ（要素は静的なので一度だけ登録） ──
+
+  // ── Bot招待リンク・プロフィールURLカードの操作 ──
+  function copyInputValue(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input || !input.value) return;
+    const flash = () => {
+      const orig = btn.textContent;
+      btn.textContent = "コピー済み";
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(input.value).then(flash).catch(() => {
+        input.select();
+        try { document.execCommand("copy"); flash(); } catch (e) { }
+      });
+    } else {
+      input.select();
+      try { document.execCommand("copy"); flash(); } catch (e) { }
+    }
+  }
+
+  const btnCopyInvite = document.getElementById("btn-copy-bot-invite");
+  if (btnCopyInvite) btnCopyInvite.addEventListener("click", () => copyInputValue("bot-invite-url", btnCopyInvite));
+  const btnCopyProfile = document.getElementById("btn-copy-bot-profile");
+  if (btnCopyProfile) btnCopyProfile.addEventListener("click", () => copyInputValue("bot-profile-url", btnCopyProfile));
+
+  const btnInviteSync = document.getElementById("btn-invite-sync");
+  if (btnInviteSync) {
+    btnInviteSync.addEventListener("click", async () => {
+      const botId = window.currentBotId;
+      if (!botId) return;
+      btnInviteSync.disabled = true;
+      const orig = btnInviteSync.textContent;
+      btnInviteSync.textContent = "同期中...";
+      try {
+        const res = await originalFetch("/api/bots/sync-discord", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          fetchBotAttributeConfig();
+          fetchBotList();
+        } else {
+          alert(data.message || "同期に失敗しました。Botが起動しているか確認してください。");
+        }
+      } catch (e) {
+        alert("通信エラーが発生しました。");
+      } finally {
+        btnInviteSync.disabled = false;
+        btnInviteSync.textContent = orig;
+      }
+    });
+  }
 
   const btnSaveBotAttribute = document.getElementById("btn-save-bot-attribute");
   if (btnSaveBotAttribute) {

@@ -194,7 +194,7 @@ export const botRoutes: RouteDef[] = [
       if (!botRecord) return sendJson(ctx.res, 404, { success: false, message: "Bot が見つかりません。" });
 
       // カスタムクライアントまたはデフォルトクライアントを使用してBot情報を取得
-      let botUser: { username: string; displayAvatarURL: () => string } | null = null;
+      let botUser: { id: string; username: string; displayAvatarURL: () => string } | null = null;
       const customClient = customClients.get(botId);
       if (customClient && customClient.user) {
         botUser = customClient.user;
@@ -211,12 +211,14 @@ export const botRoutes: RouteDef[] = [
 
       const username = botUser.username;
       const avatarUrl = botUser.displayAvatarURL();
-      updateBotDiscordProfile(botId, username, avatarUrl);
+      const applicationId = botUser.id;
+      updateBotDiscordProfile(botId, username, avatarUrl, applicationId);
 
       sendJson(ctx.res, 200, {
         success: true,
         discord_username: username,
         discord_avatar_url: avatarUrl,
+        discord_application_id: applicationId,
         message: `Discordプロフィールを同期しました: ${username}`,
       });
     },

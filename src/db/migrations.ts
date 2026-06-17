@@ -586,6 +586,7 @@ export async function runMigrations(): Promise<void> {
       recommended_persona_id INTEGER,          -- §5.2: 推奨ペルソナ（is_public のみ可）
       discord_username TEXT,
       discord_avatar_url TEXT,
+      discord_application_id TEXT,             -- Discord側のbot user ID(= application/client ID)。招待リンク・プロフィールURLの生成に使用
       suspended INTEGER NOT NULL DEFAULT 0,
       -- Bot属性（要件 §3: ケーパビリティ集合。core は全Bot必須のため記載しない）
       capabilities TEXT NOT NULL DEFAULT '["persona","memory","mcp","secretary"]',
@@ -622,6 +623,7 @@ export async function runMigrations(): Promise<void> {
     { name: "gemini_api_key_encrypted", ddl: "gemini_api_key_encrypted TEXT" },
     { name: "gemini_api_key_iv", ddl: "gemini_api_key_iv TEXT" },
     { name: "gemini_api_key_tag", ddl: "gemini_api_key_tag TEXT" },
+    { name: "discord_application_id", ddl: "discord_application_id TEXT" },
   ]);
 
   // ─── Bot属性 関連テーブル（bot_attributes_requirements.md §5） ──────────────

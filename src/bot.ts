@@ -114,11 +114,11 @@ let profileSyncTimer: NodeJS.Timeout | null = null;
 export function syncAllBotProfiles(): void {
   try {
     if (client.user && client.readyAt) {
-      updateBotDiscordProfile("system_default", client.user.username, client.user.displayAvatarURL());
+      updateBotDiscordProfile("system_default", client.user.username, client.user.displayAvatarURL(), client.user.id);
     }
     for (const [botId, customClient] of customClients.entries()) {
       if (customClient.user && customClient.readyAt) {
-        updateBotDiscordProfile(botId, customClient.user.username, customClient.user.displayAvatarURL());
+        updateBotDiscordProfile(botId, customClient.user.username, customClient.user.displayAvatarURL(), customClient.user.id);
       }
     }
   } catch (err) {
@@ -288,7 +288,7 @@ function attachDefaultClientHandlers(botClient: Client): void {
     // Discordからプロフィールを同期（起動時 §4.3.2）
     try {
       const avatarUrl = c.user.displayAvatarURL();
-      updateBotDiscordProfile("system_default", c.user.username, avatarUrl);
+      updateBotDiscordProfile("system_default", c.user.username, avatarUrl, c.user.id);
       console.log(`[Discord Bot] デフォルトBotのプロフィールを同期しました: ${c.user.username}`);
     } catch (err) {
       console.error("[Discord Bot] デフォルトBotのプロフィールの同期に失敗しました:", err);
@@ -817,7 +817,7 @@ export async function startCustomBot(botId: string): Promise<boolean> {
       // Discordからプロフィールを同期
       try {
         const avatarUrl = c.user.displayAvatarURL();
-        updateBotDiscordProfile(botId, c.user.username, avatarUrl);
+        updateBotDiscordProfile(botId, c.user.username, avatarUrl, c.user.id);
         console.log(`[Discord Bot] 独自Bot (Bot: ${botId}) のプロフィールを同期しました: ${c.user.username}`);
       } catch (err) {
         console.error(`[Discord Bot] 独自Bot (Bot: ${botId}) のプロフィールの同期に失敗しました:`, err);
