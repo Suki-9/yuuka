@@ -166,6 +166,37 @@ export const integratedRoutes: RouteDef[] = [
     },
   },
 
+  // ── Bot 再起動 ──（停止→起動。トークン更新なしで Discord 接続を貼り直す） ──
+  {
+    method: "POST",
+    path: "/api/integrated/bots/restart",
+    auth: "user",
+    async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const botId = typeof ctx.body.botId === "string" ? ctx.body.botId : "";
+      const bot = getBotById(botId);
+      if (!bot || bot.user_id !== userId || botId === "system_default") {
+        return sendJson(ctx.res, 403, { success: false, message: "このBotを操作する権限がありません。" });
+      }
+      if (isBotSuspended(botId)) {
+        return sendJson(ctx.res, 409, { success: false, message: "このBotは管理者により停止されています。" });
+      }
+      if (!bot.discord_token_encrypted) {
+        return sendJson(ctx.res, 409, { success: false, message: "Discordトークンが未設定です（Bot設定で登録してください）。" });
+      }
+      stopCustomBot(botId);
+      const ok = await startCustomBot(botId);
+      addAuditLog(userId, "bot.owner_restart", botId);
+      const status = botRunStatus(botId);
+      return sendJson(ctx.res, ok ? 200 : 502, {
+        success: ok,
+        message: ok ? "再起動しました。" : "再起動に失敗しました（トークンを確認してください）。",
+        running: status.running,
+        connected: status.connected,
+      });
+    },
+  },
+
   // ── 利用許可トグル: MCP ──
   {
     method: "POST",

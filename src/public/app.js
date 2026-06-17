@@ -6177,6 +6177,7 @@ document.addEventListener("DOMContentLoaded", () => {
       row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:8px;";
       const canControl = !b.is_system_default;
       const startBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-start="${b.id}" ${(b.running || b.suspended || !b.has_token) ? "disabled" : ""}>起動</button>` : "";
+      const restartBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-restart="${b.id}" ${(b.suspended || !b.has_token) ? "disabled" : ""}>再起動</button>` : "";
       const stopBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-stop="${b.id}" ${!b.running ? "disabled" : ""}>停止</button>` : "";
       row.innerHTML = `
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
@@ -6188,18 +6189,20 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
           <span style="font-size:0.75rem;color:${chipColor};font-weight:600;">${chip}</span>
-          ${startBtn}${stopBtn}
+          ${startBtn}${restartBtn}${stopBtn}
         </div>`;
       el.appendChild(row);
     });
     el.querySelectorAll("[data-int-start]").forEach((btn) => btn.addEventListener("click", () => intBotAction("start", btn.getAttribute("data-int-start"))));
+    el.querySelectorAll("[data-int-restart]").forEach((btn) => btn.addEventListener("click", () => intBotAction("restart", btn.getAttribute("data-int-restart"))));
     el.querySelectorAll("[data-int-stop]").forEach((btn) => btn.addEventListener("click", () => intBotAction("stop", btn.getAttribute("data-int-stop"))));
   }
 
   async function intBotAction(action, botId) {
     const d = await intPost(`/api/integrated/bots/${action}`, { botId });
     if (!d.success && d.message) alert(d.message);
-    setTimeout(fetchIntegratedOverview, action === "start" ? 1500 : 300);
+    // stop は即時反映、start/restart は Discord 接続確立を待って少し遅らせて再取得する
+    setTimeout(fetchIntegratedOverview, action === "stop" ? 300 : 1500);
   }
 
   // ── 認証情報 ──
