@@ -856,6 +856,25 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => navigateTo("/"))
   );
 
+  // 統合管理／管理者設定のセクションはアコーディオン（同時に1つだけ展開）。
+  // ネイティブの <details name> 排他制御に未対応なブラウザ向けの保険として、
+  // あるセクションを開いたら同じ name の他セクションを閉じる。
+  ["integrated-overlay", "admin-overlay"].forEach((overlayId) => {
+    const root = document.getElementById(overlayId);
+    if (!root) return;
+    const items = root.querySelectorAll("details[name]");
+    items.forEach((d) => {
+      d.addEventListener("toggle", () => {
+        if (!d.open) return;
+        items.forEach((other) => {
+          if (other !== d && other.open && other.getAttribute("name") === d.getAttribute("name")) {
+            other.open = false;
+          }
+        });
+      });
+    });
+  });
+
   /** プリセット表示名（管理ページから変更可能）を作成フォームへ反映する */
   async function refreshPresetOptions() {
     try {
