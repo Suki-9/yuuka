@@ -625,7 +625,7 @@ document.addEventListener("DOMContentLoaded", () => {
         item.classList.add("default-bot");
       }
 
-      const isCustomToken = !!(bot.has_token || bot.discord_token_encrypted);
+      const isCustomToken = !!bot.has_token;
       const isAssistant = bot.preset === "mcp_assistant";
       const accentColor = isAssistant ? "#a78bfa" : isCustomToken ? "#10b981" : "#3b82f6";
       const presetLabel = bot.preset_display_name || (isAssistant ? "汎用モード" : "パーソナル秘書");
@@ -1055,10 +1055,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const botsRes = await originalFetch("/api/bots");
             const botsData = await botsRes.json();
             const systemDefaultBot = botsData.success && botsData.bots.find(b => b.id === "system_default");
-            // has_token は新バックエンドのフィールド。デプロイ前の旧バックエンドは
-            // discord_token_encrypted を返すため、両方を見てトークン有無を判定する
-            // （バージョン齟齬でセットアップ画面が誤表示されるのを防ぐ）。
-            const hasDefaultToken = systemDefaultBot && (systemDefaultBot.has_token || !!systemDefaultBot.discord_token_encrypted);
+            // バックエンドは機密のため生トークンを返さず has_token（真偽）のみを返す。
+            const hasDefaultToken = systemDefaultBot && systemDefaultBot.has_token;
             if (!hasDefaultToken) {
               showDefaultBotSetupScreen();
               return;

@@ -29,7 +29,8 @@
     "node-cron": "^3.0.3",
     "puppeteer": "^25.1.0",
     "redis": "^4.7.1",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",

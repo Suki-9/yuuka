@@ -17,14 +17,16 @@ import {
   type ContactRecord,
 } from "../../db/contactRepo.js";
 import { hasBotAccess } from "../../db/botRepo.js";
+import { contactViewSchema } from "../../types/apiViews.js";
 
 // ─── コンテキストノート・クリップボード・連絡先 HTTPルート ────────────────────
 // 全ルート auth:"user"。リソースは ctx.user.discordId でスコープする（§12）。
 
 /**
- * 連絡先レコードをUI向けに整形する（allowlist）。
- * セキュリティ: スコープキー user_id / bot_id と内部のリマインダ重複管理用 birthday_reminded_year は
- * UIに不要なため応答へ含めない（明示列挙＝将来列追加時の自動漏えいを防ぐ）。
+ * 連絡先レコードをUI向けに整形する。
+ * セキュリティ: 応答スキーマ contactViewSchema（types/apiViews.ts）の parse() を通すことで、
+ * スコープキー user_id / bot_id と内部のリマインダ重複管理用 birthday_reminded_year など
+ * スキーマ外の列は構造的に除去される（生レコードが紛れ込んでも漏えいしない）。
  */
 function toContactView(c: ContactRecord) {
   let tags: string[] = [];
@@ -34,7 +36,7 @@ function toContactView(c: ContactRecord) {
   } catch {
     /* 不正JSONは空配列扱い */
   }
-  return {
+  return contactViewSchema.parse({
     id: c.id,
     name: c.name,
     birthday: c.birthday,
@@ -44,7 +46,7 @@ function toContactView(c: ContactRecord) {
     tags,
     created_at: c.created_at,
     updated_at: c.updated_at,
-  };
+  });
 }
 
 export const personalRoutes: RouteDef[] = [

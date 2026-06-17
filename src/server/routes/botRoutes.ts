@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
+import { botViewSchema } from "../../types/apiViews.js";
 import {
   createBot,
   getBotById,
@@ -72,15 +73,15 @@ function botHealth(bot: BotRecord): { running: boolean; connected: boolean; shar
 
 /**
  * Bot一覧レスポンス用にレコードを整形する。
- * セキュリティ: UIへ返すフィールドは明示的な allowlist で列挙する（denylist の `...rest` は
- * 将来 bots テーブルへ機密列が追加された際に自動的に漏えいするため使わない）。Bot専用Gemini
- * APIキー・Discordトークンの暗号文（_encrypted/_iv/_tag）は構造的に応答へ含めず、有無（has_*）と
- * 稼働状態（running/connected/shared）のみを付与する。
+ * セキュリティ: 応答に出してよいフィールドは zod の botViewSchema（types/apiViews.ts）で一元定義し、
+ * 必ず schema.parse() を通して返す。スキーマ外のキーは parse 時に除去されるため、Bot専用Gemini
+ * APIキー・Discordトークンの暗号文（_encrypted/_iv/_tag）や将来追加され得る機密列は構造的に応答へ
+ * 出ない。UIへは有無（has_*）と稼働状態（running/connected/shared）のみを付与する。
  */
 function toBotView(bot: BotRecord) {
   const preset = presetIdForCapabilities(parseCapabilities(bot.capabilities));
   const health = botHealth(bot);
-  return {
+  return botViewSchema.parse({
     id: bot.id,
     user_id: bot.user_id,
     name: bot.name,
@@ -99,7 +100,7 @@ function toBotView(bot: BotRecord) {
     running: health.running,
     connected: health.connected,
     shared: health.shared,
-  };
+  });
 }
 
 export const botRoutes: RouteDef[] = [
