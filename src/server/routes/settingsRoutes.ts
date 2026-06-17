@@ -12,6 +12,8 @@ import {
   updatePassword,
   verifyPassword,
   isAdmin,
+  countAdmins,
+  deleteUser,
   getUserGeminiConfig,
   updateUserGeminiSettings,
   getUserGoogleConfig,
@@ -31,6 +33,7 @@ import {
   updateBotDiscordToken,
   hasBotAccess,
   isBotSuspended,
+  listAllBots,
 } from "../../db/botRepo.js";
 import { startCustomBot, stopCustomBot, restartDefaultBot } from "../../bot.js";
 import { encryptText, decryptText } from "../../utils/crypto.js";
@@ -239,6 +242,52 @@ export const settingsRoutes: RouteDef[] = [
       const newToken = await createSession({ discordId: userId, username: user.username, role: ctx.user!.role });
       setSessionCookie(ctx.res, ctx.req, newToken);
       sendJson(ctx.res, 200, { success: true, message: "パスワードを変更しました。他の端末のセッションは無効化されました。" });
+    },
+  },
+
+  // ── アカウント削除（本人による退会。最後の管理者は削除不可） ──
+  {
+    method: "POST",
+    path: "/api/settings/delete-account",
+    auth: "user",
+    async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const { password } = ctx.body as Record<string, string>;
+      if (!password) {
+        return sendJson(ctx.res, 400, { success: false, message: "削除を確定するには現在のパスワードを入力してください。" });
+      }
+
+      // 本人確認: 現在のパスワードを検証する
+      const user = getUserByDiscordId(userId);
+      if (!user || !verifyPassword(password, user.password_hash)) {
+        return sendJson(ctx.res, 401, { success: false, message: "パスワードが正しくありません。" });
+      }
+
+      // 管理者ガード: 自分が唯一の管理者なら削除を拒否（管理者0人化を防ぐ）。
+      // 先に他のユーザーへ Admin 権限を付与してから再度お試しいただく。
+      if (user.role === "admin" && countAdmins() <= 1) {
+        return sendJson(ctx.res, 409, {
+          success: false,
+          message: "あなたは唯一の管理者のため、アカウントを削除できません。先に他のユーザーへ管理者権限を付与してください。",
+        });
+      }
+
+      // 自分が所有する起動中の独自Botを停止（system_default は対象外）
+      for (const bot of listAllBots()) {
+        if (bot.user_id === userId && bot.id !== "system_default") {
+          stopCustomBot(bot.id);
+        }
+      }
+
+      const ok = deleteUser(userId);
+      if (!ok) {
+        return sendJson(ctx.res, 404, { success: false, message: "アカウントが見つかりません。" });
+      }
+
+      // 全セッションを失効させてログアウトさせる
+      await destroyAllSessionsForUser(userId);
+      addAuditLog(userId, "auth.account_delete");
+      sendJson(ctx.res, 200, { success: true, message: "アカウントを削除しました。関連データもすべて削除されました。" });
     },
   },
 

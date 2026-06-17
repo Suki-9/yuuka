@@ -228,6 +228,17 @@ export function updateUserRole(discordId: string, role: string): boolean {
 }
 
 /**
+ * Admin ロールのユーザー数を数える（最後の管理者の削除/降格を防ぐためのガード用）
+ */
+export function countAdmins(): number {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'")
+    .get() as { count: number };
+  return row.count;
+}
+
+/**
  * ユーザーが Admin かどうか判定する
  */
 export function isAdmin(discordId: string): boolean {

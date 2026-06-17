@@ -3186,6 +3186,38 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Handle account deletion (self-service withdrawal)
+  const deleteAccountForm = document.getElementById("delete-account-form");
+  if (deleteAccountForm) {
+    deleteAccountForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const password = document.getElementById("config-delete-password").value;
+      if (!password) return;
+      if (!confirm("本当にアカウントを削除しますか？\n所有するBotや秘書業務データを含むすべての関連データが削除され、この操作は取り消せません。")) return;
+
+      try {
+        const res = await fetch("/api/settings/delete-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || "アカウントを削除しました。");
+          localStorage.removeItem("currentBotId");
+          localStorage.removeItem("currentBotName");
+          window.currentBotId = null;
+          activeUserId = "";
+          navigateTo("/login");
+        } else {
+          alert(data.message || "アカウントの削除に失敗しました。");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
   // Handle assistant (user) settings update
   const userSettingsForm = document.getElementById("user-settings-form");
   if (userSettingsForm) {

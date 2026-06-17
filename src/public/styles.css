@@ -786,6 +786,17 @@ textarea:focus {
   background-color: rgba(187, 134, 252, 0.08);
 }
 
+.btn-danger {
+  background-color: transparent;
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.btn-danger:hover {
+  background-color: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.7);
+}
+
 /* 小サイズボタン（多数の箇所で使われているが未定義だった＝フルサイズで不揃いになっていた）。 */
 .btn-sm {
   padding: 6px 14px;

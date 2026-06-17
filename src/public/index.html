@@ -2030,6 +2030,27 @@
               <button type="submit" class="btn btn-primary" style="align-self: flex-start;">パスワードを変更</button>
             </form>
           </details>
+
+          <!-- アカウント削除（退会） -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>アカウントの削除</summary>
+            <p class="description-text" style="margin-top:12px;">
+              アカウントを削除すると、あなたが所有するBotや秘書業務データ（ToDo・予定・経費など）を含む関連データがすべて削除されます。<strong>この操作は取り消せません。</strong>
+            </p>
+            <p class="description-text" style="margin-top:8px;">
+              なお、あなたが唯一の管理者である場合は、システムの管理者が0人にならないよう削除できません。先に他のユーザーへ管理者権限を付与してください。
+            </p>
+            <form id="delete-account-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group">
+                <label for="config-delete-password">現在のパスワード *</label>
+                <input type="password" id="config-delete-password" required placeholder="••••••••••••"
+                  autocomplete="current-password">
+              </div>
+              <button type="submit" class="btn btn-danger" style="align-self: flex-start;">
+                <span class="material-symbols-outlined icon-button-left">delete_forever</span> アカウントを削除する
+              </button>
+            </form>
+          </details>
         </section>
       </div>
     </div>
