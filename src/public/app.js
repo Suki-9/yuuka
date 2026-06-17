@@ -6425,13 +6425,29 @@ document.addEventListener("DOMContentLoaded", () => {
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
           <div style="min-width:0;"><strong>${intEsc(s.name)}</strong> <span style="font-size:0.72rem;color:${s.enabled ? "#10b981" : "#71717a"};">${s.enabled ? "有効" : "無効"}</span>
             <div style="font-size:0.72rem;color:var(--color-zinc-muted,#a1a1aa);word-break:break-all;">${intEsc(s.endpoint_url)} ・ ${s.tools} tools</div></div>
-          <div style="display:flex;gap:6px;flex-shrink:0;">
+          <div style="display:flex;gap:6px;flex-shrink:0;" data-int-mcp-actions>
             <button class="btn btn-secondary btn-sm" data-int-mcp-toggle="${s.id}" data-enabled="${s.enabled ? 1 : 0}">${s.enabled ? "無効化" : "有効化"}</button>
             <button class="btn btn-secondary btn-sm" data-int-mcp-del="${s.id}">削除</button>
           </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleMcp", s.id)}</div>`;
       el.appendChild(card);
+
+      // MCP管理ページ（dashboard提供サーバーのみ）。fire-and-forgetで判定し、
+      // 「無効化／削除」の前に「管理ページ」ボタンを差し込む。openMcpDashboard はモーダルで開く。
+      const actionsBar = card.querySelector("[data-int-mcp-actions]");
+      fetch(`/api/mcp-servers/${s.id}/dashboard/status`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (!d || !d.available || !actionsBar) return;
+          const dashBtn = document.createElement("button");
+          dashBtn.type = "button";
+          dashBtn.className = "btn btn-secondary btn-sm";
+          dashBtn.textContent = "管理ページ";
+          dashBtn.addEventListener("click", () => openMcpDashboard(s));
+          actionsBar.insertBefore(dashBtn, actionsBar.firstChild);
+        })
+        .catch(() => {});
     });
     wireIntGrantChips(el);
     el.querySelectorAll("[data-int-mcp-toggle]").forEach((btn) => btn.addEventListener("click", async () => {
