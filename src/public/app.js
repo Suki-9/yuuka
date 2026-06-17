@@ -492,7 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalCreateBot);
       ["modal-expense-plan", "modal-budget-settings", "modal-persona-edit",
         "modal-persona-preview", "modal-contact", "modal-webhook", "modal-audit",
-        "modal-mcp-dashboard"].forEach(id => {
+        "modal-mcp-dashboard", "modal-int-calendars"].forEach(id => {
         const m = document.getElementById(id);
         if (m) closeModal(m);
       });
@@ -855,6 +855,25 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-management-back]").forEach((btn) =>
     btn.addEventListener("click", () => navigateTo("/"))
   );
+
+  // 統合管理／管理者設定のセクションはアコーディオン（同時に1つだけ展開）。
+  // ネイティブの <details name> 排他制御に未対応なブラウザ向けの保険として、
+  // あるセクションを開いたら同じ name の他セクションを閉じる。
+  ["integrated-overlay", "admin-overlay"].forEach((overlayId) => {
+    const root = document.getElementById(overlayId);
+    if (!root) return;
+    const items = root.querySelectorAll("details[name]");
+    items.forEach((d) => {
+      d.addEventListener("toggle", () => {
+        if (!d.open) return;
+        items.forEach((other) => {
+          if (other !== d && other.open && other.getAttribute("name") === d.getAttribute("name")) {
+            other.open = false;
+          }
+        });
+      });
+    });
+  });
 
   /** プリセット表示名（管理ページから変更可能）を作成フォームへ反映する */
   async function refreshPresetOptions() {
@@ -6223,27 +6242,59 @@ document.addEventListener("DOMContentLoaded", () => {
     return b.is_system_default ? "既定の秘書（早瀬ユウカ）" : b.name;
   }
 
-  // リソース許可用のBotチップ群を生成（granted: そのリソースに許可済みのbotId配列, onToggle(botId, granted)）
+  // リソース許可UI（チェックボックス羅列ではなく「リストから選択」方式）。
+  // 許可済みBotは除去可能なチップで表示し、未許可Botは <select> から選んで追加する。
+  // grantedSet: 許可済みbotIdのSet / onToggleFnName: window上のトグル関数名 / itemKey: リソース識別子
   function intGrantChips(grantedSet, onToggleFnName, itemKey) {
-    return (intOverview?.bots || []).map((b) => {
-      const checked = grantedSet.has(b.id) ? "checked" : "";
-      return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;background:var(--surface-1dp,rgba(255,255,255,0.04));border:1px solid var(--border-matte,#333);border-radius:6px;padding:3px 8px;cursor:pointer;">
-        <input type="checkbox" ${checked} style="width:14px;height:14px;" data-int-grant-fn="${intEsc(onToggleFnName)}" data-int-grant-bot="${intEsc(b.id)}" data-int-grant-key="${intEsc(JSON.stringify(itemKey))}">
-        ${intEsc(intBotName(b.id))}</label>`;
-    }).join("");
+    const bots = intOverview?.bots || [];
+    const fnAttr = intEsc(onToggleFnName);
+    const keyAttr = intEsc(JSON.stringify(itemKey));
+    const granted = bots.filter((b) => grantedSet.has(b.id));
+    const available = bots.filter((b) => !grantedSet.has(b.id));
+
+    const chips = granted.length
+      ? granted.map((b) => `<span style="display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;background:var(--surface-1dp,rgba(255,255,255,0.04));border:1px solid var(--border-matte,#333);border-radius:6px;padding:3px 6px 3px 10px;">
+          ${intEsc(intBotName(b.id))}
+          <button type="button" title="許可を解除" aria-label="${intEsc(intBotName(b.id))} の許可を解除" style="background:none;border:0;color:var(--text-secondary,#a1a1aa);cursor:pointer;font-size:1rem;line-height:1;padding:0 2px;" data-int-grant-fn="${fnAttr}" data-int-grant-bot="${intEsc(b.id)}" data-int-grant-key="${keyAttr}" data-int-grant-action="revoke">×</button>
+        </span>`).join("")
+      : `<span style="font-size:0.75rem;color:var(--text-secondary,#71717a);">許可中のBotはありません</span>`;
+
+    const select = available.length
+      ? `<select data-int-grant-fn="${fnAttr}" data-int-grant-key="${keyAttr}" data-int-grant-action="grant" title="Botを追加" style="font-size:1rem;line-height:1;width:auto;padding:2px 6px;border:0;background:transparent;color:var(--text-secondary,#a1a1aa);cursor:pointer;-webkit-appearance:none;appearance:none;">
+          <option value="" style="color:var(--text-high,#fff);background:var(--surface-2dp,#27272a);">＋</option>
+          ${available.map((b) => `<option value="${intEsc(b.id)}" style="color:var(--text-high,#fff);background:var(--surface-2dp,#27272a);">${intEsc(intBotName(b.id))}</option>`).join("")}
+        </select>`
+      : "";
+
+    return `${chips}${select}`;
   }
 
-  // 許可チップ（チェックボックス）の change を委譲処理（CSP対応: inline onchange を排除）
+  // 許可UI（追加=select の change / 解除=× ボタンの click）を委譲処理（CSP対応: inline ハンドラを排除）。
+  // トグル関数はローカル状態を更新するため、成功後に該当リストを再描画して即時反映する。
   function wireIntGrantChips(containerEl) {
     if (!containerEl) return;
-    containerEl.querySelectorAll("[data-int-grant-fn]").forEach((cb) => {
-      cb.addEventListener("change", () => {
-        const fnName = cb.getAttribute("data-int-grant-fn");
-        const botId = cb.getAttribute("data-int-grant-bot");
-        let key;
-        try { key = JSON.parse(cb.getAttribute("data-int-grant-key")); } catch (e) { key = cb.getAttribute("data-int-grant-key"); }
-        const fn = window[fnName];
-        if (typeof fn === "function") fn(botId, key, cb.checked);
+    const parseKey = (el) => {
+      try { return JSON.parse(el.getAttribute("data-int-grant-key")); }
+      catch (e) { return el.getAttribute("data-int-grant-key"); }
+    };
+    const apply = async (fnName, botId, key, granted) => {
+      const fn = window[fnName];
+      if (typeof fn !== "function") return;
+      await fn(botId, key, granted);
+      // ローカル状態(intOverview)から該当リストのみ再描画（ネットワーク不要）。
+      if (fnName === "intToggleCred") renderIntCredentials(intOverview?.credentials || [], intOverview?.bots || []);
+      else if (fnName === "intToggleMcp") renderIntMcp(intOverview?.mcpServers || [], intOverview?.bots || []);
+    };
+    containerEl.querySelectorAll("[data-int-grant-action='grant']").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const botId = sel.value;
+        if (!botId) return;
+        apply(sel.getAttribute("data-int-grant-fn"), botId, parseKey(sel), true);
+      });
+    });
+    containerEl.querySelectorAll("[data-int-grant-action='revoke']").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        apply(btn.getAttribute("data-int-grant-fn"), btn.getAttribute("data-int-grant-bot"), parseKey(btn), false);
       });
     });
   }
@@ -6372,7 +6423,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div><strong>${intEsc(c.service_name)}</strong> <span style="font-size:0.78rem;color:var(--color-zinc-muted,#a1a1aa);">${intEsc(c.username)}</span></div>
           <button class="btn btn-secondary btn-sm" data-int-cred-del="${intEsc(c.service_name)}">削除</button>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleCred", c.service_name)}</div>`;
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleCred", c.service_name)}</div>`;
       el.appendChild(card);
     });
     wireIntGrantChips(el);
@@ -6406,13 +6457,29 @@ document.addEventListener("DOMContentLoaded", () => {
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
           <div style="min-width:0;"><strong>${intEsc(s.name)}</strong> <span style="font-size:0.72rem;color:${s.enabled ? "#10b981" : "#71717a"};">${s.enabled ? "有効" : "無効"}</span>
             <div style="font-size:0.72rem;color:var(--color-zinc-muted,#a1a1aa);word-break:break-all;">${intEsc(s.endpoint_url)} ・ ${s.tools} tools</div></div>
-          <div style="display:flex;gap:6px;flex-shrink:0;">
+          <div style="display:flex;gap:6px;flex-shrink:0;" data-int-mcp-actions>
             <button class="btn btn-secondary btn-sm" data-int-mcp-toggle="${s.id}" data-enabled="${s.enabled ? 1 : 0}">${s.enabled ? "無効化" : "有効化"}</button>
             <button class="btn btn-secondary btn-sm" data-int-mcp-del="${s.id}">削除</button>
           </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleMcp", s.id)}</div>`;
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleMcp", s.id)}</div>`;
       el.appendChild(card);
+
+      // MCP管理ページ（dashboard提供サーバーのみ）。fire-and-forgetで判定し、
+      // 「無効化／削除」の前に「管理ページ」ボタンを差し込む。openMcpDashboard はモーダルで開く。
+      const actionsBar = card.querySelector("[data-int-mcp-actions]");
+      fetch(`/api/mcp-servers/${s.id}/dashboard/status`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (!d || !d.available || !actionsBar) return;
+          const dashBtn = document.createElement("button");
+          dashBtn.type = "button";
+          dashBtn.className = "btn btn-secondary btn-sm";
+          dashBtn.textContent = "管理ページ";
+          dashBtn.addEventListener("click", () => openMcpDashboard(s));
+          actionsBar.insertBefore(dashBtn, actionsBar.firstChild);
+        })
+        .catch(() => {});
     });
     wireIntGrantChips(el);
     el.querySelectorAll("[data-int-mcp-toggle]").forEach((btn) => btn.addEventListener("click", async () => {
@@ -6491,17 +6558,74 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // カレンダー同期設定をモーダルで編集（prompt の置き換え）。
+  // 利用可能なカレンダーをチェックボックス一覧で表示し、選択分を同期対象として保存する。
   async function intEditCalendars(accountId) {
-    let avail = [];
-    try { const r = await (await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)).json(); avail = r.calendars || []; } catch (e) {}
+    const modal = document.getElementById("modal-int-calendars");
+    const listEl = document.getElementById("int-cal-list");
+    const labelEl = document.getElementById("int-cal-account-label");
+    const errEl = document.getElementById("int-cal-error");
+    const saveBtn = document.getElementById("int-cal-save");
+    if (!modal || !listEl || !saveBtn) return;
+
     const acct = (intOverview?.googleAccounts || []).find((a) => a.id === accountId);
     const current = new Set(acct?.calendars || []);
-    const list = avail.length ? avail.map((c) => `${current.has(c.id) ? "[x]" : "[ ]"} ${c.summary} (${c.id})`).join("\n") : "(取得できませんでした)";
-    const input = prompt(`同期対象にするカレンダーIDをカンマ区切りで入力してください。\n\n利用可能:\n${list}\n\n現在: ${[...current].join(", ") || "(なし)"}`, [...current].join(", "));
-    if (input === null) return;
-    const calendars = input.split(",").map((s) => s.trim()).filter(Boolean);
-    await intPost("/api/integrated/google/accounts/calendars", { accountId, calendars });
-    fetchIntegratedOverview();
+    if (labelEl) labelEl.textContent = `アカウント: ${acct?.email || ("#" + accountId)}`;
+    if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+    listEl.innerHTML = '<p class="description-text">読み込み中…</p>';
+    saveBtn.disabled = true;
+    openModal(modal);
+
+    let avail = [];
+    try {
+      const r = await (await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)).json();
+      avail = r.calendars || [];
+    } catch (e) { avail = []; }
+
+    if (!avail.length) {
+      listEl.innerHTML = '<p class="description-text">カレンダーを取得できませんでした。アカウントの連携状態を確認してください。</p>';
+    } else {
+      listEl.innerHTML = "";
+      avail.forEach((c) => {
+        const label = document.createElement("label");
+        label.className = "glass";
+        label.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = c.id;
+        cb.checked = current.has(c.id);
+        cb.style.cssText = "width:16px;height:16px;flex-shrink:0;";
+        const text = document.createElement("div");
+        text.style.cssText = "min-width:0;";
+        text.innerHTML = `<div style="font-size:0.9rem;">${intEsc(c.summary || c.id)}</div>
+          <div style="font-size:0.72rem;color:var(--color-zinc-muted,#a1a1aa);word-break:break-all;">${intEsc(c.id)}</div>`;
+        label.appendChild(cb);
+        label.appendChild(text);
+        listEl.appendChild(label);
+      });
+      saveBtn.disabled = false;
+    }
+
+    // 開くたびに最新の accountId で保存処理を差し替える（リスナー重複を防ぐ）。
+    saveBtn.onclick = async () => {
+      const calendars = [...listEl.querySelectorAll('input[type="checkbox"]')]
+        .filter((cb) => cb.checked).map((cb) => cb.value);
+      saveBtn.disabled = true;
+      if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+      try {
+        const d = await intPost("/api/integrated/google/accounts/calendars", { accountId, calendars });
+        if (d && d.success === false) {
+          if (errEl) { errEl.textContent = d.message || "保存に失敗しました。"; errEl.style.display = "block"; }
+          saveBtn.disabled = false;
+          return;
+        }
+        closeModal(modal);
+        fetchIntegratedOverview();
+      } catch (e) {
+        if (errEl) { errEl.textContent = "通信エラーが発生しました。"; errEl.style.display = "block"; }
+        saveBtn.disabled = false;
+      }
+    };
   }
 
   function wireIntegratedForms() {

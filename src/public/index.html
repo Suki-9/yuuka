@@ -1928,9 +1928,9 @@
           </p>
 
           <!-- Bots: health + start/stop -->
-          <div class="card" style="margin-bottom: 20px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">smart_toy</span>Bot ヘルス / 起動・停止</h3>
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>Bot ヘルス / 起動・停止</summary>
+            <div style="display:flex;justify-content:flex-end;margin-top:12px;">
               <button id="int-refresh" class="btn btn-secondary btn-sm">
                 <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">refresh</span> 更新
               </button>
@@ -1938,10 +1938,10 @@
             <div id="int-bots-list" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
               <!-- Generated dynamically -->
             </div>
-          </div>
+          </details>
 
           <!-- Credentials -->
-          <details class="card collapsible-group" open style="margin-bottom:16px;padding:20px;">
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
             <summary>認証情報（パスワードマネージャ）</summary>
             <div class="expense-actions-columns" style="margin-top:12px;">
               <div class="action-column">
@@ -1962,7 +1962,7 @@
           </details>
 
           <!-- MCP servers -->
-          <details class="card collapsible-group" open style="margin-bottom:16px;padding:20px;">
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
             <summary>MCPサーバー</summary>
             <div class="expense-actions-columns" style="margin-top:12px;">
               <div class="action-column">
@@ -1984,7 +1984,7 @@
           </details>
 
           <!-- Google accounts -->
-          <details class="card collapsible-group" open style="margin-bottom:16px;padding:20px;">
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
             <summary>Googleアカウント連携（複数可）</summary>
             <div style="margin-top:12px;">
               <button id="int-google-connect" class="btn btn-primary">
@@ -2044,14 +2044,14 @@
           </div>
 
           <!-- Default Bot Settings -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">smart_toy</span>システムデフォルト Bot
               </span>
               <span class="hud-tag"
                 style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
-            </div>
+            </summary>
             <p class="description-text">システム共通で動作するデフォルトBotのDiscordトークンを更新します。トークンは安全に暗号化されて保存されます。</p>
             <form id="admin-default-bot-form" style="margin-top: 16px;">
               <div class="form-group">
@@ -2064,17 +2064,17 @@
                 <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
               </div>
             </form>
-          </div>
+          </details>
 
           <!-- System Settings -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">settings</span>システム全体設定
               </span>
               <span class="hud-tag"
                 style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
-            </div>
+            </summary>
             <p class="description-text">システム全体の共通設定を行います。</p>
             <form id="admin-system-settings-form" style="margin-top: 16px;">
               <div class="form-group">
@@ -2091,17 +2091,17 @@
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top: 16px; min-width: 150px;">設定を更新</button>
             </form>
-          </div>
+          </details>
 
           <!-- Bot Attribute Settings (プリセット表示名・レート制限) -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">category</span>Bot属性設定
               </span>
               <span class="hud-tag"
                 style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
-            </div>
+            </summary>
             <p class="description-text">Botプリセットのユーザー向け表示名と、汎用モード（MCPアシスタント）のレート制限既定値を設定します。内部IDは固定です。</p>
             <form id="admin-bot-attr-form" style="margin-top: 16px;">
               <div class="form-row">
@@ -2130,16 +2130,16 @@
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top: 16px; min-width: 150px;">Bot属性設定を保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- User Management -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">manage_accounts</span>ユーザー管理
               </span>
               <span class="hud-tag">ADMIN</span>
-            </div>
+            </summary>
             <p class="description-text">登録済みユーザーの一覧とロール管理を行います。個人情報（パスワード等）は表示されません。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
@@ -2155,16 +2155,16 @@
                 <tbody id="admin-users-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
           <!-- Bot Moderation -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">security</span>Bot モデレーション
               </span>
               <span class="hud-tag">MODERATION</span>
-            </div>
+            </summary>
             <p class="description-text">システム上の全Botの管理・差し押さえを行います。差し押さえるとBotのDiscordクライアントが停止され、所有者は再起動できなくなります。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
@@ -2180,16 +2180,16 @@
                 <tbody id="admin-bots-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
           <!-- Persona Marketplace Moderation -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">storefront</span>ペルソナ マーケットプレイス管理
               </span>
               <span class="hud-tag">MODERATION</span>
-            </div>
+            </summary>
             <p class="description-text">マーケットプレイスに公開されている全ペルソナの非公開化・削除を行います。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
@@ -2205,16 +2205,16 @@
                 <tbody id="admin-personas-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
           <!-- Audit Logs -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">receipt_long</span>監査ログ
               </span>
               <span class="hud-tag">AUDIT</span>
-            </div>
+            </summary>
             <p class="description-text">セキュリティ関連の操作履歴です。直近の数件を表示しています。全件の閲覧・絞り込みは「すべて表示」から行えます。</p>
             <div class="table-responsive">
               <table class="expense-table" style="width: 100%;">
@@ -2235,15 +2235,15 @@
                 <span class="material-symbols-outlined">open_in_full</span>すべて表示
               </button>
             </div>
-          </div>
+          </details>
 
           <!-- Invite Codes -->
-          <div class="admin-section" style="border-bottom: none;">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc" style="border-bottom: none;">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">confirmation_number</span>招待コード管理
               </span>
-            </div>
+            </summary>
             <p class="description-text">新規ユーザー登録に必要な招待コードの管理を行います。</p>
             <form id="admin-invite-form" style="display: flex; gap: 12px; margin-top: 16px; margin-bottom: 20px;">
               <input type="text" id="admin-invite-code-input" required placeholder="新しい招待コードを入力" style="flex-grow: 1;">
@@ -2263,7 +2263,7 @@
                 <tbody id="admin-invites-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
         </section>
       </div>
@@ -2551,6 +2551,29 @@
       </div>
       <div id="mcp-dashboard-container"
         style="width: 100%; min-height: 70vh; border-radius: 8px; background: #fff; overflow: auto;"></div>
+    </div>
+  </div>
+
+  <!-- カレンダー同期設定モーダル（統合管理: Googleアカウント別に同期対象カレンダーを選択） -->
+  <div id="modal-int-calendars" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">calendar_month</span>カレンダー同期設定</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <p id="int-cal-account-label" class="description-text" style="margin-bottom: 8px;"></p>
+      <p class="description-text" style="margin-bottom: 12px; font-size: 0.8rem;">同期対象にするカレンダーを選択してください。チェックしたカレンダーのみが同期されます。</p>
+      <div id="int-cal-error" class="field-sub" style="display:none; color:#f87171; margin-bottom: 10px;"></div>
+      <div id="int-cal-list"
+        style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; margin-bottom:16px;">
+        <!-- 動的生成 -->
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary btn-close-modal">キャンセル</button>
+        <button type="button" id="int-cal-save" class="btn btn-primary">同期設定を保存</button>
+      </div>
     </div>
   </div>
 
