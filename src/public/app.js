@@ -2532,8 +2532,10 @@ document.addEventListener("DOMContentLoaded", () => {
   async function fetchBotAttributeConfig() {
     const attrCard = document.getElementById("config-bot-attribute-card");
     const assistantCard = document.getElementById("config-assistant-card");
+    const nameCard = document.getElementById("config-bot-name-card");
     if (attrCard) attrCard.classList.add("hidden");
     if (assistantCard) assistantCard.classList.add("hidden");
+    if (nameCard) nameCard.classList.add("hidden");
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
@@ -2554,6 +2556,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const isOwner = bot.user_id === activeUserId;
       const isAdminUser = activeUserRole === "admin";
       if (!isOwner && !isAdminUser) return; // 属性の変更は owner / Admin のみ（§4.1）
+
+      // ── Bot登録名カード ── 現在の登録名を反映。表示名復元用に discord_username も保持。
+      if (nameCard) {
+        nameCard.classList.remove("hidden");
+        const nameInput = document.getElementById("bot-name-input");
+        if (nameInput) nameInput.value = bot.name || "";
+        const nameForm = document.getElementById("bot-name-form");
+        if (nameForm) nameForm.dataset.discordUsername = bot.discord_username || "";
+        const fb = document.getElementById("bot-name-feedback");
+        if (fb) { fb.style.display = "none"; fb.textContent = ""; }
+      }
 
       // ── Bot属性カード ──
       if (attrCard) {
@@ -2921,6 +2934,47 @@ document.addEventListener("DOMContentLoaded", () => {
         alert(data.message || (data.success ? "保存しました。" : "保存に失敗しました。"));
       } catch (e) {
         alert("通信エラーが発生しました。");
+      }
+    });
+  }
+
+  // Bot登録名の変更（/api/bots/profile に name のみ送信。avatar は COALESCE で保持される）
+  const botNameForm = document.getElementById("bot-name-form");
+  if (botNameForm) {
+    botNameForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const botId = window.currentBotId;
+      const name = document.getElementById("bot-name-input").value.trim();
+      const fb = document.getElementById("bot-name-feedback");
+      const btn = botNameForm.querySelector('button[type="submit"]');
+      const showFb = (msg, ok) => { if (fb) { fb.style.display = "block"; fb.style.color = ok ? "" : "#f87171"; fb.textContent = msg; } };
+      if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
+      if (!name) { showFb("登録名を入力してください。", false); return; }
+      if (btn) btn.disabled = true;
+      try {
+        const res = await originalFetch("/api/bots/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ botId, name })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showFb("登録名を変更しました。", true);
+          // Discordの表示名が無いBotは登録名がそのまま表示名になるため、サイドバー表示も更新。
+          const discordUsername = botNameForm.dataset.discordUsername || "";
+          if (!discordUsername && window.currentBotId === botId) {
+            localStorage.setItem("currentBotName", name);
+            if (activeBotDisplay) activeBotDisplay.textContent = name;
+            updateSidebarBotBranding();
+          }
+          fetchBotList();
+        } else {
+          showFb(data.message || "変更に失敗しました。", false);
+        }
+      } catch (err) {
+        showFb("通信エラーが発生しました。", false);
+      } finally {
+        if (btn) btn.disabled = false;
       }
     });
   }

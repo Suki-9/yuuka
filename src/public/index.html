@@ -1245,6 +1245,19 @@
           </div>
 
           <!-- Bot属性（プリセット）設定: owner のみ表示 -->
+          <!-- Bot登録名: owner / Admin のみ表示 -->
+          <div id="config-bot-name-card" class="config-card card hidden" style="margin-top: 24px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">badge</span>Bot登録名</h3>
+            </div>
+            <p class="description-text">このBotの登録名（管理画面・Bot選択画面で表示される名前）を変更します。Discord上の表示名とは別です。</p>
+            <form id="bot-name-form" style="display: flex; gap: 12px; margin-top: 12px;">
+              <input type="text" id="bot-name-input" required maxlength="50" placeholder="例: 経理アシスタント" autocomplete="off" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">登録名を保存</button>
+            </form>
+            <span id="bot-name-feedback" class="field-sub" style="display:none; margin-top: 8px;"></span>
+          </div>
+
           <div id="config-bot-attribute-card" class="config-card card hidden" style="margin-top: 24px;">
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">category</span>Bot属性（プリセット）</h3>
