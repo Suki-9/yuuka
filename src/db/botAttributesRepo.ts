@@ -1,46 +1,10 @@
 import { getDb } from "./database.js";
 
 // ─── Bot属性 関連テーブルのリポジトリ（bot_attributes_requirements.md §5） ────
-// bot_mcp_links（MCPサーバー紐付け）/ bot_guilds（応答許可ギルド）/ bot_members（利用メンバー）。
+// bot_guilds（応答許可ギルド）/ bot_members（利用メンバー）。
+// 注意: bot_mcp_links は v4 で廃止。MCPサーバー紐付けは mcp_servers の (user_id, bot_id) スコープへ移行。
 // データ分離: 全クエリは bot_id を必須スコープとする（bot_id × guild_id × user_id 複合スコープ。
 // architecture_v2.md §0-1 の例外パターン）。認可（owner検証等）は呼び出し側で行う。
-
-// ─── BotとMCPサーバーの紐付け（要件 §4.5） ───────────────────────────────────
-
-export interface BotMcpLinkRecord {
-  id: number;
-  bot_id: string;
-  mcp_server_id: number;
-  created_at: string;
-}
-
-export function linkMcpServer(botId: string, mcpServerId: number): boolean {
-  const db = getDb();
-  const result = db
-    .prepare(
-      `INSERT OR IGNORE INTO bot_mcp_links (bot_id, mcp_server_id) VALUES (?, ?)`
-    )
-    .run(botId, mcpServerId);
-  return result.changes > 0;
-}
-
-export function unlinkMcpServer(botId: string, mcpServerId: number): boolean {
-  const db = getDb();
-  return (
-    db
-      .prepare("DELETE FROM bot_mcp_links WHERE bot_id = ? AND mcp_server_id = ?")
-      .run(botId, mcpServerId).changes > 0
-  );
-}
-
-/** Botに紐付けられたMCPサーバーIDの一覧 */
-export function listLinkedMcpServerIds(botId: string): number[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT mcp_server_id FROM bot_mcp_links WHERE bot_id = ? ORDER BY created_at ASC")
-    .all(botId) as { mcp_server_id: number }[];
-  return rows.map((r) => r.mcp_server_id);
-}
 
 // ─── 応答許可ギルド（要件 §4.3.3 / §6） ──────────────────────────────────────
 

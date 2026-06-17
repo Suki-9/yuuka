@@ -2497,45 +2497,40 @@ document.addEventListener("DOMContentLoaded", () => {
         personaSelect.value = data.persona_id ? String(data.persona_id) : "";
       }
 
-      // MCPサーバー紐付け
+      // MCPサーバー一覧（読み取り専用表示。登録・編集はMCPサーバータブで行う）
       const mcpList = document.getElementById("assistant-mcp-list");
       if (mcpList) {
         mcpList.innerHTML = "";
+
+        // タブへの案内文
+        const guide = document.createElement("p");
+        guide.className = "field-sub";
+        guide.style.marginBottom = "8px";
+        guide.textContent = "MCPサーバーの登録・編集・削除は「MCPサーバー」タブで、表示中のBotごとに行います。";
+        mcpList.appendChild(guide);
+
         const servers = data.mcp_servers || [];
         if (servers.length === 0) {
-          mcpList.innerHTML = `<span class="field-sub">登録済みのMCPサーバーがありません。「MCPサーバー」タブから登録してください。</span>`;
+          const empty = document.createElement("span");
+          empty.className = "field-sub";
+          empty.textContent = "このBot専用のMCPサーバーは未登録です。「MCPサーバー」タブ（このBotを選択した状態）から登録してください。";
+          mcpList.appendChild(empty);
         }
         servers.forEach(s => {
-          const row = document.createElement("label");
-          row.style.cssText = "display:flex; align-items:center; gap:10px; cursor:pointer;";
-          const cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.checked = !!s.linked;
-          cb.disabled = !!s.system; // システムレベルは常に利用可（変更不可）
-          cb.style.cssText = "width:18px; height:18px;";
-          cb.addEventListener("change", async () => {
-            cb.disabled = true;
-            try {
-              const r = await originalFetch("/api/bots/assistant/mcp-links", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ botId, mcpServerId: s.id, linked: cb.checked })
-              });
-              const d = await r.json();
-              if (!d.success) {
-                alert(d.message);
-                cb.checked = !cb.checked;
-              }
-            } catch (e) {
-              cb.checked = !cb.checked;
-            } finally {
-              cb.disabled = false;
-            }
-          });
-          const label = document.createElement("span");
-          label.textContent = `${s.name}${s.system ? "（システムレベル・常時利用可）" : ""}${!s.enabled ? "（無効化中）" : ""}`;
-          row.appendChild(cb);
-          row.appendChild(label);
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex; align-items:center; gap:8px; padding:4px 0;";
+          const nameSpan = document.createElement("span");
+          nameSpan.style.cssText = "font-size:0.9rem;";
+          nameSpan.textContent = s.name;
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "field-sub";
+          labelSpan.style.cssText = "font-size:0.78rem;";
+          const labelParts = [];
+          if (s.system) labelParts.push("システムレベル・常時利用可");
+          if (!s.enabled) labelParts.push("無効化中");
+          if (labelParts.length > 0) labelSpan.textContent = `（${labelParts.join("・")}）`;
+          row.appendChild(nameSpan);
+          if (labelParts.length > 0) row.appendChild(labelSpan);
           mcpList.appendChild(row);
         });
       }
@@ -4717,7 +4712,14 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      myPersonasCache.forEach(p => {
+      // 適用中ペルソナを一番上に表示（他は元の順序を維持）
+      const sortedPersonas = myPersonasCache.slice().sort((a, b) => {
+        const aActive = a.id === activePersonaId ? 0 : 1;
+        const bActive = b.id === activePersonaId ? 0 : 1;
+        return aActive - bActive;
+      });
+
+      sortedPersonas.forEach(p => {
         const card = document.createElement("div");
         card.className = "card-item glass hover-lift";
         card.style.cssText = "flex-direction:column;align-items:stretch;gap:8px;padding:16px;";
@@ -5816,44 +5818,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // MCP SERVERS MANAGEMENT (§4.4)
   // ==========================================
 
-  // サーバー返却の HTML を「同一オリジンの iframe(srcdoc)」として埋め込む。
-  // 以前は container へ直接 DOM 注入していたが、ダッシュボードが読み込む外部CSS
-  // （akizakura.css 等）や `html,body{...}` がyuuka本体のドキュメント全体に波及して
-  // 管理画面のスタイルを破壊していた。iframe は CSS/JS を隔離でき、かつ同一オリジン
-  // （sandbox allow-same-origin）なので /proxy/mcp への fetch・Cookieセッション・
-  // proxyToken はそのまま機能する。
-  let mcpDashboardResizeHandler = null;
+  // ダッシュボード（サードパーティMCPサーバー由来のSPA）は、サンドボックス iframe に隔離して埋め込む。
+  // sandbox="allow-scripts" のみ（allow-same-origin は付けない）＝iframe は「不透明オリジン」となり、
+  // ダッシュボードの JS は yuuka 本体の Cookie・localStorage・DOM・同一オリジンAPIへ一切触れない。
+  // - HTML はサーバー側ルート（/api/mcp-servers/:id/dashboard）が text/html＋専用CSP で直接返すので、
+  //   ここでは iframe.src に指定するだけ（DOMParser での再パースや script 再生成は不要）。
+  // - /proxy への通信はトークン認証＋CORS(ACAO:null)で成立する（Cookie 不要）。
+  // - CSS は iframe ドキュメント内に完全に閉じ込められるため、本体スタイルへの波及は起きない。
 
-  // 埋め込み(iframe)とウィンドウリスナーを完全に破棄する。
+  // 埋め込んだ iframe を破棄する。
   function teardownMcpDashboard(container) {
-    if (mcpDashboardResizeHandler) {
-      window.removeEventListener("message", mcpDashboardResizeHandler);
-      mcpDashboardResizeHandler = null;
-    }
-    if (container) container.innerHTML = "";
-  }
-
-  function injectMcpDashboardHtml(container, htmlString) {
-    teardownMcpDashboard(container);
-
-    const iframe = document.createElement("iframe");
-    iframe.id = "mcp-dashboard-frame";
-    iframe.title = "MCP管理ページ";
-    // 余計な権限は与えない（同一オリジン扱い＋スクリプト＋フォーム送信のみ）。
-    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
-    iframe.style.cssText = "width:100%;border:0;display:block;min-height:240px;background:transparent;";
-    iframe.srcdoc = htmlString;
-    container.appendChild(iframe);
-
-    // 埋め込み時の SPA は高さを postMessage で通知するので、iframe を自動リサイズする。
-    mcpDashboardResizeHandler = (e) => {
-      if (e.source !== iframe.contentWindow) return; // 当該 iframe からのメッセージのみ受理
-      const d = e.data;
-      if (d && d.type === "ywrk-dashboard:resize" && typeof d.height === "number") {
-        iframe.style.height = Math.max(240, Math.ceil(d.height)) + "px";
-      }
-    };
-    window.addEventListener("message", mcpDashboardResizeHandler);
+    if (container) container.replaceChildren();
   }
 
   async function openMcpDashboard(server) {
@@ -5863,21 +5838,32 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!modal || !container) return;
     if (titleEl) titleEl.textContent = `${server.name} の管理ページ`;
     teardownMcpDashboard(container);
-    try {
-      const res = await fetch(`/api/mcp-servers/${server.id}/dashboard`);
-      const data = await res.json();
-      if (!data.success || typeof data.html !== "string") {
-        alert(data.message || "管理ページの取得に失敗しました。");
-        return;
-      }
-      injectMcpDashboardHtml(container, data.html);
-      openModal(modal);
-    } catch (err) {
-      alert("通信エラーが発生しました。");
-    }
+
+    const iframe = document.createElement("iframe");
+    // allow-scripts のみ。allow-same-origin は決して付けない（付けると本体オリジンと同一視され隔離が無効化される）。
+    // allow-forms は SPA のフォーム送信のため。いずれも iframe を不透明オリジンに保ったまま機能する。
+    iframe.setAttribute("sandbox", "allow-scripts allow-forms");
+    iframe.style.cssText = "width:100%;height:75vh;border:0;display:block;background:#fff;";
+    iframe.src = `/api/mcp-servers/${server.id}/dashboard`;
+    container.appendChild(iframe);
+    openModal(modal);
   }
 
   async function fetchMcpServersList() {
+    // 現在操作対象のBot名をタブ先頭に表示する
+    const botLabel = document.getElementById("mcp-current-bot-label");
+    if (botLabel) {
+      const currentBotId = window.currentBotId || "system_default";
+      const currentBotName = localStorage.getItem("currentBotName");
+      let displayName;
+      if (currentBotId === "system_default" || !currentBotName) {
+        displayName = "既定の秘書（早瀬ユウカ）";
+      } else {
+        displayName = currentBotName;
+      }
+      botLabel.textContent = `現在のBot: ${displayName}`;
+    }
+
     // Adminの場合のみスコープ選択を表示
     const scopeGroup = document.getElementById("mcp-scope-group");
     if (scopeGroup) {

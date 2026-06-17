@@ -7,9 +7,6 @@ import {
   type BotRecord,
 } from "../../db/botRepo.js";
 import {
-  linkMcpServer,
-  unlinkMcpServer,
-  listLinkedMcpServerIds,
   addAllowedGuild,
   removeAllowedGuild,
   listAllowedGuilds,
@@ -30,7 +27,7 @@ import {
 import { getRateLimitSettings, RATE_LIMIT_DEFAULTS } from "../../services/botRateLimit.js";
 import { setSystemSetting } from "../../db/systemSettingsRepo.js";
 import { listPersonasForUser, listPublicPersonas, getPersonaById } from "../../db/personaRepo.js";
-import { listServers } from "../../db/mcpRepo.js";
+import { listServersForManagement, listSystemServers } from "../../db/mcpRepo.js";
 import { countBotDailyUsage } from "../../db/messageLogRepo.js";
 import { isAdmin } from "../../db/userRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
@@ -131,21 +128,18 @@ export const botAttributeRoutes: RouteDef[] = [
         .filter((p) => !ownIds.has(p.id))
         .map((p) => ({ id: p.id, name: `${p.name}（公開: ${p.owner_username}）`, scope: "public" as const }));
 
-      // MCPサーバー: owner自身の登録分（紐付け対象）+ システムレベル（常時利用可の表示用）
-      const linkedIds = new Set(listLinkedMcpServerIds(bot.id));
-      const ownServers = listServers(bot.user_id).map((s) => ({
+      // MCPサーバー: (bot.user_id, bot.id) スコープの登録分 + システムレベル（常時利用可）
+      const ownServers = listServersForManagement(bot.user_id, bot.id).map((s) => ({
         id: s.id,
         name: s.name,
         enabled: s.enabled === 1,
         system: false,
-        linked: linkedIds.has(s.id),
       }));
-      const systemServers = listServers(null).map((s) => ({
+      const systemServers = listSystemServers().map((s) => ({
         id: s.id,
         name: s.name,
         enabled: s.enabled === 1,
         system: true,
-        linked: true, // システムレベルは常に利用可（要件 §4.5）
       }));
 
       sendJson(ctx.res, 200, {
@@ -228,44 +222,6 @@ export const botAttributeRoutes: RouteDef[] = [
       sendJson(ctx.res, 200, {
         success: ok,
         message: ok ? (personaId === null ? "ペルソナ設定を解除しました（デフォルトに戻ります）。" : "Botのペルソナを設定しました。") : "ペルソナの設定に失敗しました。",
-      });
-    },
-  },
-
-  // ── MCPサーバー紐付け（owner 自身の登録サーバーのみ §4.5） ──
-  {
-    method: "POST",
-    path: "/api/bots/assistant/mcp-links",
-    auth: "user",
-    async handler(ctx) {
-      const bot = requireOwnedBot(ctx);
-      if (!bot) return;
-
-      const mcpServerId = Number(ctx.body.mcpServerId);
-      const linked = ctx.body.linked === true;
-      if (!Number.isInteger(mcpServerId)) {
-        return sendJson(ctx.res, 400, { success: false, message: "mcpServerId が不正です。" });
-      }
-
-      const { getServerById } = await import("../../db/mcpRepo.js");
-      const server = getServerById(mcpServerId);
-      // 紐付けできるのは owner 自身が登録したサーバーのみ（システムレベルは常時利用可のため紐付け不要）
-      if (!server || server.user_id !== bot.user_id) {
-        return sendJson(ctx.res, 403, {
-          success: false,
-          message: "Bot作成者自身が登録したMCPサーバーのみ紐付けできます。",
-        });
-      }
-
-      const ok = linked ? linkMcpServer(bot.id, mcpServerId) : unlinkMcpServer(bot.id, mcpServerId);
-      addAuditLog(ctx.user!.discordId, "bot.mcp_link_change", bot.id, `${mcpServerId}:${linked ? "link" : "unlink"}`);
-      sendJson(ctx.res, 200, {
-        success: true,
-        message: ok
-          ? linked
-            ? `MCPサーバー「${server.name}」をBotへ紐付けました。`
-            : `MCPサーバー「${server.name}」の紐付けを解除しました。`
-          : "変更はありませんでした。",
       });
     },
   },

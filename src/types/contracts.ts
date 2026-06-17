@@ -60,7 +60,7 @@ export interface RouteRequestCtx {
 }
 
 export interface RouteDef {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "DELETE" | "OPTIONS";
   /** 例: "/api/contacts", "/hook/:token" */
   path: string;
   auth: RouteAuth;

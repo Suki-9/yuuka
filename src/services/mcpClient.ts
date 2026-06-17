@@ -315,6 +315,40 @@ export async function fetchMcpDashboardHtml(
   return { status: res.status, html };
 }
 
+const AKIZAKURA_CSS_URL = "https://akizakura.pages.dev/akizakura.css";
+const AKIZAKURA_CACHE_TTL_MS = 60 * 60 * 1000; // 1時間
+let akizakuraCache: { css: string; expiresAt: number } | null = null;
+
+/**
+ * akizakura.css（ywrk-mcp ダッシュボードの design system）を取得し、プロセス内に
+ * キャッシュする（TTL 1時間）。ダッシュボードを Shadow DOM へ埋め込む際、:root の
+ * デザイントークンはシャドウツリー内では一切マッチしない（:root はドキュメントルート
+ * のみが対象）。そこでサーバー側で :root → :host へ書き換えてインライン化するために使う。
+ * 取得失敗時は期限切れキャッシュ → null の順でフォールバックする（呼び出し側は
+ * 元の <link> を残すことで「変数欠落の簡素表示だが機能はする」状態へ縮退する）。
+ */
+export async function fetchAkizakuraCss(): Promise<string | null> {
+  const now = Date.now();
+  if (akizakuraCache && akizakuraCache.expiresAt > now) return akizakuraCache.css;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(AKIZAKURA_CSS_URL, { method: "GET", signal: controller.signal });
+    if (!res.ok) {
+      console.error(`🔌 [MCP] akizakura.css の取得に失敗しました (HTTP ${res.status})`);
+      return akizakuraCache?.css ?? null;
+    }
+    const css = await res.text();
+    akizakuraCache = { css, expiresAt: now + AKIZAKURA_CACHE_TTL_MS };
+    return css;
+  } catch (err) {
+    console.error(`🔌 [MCP] akizakura.css の取得でエラー: ${(err as Error).message}`);
+    return akizakuraCache?.css ?? null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * tools/list を実行して tools_cache を更新する
  * @returns 取得したTool数

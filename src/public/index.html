@@ -1266,8 +1266,8 @@
             </div>
 
             <div class="form-group" style="margin-top: 16px;">
-              <label>MCPサーバー紐付け</label>
-              <p class="description-text" style="margin: 4px 0 8px;">あなたが登録したMCPサーバーをこのBotで利用可能にします。システムレベルのサーバーは常に利用可能です。</p>
+              <label>利用中のMCPサーバー</label>
+              <p class="description-text" style="margin: 4px 0 8px;">このBotに紐づくMCPサーバーの一覧です（読み取り専用）。システムレベルのサーバーは常に利用可能です。</p>
               <div id="assistant-mcp-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
             </div>
 
@@ -1833,6 +1833,7 @@
              12. MCP SERVERS VIEW
              ========================================== -->
         <section id="tab-mcp" class="tab-view">
+          <p id="mcp-current-bot-label" class="description-text" style="margin-bottom: 12px; font-size: 0.85rem;"></p>
           <div class="expense-actions-columns">
             <div class="action-column card">
               <div class="column-header">

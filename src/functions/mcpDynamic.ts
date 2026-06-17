@@ -3,8 +3,7 @@ import type { FunctionDeclaration, Schema } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
-  listServersForUser,
-  listServersForBot,
+  listServersForBotScope,
   parseToolsCache,
   type McpServerRecord,
   type McpToolDef,
@@ -13,7 +12,7 @@ import { callTool, refreshToolsCache } from "../services/mcpClient.js";
 import { addAuditLog } from "../db/auditRepo.js";
 
 // ─── MCP動的Function（§4.4: MCP ToolをGemini Function Callとして動的登録） ────
-// ユーザーが利用可能な enabled なMCPサーバーの tools_cache から
+// (ownerUserId, botId) スコープで利用可能な enabled なMCPサーバーの tools_cache から
 // FunctionDeclaration を動的生成し、gemini.ts のレジストリへマージする。
 
 /** Gemini Function名の制約: 英数字とアンダースコア、64文字未満 */
@@ -272,39 +271,21 @@ async function buildMcpFunctionModule(
 }
 
 /**
- * ユーザーが利用可能なMCP Toolを FunctionModule として動的生成する。
- * gemini.ts が processMessage 毎に呼び出し、静的モジュールとマージする。
+ * Botインスタンスが利用可能なMCP Toolを FunctionModule として動的生成する。
+ * スコープ: (ownerUserId, botId) のサーバー + システムレベルサーバー。
+ * 呼び出し時の再検証クロージャはクロージャに捕捉した ownerUserId と ctx.botId を使う
+ * （ギルドでは発話者 ctx.userId が所有者と異なるため ctx.userId を使わない）。
  */
-export async function getMcpFunctionModuleForUser(userId: string): Promise<FunctionModule> {
+export async function getMcpFunctionModuleForBot(ownerUserId: string, botId: string): Promise<FunctionModule> {
   let servers: McpServerRecord[];
   try {
-    servers = listServersForUser(userId).filter((s) => s.enabled === 1);
+    servers = listServersForBotScope(ownerUserId, botId).filter((s) => s.enabled === 1);
   } catch (err) {
-    console.error("[MCP] サーバー一覧の取得に失敗しました:", err);
+    console.error(`[MCP] Bot ${botId} (owner: ${ownerUserId}) のサーバー一覧の取得に失敗しました:`, err);
     return { declarations: [], handlers: {} };
   }
 
   return buildMcpFunctionModule(servers, (ctx, serverId) =>
-    listServersForUser(ctx.userId).some((s) => s.id === serverId && s.enabled === 1)
-  );
-}
-
-/**
- * Botインスタンスが利用可能なMCP Toolを FunctionModule として動的生成する
- * （bot_attributes_requirements.md §4.5: bot_mcp_links で紐付けたサーバー + システムレベルのみ。
- *   発話ユーザー個人のMCPサーバーは参照しない）。
- * 監査ログは既存方針どおり発話ユーザーを actor として記録される（要件 §6）。
- */
-export async function getMcpFunctionModuleForBot(botId: string): Promise<FunctionModule> {
-  let servers: McpServerRecord[];
-  try {
-    servers = listServersForBot(botId).filter((s) => s.enabled === 1);
-  } catch (err) {
-    console.error(`[MCP] Bot ${botId} のサーバー一覧の取得に失敗しました:`, err);
-    return { declarations: [], handlers: {} };
-  }
-
-  return buildMcpFunctionModule(servers, (ctx, serverId) =>
-    listServersForBot(ctx.botId).some((s) => s.id === serverId && s.enabled === 1)
+    listServersForBotScope(ownerUserId, ctx.botId).some((s) => s.id === serverId && s.enabled === 1)
   );
 }

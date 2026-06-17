@@ -11,7 +11,7 @@ import {
   getGuildAssistantFunctionModules,
 } from "./functions/index.js";
 import { buildFunctionRegistry } from "./functions/registry.js";
-import { getMcpFunctionModuleForUser, getMcpFunctionModuleForBot } from "./functions/mcpDynamic.js";
+import { getMcpFunctionModuleForBot } from "./functions/mcpDynamic.js";
 import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
 import {
   addMessageLog,
@@ -620,7 +620,8 @@ export async function processMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      mcpModule = await getMcpFunctionModuleForUser(userId);
+      // 秘書モード: userId がそのBot文脈のオーナー。(userId, botId) スコープで取得する。
+      mcpModule = await getMcpFunctionModuleForBot(userId, botId);
     } catch (err) {
       console.error("MCP動的ツールの取得に失敗しました（スキップ）:", err);
     }
@@ -933,7 +934,8 @@ export async function processGuildMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      mcpModule = await getMcpFunctionModuleForBot(botId);
+      // ギルド経路: bot.user_id がMCPサーバーの所有者（発話者 speaker.userId とは異なる）
+      mcpModule = await getMcpFunctionModuleForBot(bot.user_id, botId);
     } catch (err) {
       console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
     }
@@ -1013,7 +1015,8 @@ export async function processBotDmMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      mcpModule = await getMcpFunctionModuleForBot(botId);
+      // owner DM: bot.user_id がMCPサーバーの所有者（owner.userId と同一だが bot レコードから取る）
+      mcpModule = await getMcpFunctionModuleForBot(bot.user_id, botId);
     } catch (err) {
       console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
     }

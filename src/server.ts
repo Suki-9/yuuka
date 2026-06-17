@@ -44,10 +44,14 @@ registerRoutes(deliveryRoutes);  // 朝報・日報・週報（§3.8, §3.9）
 
 const PUBLIC_DIR = path.resolve(process.cwd(), "src", "public");
 
-// MCP管理ダッシュボード（ywrk-mcp の SPA）を #mcp-dashboard-container へ直接DOM埋め込みする際、
-// その design system である akizakura.css を yuuka の本ドキュメント上でロードできるよう style-src に許可する。
-// （iframe ではなく本ドキュメントへ注入するため、注入される <link> も yuuka の CSP に従う）
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com https://akizakura.pages.dev; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-ancestors 'self';";
+// MCP管理ダッシュボード（ywrk-mcp の SPA）は、サンドボックス iframe（sandbox="allow-scripts" のみ＝
+// 不透明オリジン）に隔離して埋め込む。iframe 内のドキュメントは専用ルート
+// （/api/mcp-servers/:id/dashboard, mcpRoutes.ts）が独自の CSP を付けて返すため、本体（この CSP）は
+// akizakura.css 等のダッシュボード固有オリジンを許可する必要はない（iframe 内に閉じる）。
+// frame-src は default-src 'self' にフォールバックし、同一オリジンの dashboard ルートを許可する。
+// （注意: この CSP を変更したら dist を再ビルドし、稼働中の node プロセスを再起動すること。
+//  古いプロセスはメモリ上の旧 CSP を返し続ける。）
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; img-src 'self' data: https://assets-global.website-files.com https://cdn.discordapp.com; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; frame-src 'self'; frame-ancestors 'self';";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
@@ -198,8 +202,9 @@ export async function serverHandler(req: http.IncomingMessage, res: http.ServerR
   }
 
   // 3. ルートレジストリへディスパッチ（認可・ボディ解析はレジストリが担当）
-  //    （MCP ダッシュボードは同一オリジンの iframe(srcdoc) 内で動くため、
-  //     /proxy/mcp/ への CORS プリフライト特別扱いは不要になった。）
+  //    （MCP ダッシュボードは隔離 iframe = 不透明オリジンで動くため /proxy/mcp/ への呼び出しは
+  //     クロスオリジンになるが、その CORS プリフライト(OPTIONS)とACAO:null は mcpRoutes 側の
+  //     専用ルートが処理する。ここで特別扱いする必要はない。）
   try {
     const handled = await dispatchRoute(req, res, parsedUrl, () => getSessionUser(req));
     if (handled) return;

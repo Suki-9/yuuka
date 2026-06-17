@@ -3,10 +3,12 @@ import { encryptText } from "../utils/crypto.js";
 
 // ─── MCPサーバー拡張リポジトリ（§4.4） ───────────────────────────────────────
 // user_id = NULL の行はシステムレベル登録（Adminのみ管理・全ユーザー利用可）。
+// スコープは (user_id, bot_id) 複合キー。user_id IS NULL はシステムレベルのため bot_id は無関係。
 
 export interface McpServerRecord {
   id: number;
   user_id: string | null;
+  bot_id: string;
   name: string;
   endpoint_url: string;
   auth_credential_encrypted: string | null;
@@ -27,6 +29,7 @@ export interface McpToolDef {
 
 export function addServer(
   userId: string | null,
+  botId: string,
   input: {
     name: string;
     endpointUrl: string;
@@ -44,11 +47,12 @@ export function addServer(
   const result = db
     .prepare(
       `INSERT INTO mcp_servers
-       (user_id, name, endpoint_url, auth_credential_encrypted, auth_credential_iv, auth_credential_tag, requires_confirmation)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+       (user_id, bot_id, name, endpoint_url, auth_credential_encrypted, auth_credential_iv, auth_credential_tag, requires_confirmation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
+      botId,
       input.name.trim(),
       input.endpointUrl.trim(),
       enc?.encrypted ?? null,
@@ -65,51 +69,37 @@ export function getServerById(id: number): McpServerRecord | undefined {
 }
 
 /**
- * ユーザーが利用可能なMCPサーバー一覧（本人登録分 + システムレベル登録分）
+ * ランタイム用: Botが利用可能なMCPサーバー一覧（Botスコープ分 + システムレベル登録分）。
+ * (user_id = ownerUserId AND bot_id = botId) OR user_id IS NULL のサーバーを返す。
  */
-export function listServersForUser(userId: string): McpServerRecord[] {
+export function listServersForBotScope(ownerUserId: string, botId: string): McpServerRecord[] {
   const db = getDb();
   return db
     .prepare(
-      `SELECT * FROM mcp_servers WHERE user_id = ? OR user_id IS NULL ORDER BY created_at ASC`
+      `SELECT * FROM mcp_servers WHERE (user_id = ? AND bot_id = ?) OR user_id IS NULL ORDER BY created_at ASC`
     )
-    .all(userId) as McpServerRecord[];
+    .all(ownerUserId, botId) as McpServerRecord[];
 }
 
 /**
- * Botが利用可能なMCPサーバー一覧（bot_attributes_requirements.md §4.5）。
- * 次のいずれかに該当するサーバーのみを返す:
- *   1. bot_mcp_links で明示的に紐付けられたサーバー
- *   2. システムレベル(user_id IS NULL)サーバー
- * 所有者本人のサーバーであっても、明示的に紐付け(bot_mcp_links)していない限り公開しない。
- * これは汎用モードBotが利用メンバー制であり、所有者以外の発話ユーザーも Bot 経由で
- * ツールを起動し得る（しかも所有者の認証情報で実行される §6）ため、所有者が「このBotで
- * 使う」と明示したサーバーだけに限定するのが §4.5 の要件であることによる。
- * （以前は `OR s.user_id = owner` を含み、未紐付けの所有者サーバーまで露出していた。）
+ * 管理画面用: 指定 (user_id, bot_id) スコープのMCPサーバー一覧（本人登録分のみ）。
+ * システムレベルは listSystemServers() で別途取得する。
  */
-export function listServersForBot(botId: string): McpServerRecord[] {
+export function listServersForManagement(userId: string, botId: string): McpServerRecord[] {
   const db = getDb();
   return db
-    .prepare(
-      `SELECT DISTINCT s.* FROM mcp_servers s
-       LEFT JOIN bot_mcp_links l ON l.mcp_server_id = s.id AND l.bot_id = ?
-       WHERE l.id IS NOT NULL OR s.user_id IS NULL
-       ORDER BY s.created_at ASC`
-    )
-    .all(botId) as McpServerRecord[];
+    .prepare("SELECT * FROM mcp_servers WHERE user_id = ? AND bot_id = ? ORDER BY created_at ASC")
+    .all(userId, botId) as McpServerRecord[];
 }
 
-/** 管理画面用の一覧（scope: 自分のもの or システムレベル） */
-export function listServers(userId: string | null): McpServerRecord[] {
+/**
+ * システムレベルのMCPサーバー一覧（user_id IS NULL。Admin管理・全ユーザー利用可）。
+ */
+export function listSystemServers(): McpServerRecord[] {
   const db = getDb();
-  if (userId === null) {
-    return db
-      .prepare("SELECT * FROM mcp_servers WHERE user_id IS NULL ORDER BY created_at ASC")
-      .all() as McpServerRecord[];
-  }
   return db
-    .prepare("SELECT * FROM mcp_servers WHERE user_id = ? ORDER BY created_at ASC")
-    .all(userId) as McpServerRecord[];
+    .prepare("SELECT * FROM mcp_servers WHERE user_id IS NULL ORDER BY created_at ASC")
+    .all() as McpServerRecord[];
 }
 
 export function updateToolsCache(id: number, tools: McpToolDef[]): void {

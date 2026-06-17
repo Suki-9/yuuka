@@ -1,13 +1,15 @@
 import { getDb } from "./database.js";
 
 /**
- * スキーマバージョン2（仕様書 v0.6.1 準拠）への全面再構築マイグレーション。
+ * スキーマバージョン4（仕様書 v0.6.1 + Bot別分離 + MCPサーバー (user_id, bot_id) スコープ化）。
  *
  * データ分離の原則: ユーザーデータは全て user_id (DiscordユーザーID) を必須スコープとする。
  * 旧スキーマ（bot_id スコープ）のデータは破棄してよい方針のため、
  * バージョン不一致を検出した場合は旧テーブルを DROP して作り直す。
+ *
+ * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "3";
+const SCHEMA_VERSION = "4";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -167,6 +169,98 @@ function migrateToBotScopedData(db: ReturnType<typeof getDb>): void {
   }
 }
 
+/**
+ * v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行する（一回限り・冪等）。
+ * - mcp_servers に bot_id 列を追加し、bot_mcp_links の紐付けを元に既存行をバックフィルする。
+ * - bot_mcp_links テーブルは廃止し、バックフィル完了後に DROP する。
+ * - 新規DB（mcp_servers 作成時から bot_id を含む）ではこのブロック全体をスキップする。
+ */
+function migrateMcpToBotScope(db: ReturnType<typeof getDb>): void {
+  // bot_id 列が既に存在する場合（新規DB or 移行済み）はスキップ
+  if (hasColumn(db, "mcp_servers", "bot_id")) return;
+
+  console.log("🔧 mcp_servers を (user_id, bot_id) スコープへ移行しています...");
+
+  // 1. bot_id 列を追加（既存行は DEFAULT 'system_default'）
+  db.exec(`ALTER TABLE mcp_servers ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'system_default'`);
+
+  // 2. bot_mcp_links が存在すれば、紐付け情報を使ってバックフィルする
+  const linkTableExists = (db.pragma("table_info(bot_mcp_links)") as { name: string }[]).length > 0;
+  if (linkTableExists) {
+    // 各 mcp_server について、紐付く bot を created_at 昇順で取得する
+    const servers = db
+      .prepare("SELECT * FROM mcp_servers ORDER BY id ASC")
+      .all() as Array<{
+        id: number;
+        user_id: string | null;
+        bot_id: string;
+        name: string;
+        endpoint_url: string;
+        auth_credential_encrypted: string | null;
+        auth_credential_iv: string | null;
+        auth_credential_tag: string | null;
+        tools_cache: string;
+        tools_cache_updated: string | null;
+        requires_confirmation: number;
+        enabled: number;
+        created_at: string;
+      }>;
+
+    for (const server of servers) {
+      // user_id IS NULL のシステムレベル行は bot_id='system_default' のままでよい
+      if (server.user_id === null) continue;
+
+      const links = db
+        .prepare(
+          "SELECT bot_id FROM bot_mcp_links WHERE mcp_server_id = ? ORDER BY created_at ASC"
+        )
+        .all(server.id) as { bot_id: string }[];
+
+      if (links.length === 0) {
+        // 未紐付け: user_id で分離されるため 'system_default' のまま（後方互換）
+        continue;
+      }
+
+      // 最初の紐付けBot: 当該行を UPDATE で bot_id に書き換える
+      db.prepare("UPDATE mcp_servers SET bot_id = ? WHERE id = ?").run(links[0].bot_id, server.id);
+
+      // 2件目以降の紐付けBot: 全列コピーして INSERT し、新しい行の bot_id をそのBotにする
+      for (let i = 1; i < links.length; i++) {
+        db.prepare(
+          `INSERT INTO mcp_servers
+           (user_id, bot_id, name, endpoint_url, auth_credential_encrypted, auth_credential_iv,
+            auth_credential_tag, tools_cache, tools_cache_updated, requires_confirmation, enabled, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          server.user_id,
+          links[i].bot_id,
+          server.name,
+          server.endpoint_url,
+          server.auth_credential_encrypted,
+          server.auth_credential_iv,
+          server.auth_credential_tag,
+          server.tools_cache,
+          server.tools_cache_updated,
+          server.requires_confirmation,
+          server.enabled,
+          server.created_at
+        );
+      }
+    }
+
+    // 3. bot_mcp_links テーブルを廃止する
+    db.exec("DROP TABLE IF EXISTS bot_mcp_links");
+    console.log("✅ bot_mcp_links テーブルを廃止しました（v4 移行完了）。");
+  }
+
+  // インデックスを追加（IF NOT EXISTS のため冪等）
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_mcp_servers_user_bot ON mcp_servers(user_id, bot_id);
+  `);
+
+  console.log("✅ mcp_servers の (user_id, bot_id) スコープ移行が完了しました。");
+}
+
 function getCurrentSchemaVersion(db: ReturnType<typeof getDb>): string {
   try {
     const row = db
@@ -312,19 +406,8 @@ export async function runMigrations(): Promise<void> {
   ]);
 
   // ─── Bot属性 関連テーブル（bot_attributes_requirements.md §5） ──────────────
+  // 注意: bot_mcp_links テーブルは v4 で廃止。MCPサーバーは (user_id, bot_id) 複合スコープへ移行。
   db.exec(`
-    -- BotとMCPサーバーの紐付け（要件 §4.5: owner所有サーバーのみ。検証はアプリ層）
-    CREATE TABLE IF NOT EXISTS bot_mcp_links (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bot_id TEXT NOT NULL,
-      mcp_server_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      UNIQUE(bot_id, mcp_server_id),
-      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
-      FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_bot_mcp_links_bot ON bot_mcp_links(bot_id);
-
     -- 個人ノート（要件 §4.6.2: bot_id × ユーザー単位。context_notes は秘書用に現状維持）
     -- データ分離原則（architecture_v2.md §0-1）の正式な例外パターン: bot_id × user_id 複合スコープ。
     -- user_id はWebアカウント未登録のDiscordユーザーIDも可のため users へのFKは張らない。
@@ -767,6 +850,7 @@ export async function runMigrations(): Promise<void> {
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT,                            -- NULL = システムレベル登録（Adminのみ）
+      bot_id TEXT NOT NULL DEFAULT 'system_default', -- (user_id, bot_id) 複合スコープ（§4.5）
       name TEXT NOT NULL,
       endpoint_url TEXT NOT NULL,
       auth_credential_encrypted TEXT,
@@ -781,6 +865,10 @@ export async function runMigrations(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_mcp_servers_user ON mcp_servers(user_id);
   `);
+  // 注意: idx_mcp_servers_user_bot（bot_id 複合インデックス）はここでは作らない。
+  // 既存DBでは CREATE TABLE IF NOT EXISTS が no-op となり bot_id 列がまだ無く、
+  // インデックス作成が "no such column: bot_id" で失敗するため。bot_id 列の存在が保証される
+  // migrateMcpToBotScope(db) の後（下記）でまとめて作成する。
 
   // ─── 監査ログ（§6.3.3, §5.3） ────────────────────────────────────────────
   db.exec(`
@@ -812,6 +900,14 @@ export async function runMigrations(): Promise<void> {
   // 既存行は bot_id = 'system_default'（早瀬ユウカ）に帰属させる。
   // 一意制約を含まないテーブルは列追加のみ。PK/UNIQUE に user_id を含むテーブルは再構築する。
   migrateToBotScopedData(db);
+
+  // ─── v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行（bot_mcp_links廃止） ──
+  // 新規DBでは mcp_servers 作成時から bot_id を含むためスキップされる。
+  migrateMcpToBotScope(db);
+
+  // bot_id 列の存在が保証された後で複合インデックスを作成する（新規DB・既存DBの両方を網羅）。
+  // 新規DB: CREATE TABLE で bot_id 作成済み。既存DB: 直前の migrateMcpToBotScope が ALTER で追加済み。
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mcp_servers_user_bot ON mcp_servers(user_id, bot_id)");
 
   // スキーマバージョンを記録
   db.prepare(

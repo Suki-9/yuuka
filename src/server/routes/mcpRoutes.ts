@@ -6,7 +6,10 @@ import { sendJson } from "../../types/contracts.js";
 // ダッシュボードHTML発行時（Cookie認証済みユーザー）に生成し、SPA からの
 // Authorization: Bearer で検証する。SPA は tools/list・tools/call を複数回呼ぶため
 // 使い捨て（single-use）ではなく、TTL 内は再利用可能なセッショントークンである。
-// 中継時にはトークンに加えて Cookie セッション（発行ユーザー）も照合する（漏洩耐性）。
+// ダッシュボードは隔離 iframe（不透明オリジン）内で動くため中継時に Cookie は届かない。
+// よってトークンが認証の主体であり、{serverId, userId} に束縛し、中継のたびに発行ユーザーの
+// 現在のロール・権限（canManage / enabled）を DB から再検証する（256bit乱数で不可推測、
+// サーバー無効化・削除で即時失効）。
 interface ProxyTokenEntry {
   serverId: number;
   userId: string;
@@ -52,21 +55,42 @@ function revokeProxyTokensForServer(serverId: number): void {
 }
 import {
   addServer,
-  listServers,
+  listServersForManagement,
+  listSystemServers,
   getServerById,
   setEnabled,
   deleteServer,
   parseToolsCache,
   type McpServerRecord,
 } from "../../db/mcpRepo.js";
+import { hasBotAccess } from "../../db/botRepo.js";
+import { getUserByDiscordId } from "../../db/userRepo.js";
 import {
   refreshToolsCache,
   probeMcpDashboard,
   fetchMcpDashboardHtml,
+  fetchAkizakuraCss,
   mcpOrigin,
   buildAuthHeader,
 } from "../../services/mcpClient.js";
 import { addAuditLog } from "../../db/auditRepo.js";
+import { config } from "../../config.js";
+
+/**
+ * iframe 用エラーページ（text/html）を返す。ダッシュボードは iframe の src として読み込まれるため、
+ * 失敗時に JSON を返すと iframe 内に生 JSON が表示されてしまう。簡素な HTML を最小 CSP 付きで返す。
+ */
+function sendFrameError(res: import("node:http").ServerResponse, status: number, message: string): void {
+  const safe = message.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
+  const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"></head><body style="font-family:system-ui,-apple-system,sans-serif;padding:24px;color:#52525b;font-size:0.9rem;">${safe}</body></html>`;
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self';",
+    "Cache-Control": "no-store",
+  });
+  res.end(body);
+}
 
 // ─── MCPサーバー管理 HTTPルート（§4.4） ──────────────────────────────────────
 // scope:"system"（システムレベル登録）の操作はAdminのみ（§4.4.3）。
@@ -101,8 +125,11 @@ export const mcpRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
-      const own = listServers(userId).map(toSafeView);
-      const system = listServers(null).map(toSafeView);
+      const rawBotId = ctx.url.searchParams.get("botId") ?? undefined;
+      // botId が指定されアクセス権がある場合はそのスコープ、そうでなければ system_default
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const own = listServersForManagement(userId, botId).map(toSafeView);
+      const system = listSystemServers().map(toSafeView);
       sendJson(ctx.res, 200, { success: true, servers: [...own, ...system] });
     },
   },
@@ -121,6 +148,13 @@ export const mcpRoutes: RouteDef[] = [
       const requiresConfirmation = ctx.body.requiresConfirmation !== false;
       const scope = ctx.body.scope === "system" ? "system" : "user";
 
+      // botId の解決: body から取得し、アクセス権検証。権限なければ 403（登録先を曖昧にしない）
+      const rawBotId = typeof ctx.body.botId === "string" ? ctx.body.botId : "system_default";
+      if (scope !== "system" && rawBotId !== "system_default" && !hasBotAccess(user.discordId, rawBotId)) {
+        return sendJson(ctx.res, 403, { success: false, message: "指定Botへの権限がありません。" });
+      }
+      const botId = scope === "system" ? "system_default" : rawBotId;
+
       if (!name || !endpointUrl) {
         return sendJson(ctx.res, 400, { success: false, message: "name と endpointUrl は必須です。" });
       }
@@ -133,7 +167,7 @@ export const mcpRoutes: RouteDef[] = [
         return sendJson(ctx.res, 403, { success: false, message: "システムレベルのMCPサーバー登録はAdminのみ可能です。" });
       }
 
-      const server = addServer(scope === "system" ? null : user.discordId, {
+      const server = addServer(scope === "system" ? null : user.discordId, botId, {
         name,
         endpointUrl,
         authCredential,
@@ -255,7 +289,11 @@ export const mcpRoutes: RouteDef[] = [
     },
   },
 
-  // ── 管理ページ HTML を取得（MCP_PATH をプロキシ経由に書き換え＋ダミートークン注入） ──
+  // ── 管理ページ HTML を iframe 用に取得（MCP_PATH をプロキシ経由へ書き換え＋プロキシトークン注入）──
+  // クライアントはこの URL を <iframe sandbox="allow-scripts" src> で読み込む。サンドボックスにより
+  // iframe は不透明オリジンとなり、ダッシュボード（サードパーティMCPサーバー由来のSPA）の JS は
+  // yuuka 本体の Cookie・localStorage・DOM・同一オリジンAPIへ一切アクセスできない（真の隔離）。
+  // text/html を直接返す（real URL なので親 CSP を継承せず、このルート専用 CSP を付与できる）。
   {
     method: "GET",
     path: "/api/mcp-servers/:id/dashboard",
@@ -265,40 +303,42 @@ export const mcpRoutes: RouteDef[] = [
       const id = Number(ctx.params.id);
       const server = Number.isInteger(id) ? getServerById(id) : undefined;
       if (!server || !canManage(server, user.discordId, user.role === "admin")) {
-        return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
+        return sendFrameError(ctx.res, 404, "MCPサーバーが見つかりません。");
       }
       if (!(await probeMcpDashboard(server))) {
-        return sendJson(ctx.res, 404, {
-          success: false,
-          message: "このMCPサーバーは管理ページを提供していません。",
-        });
+        return sendFrameError(ctx.res, 404, "このMCPサーバーは管理ページを提供していません。");
       }
       try {
         const { status, html } = await fetchMcpDashboardHtml(server);
         if (status !== 200) {
-          return sendJson(ctx.res, 502, {
-            success: false,
-            message: `管理ページの取得に失敗しました (HTTP ${status})。`,
-          });
+          return sendFrameError(ctx.res, 502, `管理ページの取得に失敗しました (HTTP ${status})。`);
         }
 
-        // MCP_PATH を /proxy/mcp/:id/mcp に書き換える（iframe srcdoc は yuuka と同一オリジンのため相対パスで十分）。
-        // String.replace は不一致時に元文字列をそのまま返すため、置換が起きたかを明示的に検証し、
-        // 別リポジトリ(ywrk-mcp/dashboard.html)のフォーマットがドリフトした場合は壊れたページを
-        // 200 で返さず 502 で失敗させる（サイレント破損の防止）。
-        const proxyMcpPath = `/proxy/mcp/${id}/mcp`;
-        let rewritten = html.replace(/var MCP_PATH = "[^"]*"/, `var MCP_PATH = "${proxyMcpPath}"`);
-        if (rewritten === html) {
+        // iframe は不透明オリジンなので、その絶対オリジン（config.baseUrl 由来。未設定時は Host）を
+        // 基準に各種URLを解決する。connect-src と MCP_PATH の両方でこの値を使い、確実に yuuka へ向ける。
+        const selfOrigin = config.baseUrl
+          ? new URL(config.baseUrl).origin
+          : `http://${ctx.req.headers.host ?? "localhost"}`;
+
+        // ダッシュボードが <base href="https://<mcp-origin>/dashboard/"> を持つ場合、相対URLが
+        // MCPサーバー側オリジンへ解決されてしまう（埋め込み時の害）。除去して、相対URLは iframe
+        // ドキュメント（yuuka オリジン）基準に解決させる。
+        let rewritten = html.replace(/<base\b[^>]*>/i, "");
+
+        // MCP_PATH をプロキシの「絶対URL」へ書き換える（<base> 除去後でも確実に yuuka へ向ける）。
+        // String.replace は不一致時に元文字列をそのまま返すため、（base除去後の文字列を基準に）置換が
+        // 起きたかを検証し、別リポジトリ(ywrk-mcp/dashboard.html)のフォーマットがドリフトした場合は
+        // 壊れたページを 200 で返さず 502 で失敗させる。
+        const proxyMcpUrl = `${selfOrigin}/proxy/mcp/${id}/mcp`;
+        const beforeMcpPathRewrite = rewritten;
+        rewritten = rewritten.replace(/var MCP_PATH = "[^"]*"/, `var MCP_PATH = "${proxyMcpUrl}"`);
+        if (rewritten === beforeMcpPathRewrite) {
           console.error(`[MCP] ${server.name}: ダッシュボードHTMLの MCP_PATH 書き換えに失敗しました（フォーマット不一致）`);
-          return sendJson(ctx.res, 502, {
-            success: false,
-            message: "管理ページの形式が想定と異なるため表示できません（MCP_PATH）。",
-          });
+          return sendFrameError(ctx.res, 502, "管理ページの形式が想定と異なるため表示できません（MCP_PATH）。");
         }
 
-        // プロキシトークンを発行し、window 変数として注入する。
-        // location.hash はユーザーの画面 URL を汚染するため使わず、SPA の tokenFromHash() を
-        // window 変数を返すよう書き換える。
+        // プロキシトークンを発行し window 変数として注入する（iframe の window 内に閉じる）。
+        // location.hash は使わず、SPA の tokenFromHash() を window 変数を返すよう書き換える。
         const proxyToken = issueProxyToken(id, user.discordId);
         const beforeTokenRewrite = rewritten;
         rewritten = rewritten.replace(
@@ -307,41 +347,104 @@ export const mcpRoutes: RouteDef[] = [
         );
         if (rewritten === beforeTokenRewrite) {
           console.error(`[MCP] ${server.name}: ダッシュボードHTMLの tokenFromHash 書き換えに失敗しました（フォーマット不一致）`);
-          return sendJson(ctx.res, 502, {
-            success: false,
-            message: "管理ページの形式が想定と異なるため表示できません（tokenFromHash）。",
-          });
+          return sendFrameError(ctx.res, 502, "管理ページの形式が想定と異なるため表示できません（tokenFromHash）。");
         }
         const autoTokenScript = `<script>window.__mcpProxyToken__ = "${proxyToken}";</script>`;
 
-        // `<head ...>` のみにマッチさせる（`<header>` を誤って拾わないよう空白/`>` を境界に要求）。
+        // akizakura.css（ダッシュボードの design system）をサーバー側でインライン化する。
+        // iframe は独立ドキュメントなので :root はそのまま root 要素に効く（Shadow DOM 用の
+        // :root→:host 書き換えは不要）。取得失敗時は元の <link> を残す。frame 用 CSP が
+        // style-src で akizakura.pages.dev を許可しているため、その場合でも崩れず表示できる。
+        const akizakuraCss = await fetchAkizakuraCss();
+        if (akizakuraCss) {
+          const akizakuraLinkRe = /<link\b[^>]*href="https:\/\/akizakura\.pages\.dev\/akizakura\.css"[^>]*>/i;
+          if (akizakuraLinkRe.test(rewritten)) {
+            rewritten = rewritten.replace(akizakuraLinkRe, `<style data-akizakura>${akizakuraCss}</style>`);
+          } else {
+            console.error(`[MCP] ${server.name}: akizakura の <link> が見つからず inline 化できませんでした`);
+          }
+        }
+
+        // `<head ...>` 直後にトークン注入スクリプトを差し込む（`<header>` を誤検出しないよう境界を要求）。
         const headOpenTag = /<head(\s[^>]*)?>/i;
         const withInjections = headOpenTag.test(rewritten)
           ? rewritten.replace(headOpenTag, (m) => `${m}${autoTokenScript}`)
           : `${autoTokenScript}${rewritten}`;
 
-        sendJson(ctx.res, 200, { success: true, html: withInjections });
-      } catch (err) {
-        sendJson(ctx.res, 502, {
-          success: false,
-          message: `管理ページの取得に失敗しました: ${(err as Error).message}`,
+        // このルート専用の CSP。iframe は不透明オリジンのため connect-src を 'self' ではなく
+        // yuuka の絶対オリジン（上で算出した selfOrigin）で指定する（'self' は不透明オリジンに
+        // 解決され /proxy に一致しないため）。
+        const frameCsp =
+          [
+            "default-src 'none'",
+            "base-uri 'none'",
+            "script-src 'unsafe-inline'",
+            "style-src 'unsafe-inline' https://akizakura.pages.dev https://fonts.googleapis.com",
+            "font-src https://fonts.gstatic.com data:",
+            `img-src 'self' data: ${selfOrigin}`,
+            `connect-src ${selfOrigin}`,
+            "frame-ancestors 'self'",
+          ].join("; ") + ";";
+
+        ctx.res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": frameCsp,
+          "Cache-Control": "no-store",
         });
+        ctx.res.end(withInjections);
+      } catch (err) {
+        sendFrameError(ctx.res, 502, `管理ページの取得に失敗しました: ${(err as Error).message}`);
       }
     },
   },
 
+  // ── プロキシのCORSプリフライト（Authorization 等のカスタムヘッダのため必須） ──
+  // 隔離 iframe は不透明オリジン（Origin: null）なので、POST の前にプリフライトが飛ぶ。
+  // 認証主体は proxyToken（不可推測・serverId束縛・TTL・失効可）であり Cookie/Credentials は
+  // 使わないため、ACAO:null かつ Allow-Credentials 無しの安全な組合せで応答する。
+  {
+    method: "OPTIONS",
+    path: "/proxy/mcp/:id/mcp",
+    auth: "none",
+    async handler(ctx) {
+      // 要求されたヘッダをそのまま許可リストへ反映する（SPA のヘッダ構成ドリフトに耐える）。
+      // 認証は proxyToken が主体で Cookie 非依存のため、許可ヘッダの広さは安全性に影響しない。
+      const reqHeaders =
+        (ctx.req.headers["access-control-request-headers"] as string | undefined) ??
+        "authorization, content-type, accept, mcp-protocol-version";
+      ctx.res.removeHeader("Access-Control-Allow-Credentials");
+      ctx.res.writeHead(204, {
+        "Access-Control-Allow-Origin": "null",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": reqHeaders,
+        "Access-Control-Max-Age": "600",
+        Vary: "Origin",
+      });
+      ctx.res.end();
+    },
+  },
+
   // ── MCPエンドポイント プロキシ（ダッシュボードのAPIコールを Bearer 認証付きで中継） ──
-  // ダッシュボードは yuuka と同一オリジンの iframe(srcdoc) 内で動くため Cookie セッションが届く。
-  // そのため auth:"user"（セッション必須）に加えて、発行時のプロキシトークンを併用する:
-  //   1. proxyToken: serverId への束縛＋短命TTL
-  //   2. Cookie セッション: 実際の発話者が「トークン発行ユーザー本人」であることの照合
-  //   3. canManage / enabled: 発行後の権限・有効状態の変化を毎回再検証
+  // ダッシュボードは sandbox="allow-scripts"（allow-same-origin 無し）の iframe 内で動く＝不透明
+  // オリジンのため、Cookie セッションは届かない。認証は proxyToken 単独を主体とする:
+  //   1. proxyToken: serverId への束縛＋短命TTL＋無効化即時失効（不可推測な256bit乱数）
+  //   2. canManage / enabled: トークンに記録した発行ユーザーの現在のロール・権限を毎回再検証
+  //      （降格・無効化の即時反映。ユーザーが消えていれば 403）
+  // 不透明オリジンからのクロスオリジン fetch を許可するため ACAO:null を返す（Credentials 無し）。
   {
     method: "POST",
     path: "/proxy/mcp/:id/mcp",
-    auth: "user",
+    auth: "none",
     async handler(ctx) {
-      const user = ctx.user!;
+      // 不透明オリジン(Origin: null)からのレスポンス読み取りを許可。Cookie 不使用なので
+      // Allow-Credentials は付けない（ACAO:null + 資格情報無し の安全な組合せ）。
+      // server.ts のCORS処理が先に資格情報付きヘッダを立てている可能性があるため明示的に除去し、
+      // ACAO:null と Allow-Credentials:true が同居する不正な組合せを防ぐ。
+      ctx.res.setHeader("Access-Control-Allow-Origin", "null");
+      ctx.res.removeHeader("Access-Control-Allow-Credentials");
+      ctx.res.setHeader("Vary", "Origin");
+
       const id = Number(ctx.params.id);
       if (!Number.isInteger(id)) {
         return sendJson(ctx.res, 400, { success: false, message: "不正なサーバーIDです。" });
@@ -354,9 +457,11 @@ export const mcpRoutes: RouteDef[] = [
       if (!tokenEntry) {
         return sendJson(ctx.res, 401, { success: false, message: "プロキシトークンが無効または期限切れです。" });
       }
-      // トークン発行ユーザーと現在のセッションユーザーが一致すること（漏洩トークンの横取り防止）
-      if (user.discordId !== tokenEntry.userId) {
-        return sendJson(ctx.res, 403, { success: false, message: "このプロキシトークンを利用する権限がありません。" });
+      // トークン発行ユーザーの現在の権限・ロールを DB から引き直して再検証する（Cookie は届かないため、
+      // 発行時に束縛した userId を信頼の起点とする。発行後にユーザーが消えていれば拒否）。
+      const tokenUser = getUserByDiscordId(tokenEntry.userId);
+      if (!tokenUser) {
+        return sendJson(ctx.res, 403, { success: false, message: "トークン発行ユーザーが存在しません。" });
       }
 
       const server = getServerById(id);
@@ -364,7 +469,7 @@ export const mcpRoutes: RouteDef[] = [
         return sendJson(ctx.res, 404, { success: false, message: "MCPサーバーが見つかりません。" });
       }
       // 発行後に権限・有効状態が変化していないか毎回再検証する（降格・無効化の即時反映）
-      if (!canManage(server, user.discordId, user.role === "admin")) {
+      if (!canManage(server, tokenUser.discord_id, tokenUser.role === "admin")) {
         return sendJson(ctx.res, 403, { success: false, message: "このMCPサーバーを操作する権限がありません。" });
       }
       if (server.enabled !== 1) {
