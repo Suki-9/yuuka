@@ -2554,6 +2554,29 @@
     </div>
   </div>
 
+  <!-- カレンダー同期設定モーダル（統合管理: Googleアカウント別に同期対象カレンダーを選択） -->
+  <div id="modal-int-calendars" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">calendar_month</span>カレンダー同期設定</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <p id="int-cal-account-label" class="description-text" style="margin-bottom: 8px;"></p>
+      <p class="description-text" style="margin-bottom: 12px; font-size: 0.8rem;">同期対象にするカレンダーを選択してください。チェックしたカレンダーのみが同期されます。</p>
+      <div id="int-cal-error" class="field-sub" style="display:none; color:#f87171; margin-bottom: 10px;"></div>
+      <div id="int-cal-list"
+        style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; margin-bottom:16px;">
+        <!-- 動的生成 -->
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary btn-close-modal">キャンセル</button>
+        <button type="button" id="int-cal-save" class="btn btn-primary">同期設定を保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- AI Receipt Result Modal -->
   <div id="modal-receipt-result" class="modal">
     <div class="modal-content wide-modal">

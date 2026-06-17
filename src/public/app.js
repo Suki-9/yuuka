@@ -492,7 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal(modalCreateBot);
       ["modal-expense-plan", "modal-budget-settings", "modal-persona-edit",
         "modal-persona-preview", "modal-contact", "modal-webhook", "modal-audit",
-        "modal-mcp-dashboard"].forEach(id => {
+        "modal-mcp-dashboard", "modal-int-calendars"].forEach(id => {
         const m = document.getElementById(id);
         if (m) closeModal(m);
       });
@@ -6558,17 +6558,74 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // カレンダー同期設定をモーダルで編集（prompt の置き換え）。
+  // 利用可能なカレンダーをチェックボックス一覧で表示し、選択分を同期対象として保存する。
   async function intEditCalendars(accountId) {
-    let avail = [];
-    try { const r = await (await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)).json(); avail = r.calendars || []; } catch (e) {}
+    const modal = document.getElementById("modal-int-calendars");
+    const listEl = document.getElementById("int-cal-list");
+    const labelEl = document.getElementById("int-cal-account-label");
+    const errEl = document.getElementById("int-cal-error");
+    const saveBtn = document.getElementById("int-cal-save");
+    if (!modal || !listEl || !saveBtn) return;
+
     const acct = (intOverview?.googleAccounts || []).find((a) => a.id === accountId);
     const current = new Set(acct?.calendars || []);
-    const list = avail.length ? avail.map((c) => `${current.has(c.id) ? "[x]" : "[ ]"} ${c.summary} (${c.id})`).join("\n") : "(取得できませんでした)";
-    const input = prompt(`同期対象にするカレンダーIDをカンマ区切りで入力してください。\n\n利用可能:\n${list}\n\n現在: ${[...current].join(", ") || "(なし)"}`, [...current].join(", "));
-    if (input === null) return;
-    const calendars = input.split(",").map((s) => s.trim()).filter(Boolean);
-    await intPost("/api/integrated/google/accounts/calendars", { accountId, calendars });
-    fetchIntegratedOverview();
+    if (labelEl) labelEl.textContent = `アカウント: ${acct?.email || ("#" + accountId)}`;
+    if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+    listEl.innerHTML = '<p class="description-text">読み込み中…</p>';
+    saveBtn.disabled = true;
+    openModal(modal);
+
+    let avail = [];
+    try {
+      const r = await (await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)).json();
+      avail = r.calendars || [];
+    } catch (e) { avail = []; }
+
+    if (!avail.length) {
+      listEl.innerHTML = '<p class="description-text">カレンダーを取得できませんでした。アカウントの連携状態を確認してください。</p>';
+    } else {
+      listEl.innerHTML = "";
+      avail.forEach((c) => {
+        const label = document.createElement("label");
+        label.className = "glass";
+        label.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = c.id;
+        cb.checked = current.has(c.id);
+        cb.style.cssText = "width:16px;height:16px;flex-shrink:0;";
+        const text = document.createElement("div");
+        text.style.cssText = "min-width:0;";
+        text.innerHTML = `<div style="font-size:0.9rem;">${intEsc(c.summary || c.id)}</div>
+          <div style="font-size:0.72rem;color:var(--color-zinc-muted,#a1a1aa);word-break:break-all;">${intEsc(c.id)}</div>`;
+        label.appendChild(cb);
+        label.appendChild(text);
+        listEl.appendChild(label);
+      });
+      saveBtn.disabled = false;
+    }
+
+    // 開くたびに最新の accountId で保存処理を差し替える（リスナー重複を防ぐ）。
+    saveBtn.onclick = async () => {
+      const calendars = [...listEl.querySelectorAll('input[type="checkbox"]')]
+        .filter((cb) => cb.checked).map((cb) => cb.value);
+      saveBtn.disabled = true;
+      if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+      try {
+        const d = await intPost("/api/integrated/google/accounts/calendars", { accountId, calendars });
+        if (d && d.success === false) {
+          if (errEl) { errEl.textContent = d.message || "保存に失敗しました。"; errEl.style.display = "block"; }
+          saveBtn.disabled = false;
+          return;
+        }
+        closeModal(modal);
+        fetchIntegratedOverview();
+      } catch (e) {
+        if (errEl) { errEl.textContent = "通信エラーが発生しました。"; errEl.style.display = "block"; }
+        saveBtn.disabled = false;
+      }
+    };
   }
 
   function wireIntegratedForms() {
