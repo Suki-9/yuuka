@@ -1148,46 +1148,6 @@
              5. CONFIG VIEW
              ========================================== -->
         <section id="tab-config" class="tab-view">
-          <!-- Theme Settings -->
-          <details class="config-card card" name="config-acc">
-            <summary class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">palette</span>テーマ設定</h3>
-            </summary>
-            <p class="description-text">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
-            <div class="theme-options">
-              <button type="button" class="theme-option" data-theme="dark">
-                <div class="theme-preview dark-preview">
-                  <div class="preview-sidebar"></div>
-                  <div class="preview-content">
-                    <div class="preview-card"></div>
-                    <div class="preview-card"></div>
-                  </div>
-                </div>
-                <span>ダーク</span>
-              </button>
-              <button type="button" class="theme-option" data-theme="light">
-                <div class="theme-preview light-preview">
-                  <div class="preview-sidebar"></div>
-                  <div class="preview-content">
-                    <div class="preview-card"></div>
-                    <div class="preview-card"></div>
-                  </div>
-                </div>
-                <span>ライト</span>
-              </button>
-              <button type="button" class="theme-option" data-theme="blue-archive">
-                <div class="theme-preview ba-preview">
-                  <div class="preview-sidebar"></div>
-                  <div class="preview-content">
-                    <div class="preview-card"></div>
-                    <div class="preview-card"></div>
-                  </div>
-                </div>
-                <span>BA</span>
-              </button>
-            </div>
-          </details>
-
           <!-- Profile Settings -->
           <details class="config-card card" style="margin-top: 24px;" name="config-acc">
             <summary class="column-header">
@@ -1360,29 +1320,6 @@
                 長期メモはコンテキストノートへ
               </button>
             </div>
-          </details>
-
-          <!-- Password Change -->
-          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
-            <summary class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">password</span>パスワード変更</h3>
-            </summary>
-            <p class="description-text">管理画面ログイン用パスワードを変更します。変更すると他端末のセッションは無効化されます。</p>
-            <form id="password-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="config-current-password">現在のパスワード *</label>
-                  <input type="password" id="config-current-password" required placeholder="••••••••••••"
-                    autocomplete="current-password">
-                </div>
-                <div class="form-group">
-                  <label for="config-new-password">新しいパスワード *</label>
-                  <input type="password" id="config-new-password" required placeholder="••••••••••••"
-                    autocomplete="new-password">
-                </div>
-              </div>
-              <button type="submit" class="btn btn-primary" style="align-self: flex-start;">パスワードを変更</button>
-            </form>
           </details>
 
           <!-- Assistant (User) Settings -->
@@ -1976,6 +1913,65 @@
               <p class="description-text" style="margin-top:16px;margin-bottom:8px;"><strong>Bot別 使用アカウント</strong></p>
               <div id="int-google-bot-assign" style="display:flex;flex-direction:column;gap:10px;"></div>
             </div>
+          </details>
+
+          <!-- テーマ設定（アカウント共通の外観設定。Bot個別ページから移設） -->
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>テーマ設定</summary>
+            <p class="description-text" style="margin-top:12px;">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
+            <div class="theme-options">
+              <button type="button" class="theme-option" data-theme="dark">
+                <div class="theme-preview dark-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>ダーク</span>
+              </button>
+              <button type="button" class="theme-option" data-theme="light">
+                <div class="theme-preview light-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>ライト</span>
+              </button>
+              <button type="button" class="theme-option" data-theme="blue-archive">
+                <div class="theme-preview ba-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>BA</span>
+              </button>
+            </div>
+          </details>
+
+          <!-- パスワード変更（アカウントのログインパスワード。Bot個別ページから移設） -->
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>パスワード変更</summary>
+            <p class="description-text" style="margin-top:12px;">管理画面ログイン用パスワードを変更します。変更すると他端末のセッションは無効化されます。</p>
+            <form id="password-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="config-current-password">現在のパスワード *</label>
+                  <input type="password" id="config-current-password" required placeholder="••••••••••••"
+                    autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                  <label for="config-new-password">新しいパスワード *</label>
+                  <input type="password" id="config-new-password" required placeholder="••••••••••••"
+                    autocomplete="new-password">
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary" style="align-self: flex-start;">パスワードを変更</button>
+            </form>
           </details>
         </section>
       </div>
