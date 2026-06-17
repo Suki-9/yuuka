@@ -525,6 +525,39 @@ button, input, select, textarea {
   letter-spacing: 0.05em;
 }
 
+/* 折りたたみセクション（<details class="collapsible-group">）。
+   <summary> は .form-group label と同じ見た目にし、左にシェブロンを付ける。 */
+.collapsible-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none; /* Firefox のデフォルト三角を消す */
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.collapsible-group > summary::-webkit-details-marker {
+  display: none; /* WebKit/Blink のデフォルト三角を消す */
+}
+.collapsible-group > summary::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+.collapsible-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+.collapsible-group > summary:hover {
+  color: var(--text-primary);
+}
+
 /* Base input, select, textarea styling */
 input[type="text"],
 input[type="password"],
@@ -1825,7 +1858,10 @@ textarea:focus {
 }
 
 .wide-modal {
-  max-width: 600px;
+  /* MCP管理ダッシュボード等の埋め込みコンテンツ（内部 .container は760px幅想定）が窮屈に
+     ならないよう余裕を持たせる。狭幅ビューでは 94vw で端に貼り付かないよう余白を確保
+     （≤768px は下のメディアクエリで 100% に上書きされる）。 */
+  max-width: min(820px, 94vw);
 }
 
 .modal.active .modal-content {
@@ -2207,17 +2243,41 @@ textarea:focus {
     gap: 8px;
   }
 
-  /* Modal padding/width adjustments */
+  /* モバイル: モーダルを全画面化（外周の余白を無くし画面を覆う。余白は極力少なめ） */
   .modal {
-    padding: 16px;
+    padding: 0;
   }
 
   .modal-content {
     max-width: 100%;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    padding: 12px;
+    border: 0;
+    border-radius: 0;
   }
 
   .wide-modal {
     max-width: 100%;
+  }
+
+  /* MCP管理ダッシュボードは全画面モーダル内をiframeで縦いっぱいに埋める */
+  #modal-mcp-dashboard .modal-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #mcp-dashboard-container {
+    flex: 1 1 auto;
+    min-height: 0 !important;   /* index.html のインライン min-height:70vh を上書き */
+    border-radius: 0;
+  }
+
+  #mcp-dashboard-container > iframe {
+    height: 100% !important;    /* app.js のインライン height:75vh を上書き */
   }
 
   /* Theme options - allow wrapping & full width */

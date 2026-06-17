@@ -1247,42 +1247,42 @@
             <p class="description-text">サーバー常駐アシスタントの動作設定です。応答には「Bot専用のGemini APIキー」「独自Discordトークン」「応答許可ギルド」の設定が必要です。</p>
             <div id="assistant-warnings" style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;"></div>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-gemini-key">Bot専用 Gemini APIキー（必須）</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>Bot専用 Gemini APIキー（必須）</summary>
               <div style="display: flex; gap: 12px;">
                 <input type="password" id="assistant-gemini-key" placeholder="このBot専用のAPIキーを入力" autocomplete="off" style="flex-grow: 1;">
                 <button type="button" id="btn-save-assistant-key" class="btn btn-primary" style="white-space: nowrap;">保存</button>
               </div>
               <span class="field-sub">※あなた個人のAPIキーとは別に管理・暗号化保存されます。空欄で保存すると削除され、Botは応答を停止します。</span>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-persona-select">ペルソナ（Bot単位）</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>ペルソナ（Bot単位）</summary>
               <div style="display: flex; gap: 12px;">
                 <select id="assistant-persona-select" style="flex-grow: 1;"></select>
                 <button type="button" id="btn-save-assistant-persona" class="btn btn-primary" style="white-space: nowrap;">適用</button>
               </div>
               <span class="field-sub">※ギルドの全利用者に同じ人格で応答します。変更はこのページからのみ行えます（会話からの変更は不可）。</span>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label>利用中のMCPサーバー</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用中のMCPサーバー</summary>
               <p class="description-text" style="margin: 4px 0 8px;">このBotに紐づくMCPサーバーの一覧です（読み取り専用）。システムレベルのサーバーは常に利用可能です。</p>
               <div id="assistant-mcp-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-guild-input">応答許可ギルド</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>応答許可ギルド</summary>
               <p class="description-text" style="margin: 4px 0 8px;">登録したギルド（DiscordサーバーID）でのみ応答します。未許可ギルドでは一切応答・記録しません。</p>
               <div style="display: flex; gap: 12px;">
                 <input type="text" id="assistant-guild-input" placeholder="ギルドID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
                 <button type="button" id="btn-add-assistant-guild" class="btn btn-primary" style="white-space: nowrap;">追加</button>
               </div>
               <div id="assistant-guild-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label>利用メンバー</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用メンバー</summary>
               <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
               <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
@@ -1290,23 +1290,23 @@
                 <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
               </div>
               <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-guild-note">共有ノート（ギルドノート）</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>共有ノート（ギルドノート）</summary>
               <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
               <div style="display: flex; gap: 12px; margin-bottom: 8px;">
                 <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
                 <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
               </div>
               <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label>利用量（直近14日）</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用量（直近14日）</summary>
               <div id="assistant-usage" style="margin-top: 8px;"></div>
               <span class="field-sub" id="assistant-rate-limits"></span>
-            </div>
+            </details>
           </div>
 
           <!-- Persona / Context Note へ誘導するリンクカード -->
