@@ -2472,31 +2472,13 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        // system_default を非管理者が見ている場合、Google連携・バックアップを隠す
+        // system_default を非管理者が見ている場合、バックアップを隠す
+        // （Google連携カードはBot個別画面から廃止し「Bot統合管理」へ集約）
         const restrictedForNonAdmin = isSystemDefault && !isAdmin;
-        ["config-google-section", "config-backup-section"].forEach(id => {
+        ["config-backup-section"].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.classList.toggle("hidden", restrictedForNonAdmin);
         });
-
-        // Update Google OAuth linked status UI
-        const googleLinkedStatus = document.getElementById("google-linked-status");
-        const btnGoogleAuth = document.getElementById("btn-google-auth");
-        if (googleLinkedStatus && btnGoogleAuth) {
-          if (data.config.googleLinked) {
-            googleLinkedStatus.style.display = "flex";
-            btnGoogleAuth.innerHTML = `<span class="material-symbols-outlined">sync</span> 連携アカウントを更新する`;
-            btnGoogleAuth.className = "btn btn-secondary";
-            btnGoogleAuth.style.width = "100%";
-            btnGoogleAuth.style.maxWidth = "320px";
-          } else {
-            googleLinkedStatus.style.display = "none";
-            btnGoogleAuth.innerHTML = `<span class="material-symbols-outlined">link</span> Google 連携認証を開始する`;
-            btnGoogleAuth.className = "btn btn-primary";
-            btnGoogleAuth.style.width = "100%";
-            btnGoogleAuth.style.maxWidth = "320px";
-          }
-        }
 
         // Fetch and fill Discord token config (v2: トークンのみ)
         if (!isSystemDefault || isAdmin) {
@@ -3281,24 +3263,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
-  // Handle Google OAuth trigger
-  const btnGoogleAuth = document.getElementById("btn-google-auth");
-  if (btnGoogleAuth) {
-    btnGoogleAuth.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/settings/google/oauth/url");
-        const data = await res.json();
-        if (data.success) {
-          window.location.href = data.url;
-        } else {
-          alert(data.message);
-        }
-      } catch (err) {
-        alert("認証URLの取得に失敗しました。システム共通の Google OAuth 設定が登録されていることを確認してください。");
-      }
-    });
-  }
-
   // Handle Backup config update
   const backupConfigForm = document.getElementById("backup-config-form");
   if (backupConfigForm) {
@@ -3421,44 +3385,23 @@ document.addEventListener("DOMContentLoaded", () => {
           tdDate.style.color = "var(--color-zinc-muted)";
           tdDate.textContent = cred.updated_at || cred.updatedAt || "";
 
-          const tdActions = document.createElement("td");
-          tdActions.style.padding = "12px 10px";
-          tdActions.style.textAlign = "right";
-
-          const btnDel = document.createElement("button");
-          btnDel.className = "btn-credential-delete";
-          btnDel.type = "button";
-
-          const delIcon = document.createElement("span");
-          delIcon.className = "material-symbols-outlined";
-          delIcon.style.fontSize = "0.9rem";
-          delIcon.textContent = "delete";
-
-          btnDel.appendChild(delIcon);
-          btnDel.appendChild(document.createTextNode(" 削除"));
-
-          btnDel.addEventListener("click", () => handleDeleteCredential(serviceName));
-
-          tdActions.appendChild(btnDel);
-
           tr.appendChild(tdService);
           tr.appendChild(tdUser);
           tr.appendChild(tdPass);
           tr.appendChild(tdUrl);
           tr.appendChild(tdDate);
-          tr.appendChild(tdActions);
 
           configCredentialsList.appendChild(tr);
         });
       } else {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 6;
+        td.colSpan = 5;
         td.style.textAlign = "center";
         td.style.padding = "20px";
         td.style.color = "var(--color-zinc-muted)";
         td.style.fontSize = "0.8rem";
-        td.textContent = "登録されているAI用認証情報はありません。";
+        td.textContent = "利用可能なAI認証情報はありません。";
         tr.appendChild(td);
         configCredentialsList.appendChild(tr);
       }
@@ -3493,26 +3436,6 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("通信エラーが発生しました。");
     }
   });
-
-  async function handleDeleteCredential(serviceName) {
-    if (!confirm(`本当にサービス [${serviceName}] のログイン資格情報を完全に削除しますか？`)) return;
-    try {
-      const res = await fetch("/api/credentials/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serviceName })
-      });
-      const data = await res.json();
-      if (data.success) {
-        fetchCredentialsSettings();
-      } else {
-        alert("削除に失敗しました。");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("通信エラーが発生しました。");
-    }
-  }
 
   // ==========================================
   // ADMIN PAGE LOGIC
