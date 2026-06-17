@@ -27,7 +27,7 @@ import {
 import { getRateLimitSettings, RATE_LIMIT_DEFAULTS } from "../../services/botRateLimit.js";
 import { setSystemSetting } from "../../db/systemSettingsRepo.js";
 import { listPersonasForUser, listPublicPersonas, getPersonaById } from "../../db/personaRepo.js";
-import { listServersForManagement, listSystemServers } from "../../db/mcpRepo.js";
+import { listServersGrantedToBot } from "../../db/mcpRepo.js";
 import { countBotDailyUsage } from "../../db/messageLogRepo.js";
 import { isAdmin } from "../../db/userRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
@@ -128,18 +128,13 @@ export const botAttributeRoutes: RouteDef[] = [
         .filter((p) => !ownIds.has(p.id))
         .map((p) => ({ id: p.id, name: `${p.name}（公開: ${p.owner_username}）`, scope: "public" as const }));
 
-      // MCPサーバー: (bot.user_id, bot.id) スコープの登録分 + システムレベル（常時利用可）
-      const ownServers = listServersForManagement(bot.user_id, bot.id).map((s) => ({
+      // MCPサーバー: v5では当該Botに利用許可(bot_mcp_access)されたサーバー + システムレベル（常時利用可）。
+      // 登録・許可付与は統合管理ページで行うため、ここは読み取り表示のみ。
+      const grantedServers = listServersGrantedToBot(bot.id).map((s) => ({
         id: s.id,
         name: s.name,
         enabled: s.enabled === 1,
-        system: false,
-      }));
-      const systemServers = listSystemServers().map((s) => ({
-        id: s.id,
-        name: s.name,
-        enabled: s.enabled === 1,
-        system: true,
+        system: s.user_id === null,
       }));
 
       sendJson(ctx.res, 200, {
@@ -150,7 +145,7 @@ export const botAttributeRoutes: RouteDef[] = [
         has_discord_token: !!(bot.discord_token_encrypted && bot.discord_token_iv && bot.discord_token_tag),
         persona_id: bot.persona_id,
         personas: [...ownPersonas, ...publicPersonas],
-        mcp_servers: [...ownServers, ...systemServers],
+        mcp_servers: grantedServers,
         guilds: listAllowedGuilds(bot.id),
         members: listBotMembers(bot.id),
         usage: countBotDailyUsage(bot.id, 14),

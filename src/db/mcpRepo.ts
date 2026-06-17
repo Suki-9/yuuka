@@ -3,12 +3,13 @@ import { encryptText } from "../utils/crypto.js";
 
 // ─── MCPサーバー拡張リポジトリ（§4.4） ───────────────────────────────────────
 // user_id = NULL の行はシステムレベル登録（Adminのみ管理・全ユーザー利用可）。
-// スコープは (user_id, bot_id) 複合キー。user_id IS NULL はシステムレベルのため bot_id は無関係。
+// v5: owner（user_id）所有のまま「使わせる Bot を許可リスト(bot_mcp_access)で選ぶ」共有モデルへ移行。
+// mcp_servers.bot_id 列は退役（参照しない。物理的には残置）。
 
 export interface McpServerRecord {
   id: number;
   user_id: string | null;
-  bot_id: string;
+  bot_id: string; // 退役（v4の占有スコープ。現在は未使用）
   name: string;
   endpoint_url: string;
   auth_credential_encrypted: string | null;
@@ -29,7 +30,6 @@ export interface McpToolDef {
 
 export function addServer(
   userId: string | null,
-  botId: string,
   input: {
     name: string;
     endpointUrl: string;
@@ -44,15 +44,15 @@ export function addServer(
     enc = encryptText(input.authCredential.trim());
   }
 
+  // bot_id は退役（NOT NULL DEFAULT 'system_default' が入る）。利用許可は bot_mcp_access で管理する。
   const result = db
     .prepare(
       `INSERT INTO mcp_servers
-       (user_id, bot_id, name, endpoint_url, auth_credential_encrypted, auth_credential_iv, auth_credential_tag, requires_confirmation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (user_id, name, endpoint_url, auth_credential_encrypted, auth_credential_iv, auth_credential_tag, requires_confirmation)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
-      botId,
       input.name.trim(),
       input.endpointUrl.trim(),
       enc?.encrypted ?? null,
@@ -69,27 +69,70 @@ export function getServerById(id: number): McpServerRecord | undefined {
 }
 
 /**
- * ランタイム用: Botが利用可能なMCPサーバー一覧（Botスコープ分 + システムレベル登録分）。
- * (user_id = ownerUserId AND bot_id = botId) OR user_id IS NULL のサーバーを返す。
+ * ランタイム用: Botが利用可能なMCPサーバー一覧。
+ * = bot_mcp_access で許可されたサーバー（owner所有） + システムレベル登録（user_id IS NULL, 全Bot利用可）。
  */
-export function listServersForBotScope(ownerUserId: string, botId: string): McpServerRecord[] {
+export function listServersGrantedToBot(botId: string): McpServerRecord[] {
   const db = getDb();
   return db
     .prepare(
-      `SELECT * FROM mcp_servers WHERE (user_id = ? AND bot_id = ?) OR user_id IS NULL ORDER BY created_at ASC`
+      `SELECT s.* FROM mcp_servers s
+         JOIN bot_mcp_access a ON a.mcp_server_id = s.id AND a.bot_id = ?
+       UNION
+       SELECT s.* FROM mcp_servers s WHERE s.user_id IS NULL
+       ORDER BY created_at ASC`
     )
-    .all(ownerUserId, botId) as McpServerRecord[];
+    .all(botId) as McpServerRecord[];
 }
 
 /**
- * 管理画面用: 指定 (user_id, bot_id) スコープのMCPサーバー一覧（本人登録分のみ）。
+ * 統合管理画面用: owner本人が登録したMCPサーバー一覧（許可付与の対象）。
  * システムレベルは listSystemServers() で別途取得する。
  */
-export function listServersForManagement(userId: string, botId: string): McpServerRecord[] {
+export function listServersForOwner(userId: string): McpServerRecord[] {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM mcp_servers WHERE user_id = ? AND bot_id = ? ORDER BY created_at ASC")
-    .all(userId, botId) as McpServerRecord[];
+    .prepare("SELECT * FROM mcp_servers WHERE user_id = ? ORDER BY created_at ASC")
+    .all(userId) as McpServerRecord[];
+}
+
+// ─── 利用許可（bot_mcp_access） ──────────────────────────────────────────────
+
+/** Botにサーバー利用を許可する（冪等）。 */
+export function grantMcpToBot(botId: string, serverId: number): void {
+  getDb()
+    .prepare("INSERT OR IGNORE INTO bot_mcp_access (bot_id, mcp_server_id) VALUES (?, ?)")
+    .run(botId, serverId);
+}
+
+/** Botからサーバー利用許可を取り消す。 */
+export function revokeMcpFromBot(botId: string, serverId: number): void {
+  getDb().prepare("DELETE FROM bot_mcp_access WHERE bot_id = ? AND mcp_server_id = ?").run(botId, serverId);
+}
+
+/** 当該サーバーの利用を許可されている Bot ID 一覧。 */
+export function listBotIdsForServer(serverId: number): string[] {
+  return (
+    getDb().prepare("SELECT bot_id FROM bot_mcp_access WHERE mcp_server_id = ?").all(serverId) as {
+      bot_id: string;
+    }[]
+  ).map((r) => r.bot_id);
+}
+
+/** Botが許可されているサーバーID一覧（owner所有分のみ。システムレベルは含めない）。 */
+export function listServerIdsForBot(botId: string): number[] {
+  return (
+    getDb().prepare("SELECT mcp_server_id FROM bot_mcp_access WHERE bot_id = ?").all(botId) as {
+      mcp_server_id: number;
+    }[]
+  ).map((r) => r.mcp_server_id);
+}
+
+/** Botが当該サーバーの利用を許可されているか（システムレベルは別途 user_id IS NULL で判定）。 */
+export function isMcpGrantedToBot(botId: string, serverId: number): boolean {
+  return !!getDb()
+    .prepare("SELECT 1 FROM bot_mcp_access WHERE bot_id = ? AND mcp_server_id = ? LIMIT 1")
+    .get(botId, serverId);
 }
 
 /**

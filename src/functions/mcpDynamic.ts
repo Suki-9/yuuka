@@ -3,7 +3,7 @@ import type { FunctionDeclaration, Schema } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
-  listServersForBotScope,
+  listServersGrantedToBot,
   parseToolsCache,
   type McpServerRecord,
   type McpToolDef,
@@ -272,20 +272,19 @@ async function buildMcpFunctionModule(
 
 /**
  * Botインスタンスが利用可能なMCP Toolを FunctionModule として動的生成する。
- * スコープ: (ownerUserId, botId) のサーバー + システムレベルサーバー。
- * 呼び出し時の再検証クロージャはクロージャに捕捉した ownerUserId と ctx.botId を使う
- * （ギルドでは発話者 ctx.userId が所有者と異なるため ctx.userId を使わない）。
+ * v5: 利用許可(bot_mcp_access)で当該Botに付与されたサーバー + システムレベルサーバー。
+ * 呼び出し時の再検証クロージャは ctx.botId を使う（発話者 ctx.userId には依存しない）。
  */
-export async function getMcpFunctionModuleForBot(ownerUserId: string, botId: string): Promise<FunctionModule> {
+export async function getMcpFunctionModuleForBot(botId: string): Promise<FunctionModule> {
   let servers: McpServerRecord[];
   try {
-    servers = listServersForBotScope(ownerUserId, botId).filter((s) => s.enabled === 1);
+    servers = listServersGrantedToBot(botId).filter((s) => s.enabled === 1);
   } catch (err) {
-    console.error(`[MCP] Bot ${botId} (owner: ${ownerUserId}) のサーバー一覧の取得に失敗しました:`, err);
+    console.error(`[MCP] Bot ${botId} のサーバー一覧の取得に失敗しました:`, err);
     return { declarations: [], handlers: {} };
   }
 
   return buildMcpFunctionModule(servers, (ctx, serverId) =>
-    listServersForBotScope(ownerUserId, ctx.botId).some((s) => s.id === serverId && s.enabled === 1)
+    listServersGrantedToBot(ctx.botId).some((s) => s.id === serverId && s.enabled === 1)
   );
 }

@@ -20,6 +20,7 @@ import { reminderRoutes } from "./server/routes/reminderRoutes.js";
 import { personalRoutes } from "./server/routes/personalRoutes.js";
 import { personaRoutes } from "./server/routes/personaRoutes.js";
 import { mcpRoutes } from "./server/routes/mcpRoutes.js";
+import { integratedRoutes } from "./server/routes/integratedRoutes.js";
 import { webhookRoutes } from "./server/routes/webhookRoutes.js";
 import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
 
@@ -37,6 +38,7 @@ registerRoutes(reminderRoutes);  // リマインド（§3.3）
 registerRoutes(personalRoutes);  // ノート・クリップボード・連絡先（§3.7, §3.10, §3.11）
 registerRoutes(personaRoutes);   // ペルソナ・マーケットプレイス（§4.1）
 registerRoutes(mcpRoutes);       // MCPサーバー拡張（§4.4）
+registerRoutes(integratedRoutes); // Bot統合管理（owner単位の横断ページ, v5）
 registerRoutes(webhookRoutes);   // 外部Webhook受信（§3.13）
 registerRoutes(deliveryRoutes);  // 朝報・日報・週報（§3.8, §3.9）
 

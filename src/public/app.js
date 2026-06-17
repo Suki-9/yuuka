@@ -255,8 +255,7 @@ document.addEventListener("DOMContentLoaded", () => {
       webhooks: "Webhook 連携",
       mcp: "MCPサーバー管理",
       playbooks: "Playbook 設定",
-      config: "システム設定情報",
-      admin: "管理者パネル"
+      config: "システム設定情報"
     };
     currentTabTitle.textContent = titles[tabId] || "ダッシュボード";
 
@@ -280,6 +279,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (termsOverlay) termsOverlay.classList.remove("active");
     const privacyOverlay = document.getElementById("privacy-overlay");
     if (privacyOverlay) privacyOverlay.classList.remove("active");
+    const integratedOverlay = document.getElementById("integrated-overlay");
+    if (integratedOverlay) integratedOverlay.classList.remove("active");
+    const adminOverlay = document.getElementById("admin-overlay");
+    if (adminOverlay) adminOverlay.classList.remove("active");
+
+    // 全体管理（owner/システム）の独立オーバーレイ。Bot個別画面（#app-container）の外で表示する。
+    if (cleanPath === "/integrated" || cleanPath === "/admin") {
+      if (!activeUserId) { initAppSession(); return; }
+      if (cleanPath === "/admin" && activeUserRole !== "admin") { navigateTo("/bots", false); return; }
+      loginOverlay.classList.remove("active");
+      appContainer.classList.add("hidden");
+      botSelectionOverlay.classList.remove("active");
+      if (cleanPath === "/integrated") {
+        if (integratedOverlay) integratedOverlay.classList.add("active");
+        fetchIntegratedOverview();
+      } else {
+        if (adminOverlay) adminOverlay.classList.add("active");
+        fetchAdminData();
+      }
+      return;
+    }
 
     if (cleanPath === "/usage") {
       appContainer.classList.add("hidden");
@@ -344,8 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "/webhooks": "webhooks",
       "/mcp": "mcp",
       "/playbooks": "playbooks",
-      "/config": "config",
-      "/admin": "admin"
+      "/config": "config"
     };
 
     const tabId = tabMap[cleanPath];
@@ -499,7 +518,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Open triggers
   document.getElementById("btn-new-task").addEventListener("click", () => openModal(modalTask));
   document.getElementById("btn-new-schedule").addEventListener("click", () => openModal(modalSchedule));
-  document.getElementById("btn-new-credential").addEventListener("click", () => openModal(modalCredential));
+  document.getElementById("btn-new-credential")?.addEventListener("click", () => openModal(modalCredential));
 
   // ==========================================
   // API FETCH & CORE LOGIC
@@ -538,9 +557,8 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchPlaybookRunsList();
     } else if (activeTab === "config") {
       fetchConfigSettings();
-    } else if (activeTab === "admin") {
-      fetchAdminData();
     }
+    // 統合管理 / 管理者用設定 は独立オーバーレイ（applyRoute で直接 fetch する）ため、ここでは扱わない。
   }
 
   // Tab switching inside login Overlay
@@ -788,6 +806,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // 全体管理（Bot統合管理 / 管理者用設定）の入口・戻る配線。Bot個別画面の外で開く独立オーバーレイ。
+  document.getElementById("btn-open-integrated")?.addEventListener("click", () => navigateTo("/integrated"));
+  document.getElementById("btn-open-admin")?.addEventListener("click", () => navigateTo("/admin"));
+  document.querySelectorAll("[data-management-back]").forEach((btn) =>
+    btn.addEventListener("click", () => navigateTo("/bots"))
+  );
+
   /** プリセット表示名（管理ページから変更可能）を作成フォームへ反映する */
   async function refreshPresetOptions() {
     try {
@@ -973,10 +998,10 @@ document.addEventListener("DOMContentLoaded", () => {
         activeUserRole = data.user.role || "user";
         document.getElementById("current-user-display").textContent = `${data.user.username} (${activeUserId})`;
 
-        // Admin メニューの表示/非表示制御
-        const adminMenuItem = document.getElementById("menu-item-admin");
-        if (adminMenuItem) {
-          adminMenuItem.style.display = activeUserRole === "admin" ? "" : "none";
+        // Admin 入口（Bot選択画面の「管理者用設定」ボタン）の表示/非表示制御
+        const adminEntryBtn = document.getElementById("btn-open-admin");
+        if (adminEntryBtn) {
+          adminEntryBtn.style.display = activeUserRole === "admin" ? "inline-flex" : "none";
         }
 
         // 管理者の場合、デフォルトBotが設定されているか確認する
@@ -6079,6 +6104,289 @@ document.addEventListener("DOMContentLoaded", () => {
       } finally {
         if (submitBtn) submitBtn.disabled = false;
       }
+    });
+  }
+
+  // ==========================================
+  // BOT統合管理（owner単位の横断ページ, v5）
+  // ==========================================
+  let intOverview = null;       // 直近のオーバービュー
+  let intWired = false;         // フォーム等の一度きり配線フラグ
+
+  const intEsc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  async function intPost(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    return res.json();
+  }
+
+  // Bot名解決（オーバービューから）
+  function intBotName(botId) {
+    const b = (intOverview?.bots || []).find((x) => x.id === botId);
+    if (!b) return botId;
+    return b.is_system_default ? "既定の秘書（早瀬ユウカ）" : b.name;
+  }
+
+  // リソース許可用のBotチップ群を生成（granted: そのリソースに許可済みのbotId配列, onToggle(botId, granted)）
+  function intGrantChips(grantedSet, onToggleFnName, itemKey) {
+    return (intOverview?.bots || []).map((b) => {
+      const checked = grantedSet.has(b.id) ? "checked" : "";
+      return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;background:var(--surface-1dp,rgba(255,255,255,0.04));border:1px solid var(--border-matte,#333);border-radius:6px;padding:3px 8px;cursor:pointer;">
+        <input type="checkbox" ${checked} style="width:14px;height:14px;" onchange="${onToggleFnName}('${b.id}', ${JSON.stringify(itemKey).replace(/"/g, "&quot;")}, this.checked)">
+        ${intEsc(intBotName(b.id))}</label>`;
+    }).join("");
+  }
+
+  async function fetchIntegratedOverview() {
+    try {
+      const res = await fetch("/api/integrated/overview");
+      const data = await res.json();
+      if (!data.success) return;
+      intOverview = data;
+      // Admin はMCPのシステムスコープ選択を表示
+      const scopeGroup = document.getElementById("int-mcp-scope-group");
+      if (scopeGroup) scopeGroup.style.display = activeUserRole === "admin" ? "" : "none";
+      renderIntBots(data.bots);
+      renderIntCredentials(data.credentials, data.bots);
+      renderIntMcp(data.mcpServers, data.bots);
+      renderIntGoogle(data.googleAccounts, data.bots);
+      if (!intWired) wireIntegratedForms();
+    } catch (err) {
+      console.error("統合管理オーバービューの取得に失敗:", err);
+    }
+  }
+
+  function renderIntBots(bots) {
+    const el = document.getElementById("int-bots-list");
+    if (!el) return;
+    el.innerHTML = "";
+    bots.forEach((b) => {
+      let chip, chipColor;
+      if (b.suspended) { chip = "停止中(管理者)"; chipColor = "#ef4444"; }
+      else if (b.connected) { chip = "稼働中"; chipColor = "#10b981"; }
+      else if (b.running) { chip = "接続中…"; chipColor = "#f59e0b"; }
+      else if (!b.has_token && !b.is_system_default) { chip = "トークン未設定"; chipColor = "#71717a"; }
+      else { chip = "停止"; chipColor = "#71717a"; }
+      const row = document.createElement("div");
+      row.className = "glass";
+      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:8px;";
+      const canControl = !b.is_system_default;
+      const startBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-start="${b.id}" ${(b.running || b.suspended || !b.has_token) ? "disabled" : ""}>起動</button>` : "";
+      const stopBtn = canControl ? `<button class="btn btn-secondary btn-sm" data-int-stop="${b.id}" ${!b.running ? "disabled" : ""}>停止</button>` : "";
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <span class="material-symbols-outlined" style="color:${chipColor};">${b.is_system_default ? "shield_person" : "smart_toy"}</span>
+          <div style="min-width:0;">
+            <div style="font-weight:600;">${intEsc(b.name)} ${b.is_system_default ? '<span style="font-size:0.7rem;color:var(--color-zinc-muted,#a1a1aa);">(共有秘書)</span>' : ""}</div>
+            <div style="font-size:0.75rem;color:var(--color-zinc-muted,#a1a1aa);">${intEsc(b.preset)}・${intEsc(b.discord_username || b.id)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <span style="font-size:0.75rem;color:${chipColor};font-weight:600;">${chip}</span>
+          ${startBtn}${stopBtn}
+        </div>`;
+      el.appendChild(row);
+    });
+    el.querySelectorAll("[data-int-start]").forEach((btn) => btn.addEventListener("click", () => intBotAction("start", btn.getAttribute("data-int-start"))));
+    el.querySelectorAll("[data-int-stop]").forEach((btn) => btn.addEventListener("click", () => intBotAction("stop", btn.getAttribute("data-int-stop"))));
+  }
+
+  async function intBotAction(action, botId) {
+    const d = await intPost(`/api/integrated/bots/${action}`, { botId });
+    if (!d.success && d.message) alert(d.message);
+    setTimeout(fetchIntegratedOverview, action === "start" ? 1500 : 300);
+  }
+
+  // ── 認証情報 ──
+  function renderIntCredentials(creds, bots) {
+    const el = document.getElementById("int-cred-list");
+    if (!el) return;
+    el.innerHTML = "";
+    if (!creds.length) { el.innerHTML = '<p class="description-text">未登録です。</p>'; return; }
+    creds.forEach((c) => {
+      const grantedSet = new Set(bots.filter((b) => (b.granted_credentials || []).includes(c.service_name)).map((b) => b.id));
+      const card = document.createElement("div");
+      card.className = "glass";
+      card.style.cssText = "padding:12px 14px;border-radius:8px;";
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div><strong>${intEsc(c.service_name)}</strong> <span style="font-size:0.78rem;color:var(--color-zinc-muted,#a1a1aa);">${intEsc(c.username)}</span></div>
+          <button class="btn btn-secondary btn-sm" data-int-cred-del="${intEsc(c.service_name)}">削除</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleCred", c.service_name)}</div>`;
+      el.appendChild(card);
+    });
+    el.querySelectorAll("[data-int-cred-del]").forEach((btn) => btn.addEventListener("click", async () => {
+      const svc = btn.getAttribute("data-int-cred-del");
+      if (!confirm(`認証情報「${svc}」を削除しますか？`)) return;
+      const d = await intPost("/api/credentials/delete", { serviceName: svc });
+      if (!d.success && d.message) alert(d.message);
+      fetchIntegratedOverview();
+    }));
+  }
+
+  window.intToggleCred = async (botId, serviceName, granted) => {
+    const d = await intPost("/api/integrated/grants/credential", { botId, serviceName, granted });
+    if (!d.success) { alert(d.message || "更新に失敗しました。"); fetchIntegratedOverview(); }
+    else { const b = intOverview.bots.find((x) => x.id === botId); if (b) { b.granted_credentials = b.granted_credentials || []; if (granted) b.granted_credentials.push(serviceName); else b.granted_credentials = b.granted_credentials.filter((s) => s !== serviceName); } }
+  };
+
+  // ── MCP ──
+  function renderIntMcp(servers, bots) {
+    const el = document.getElementById("int-mcp-list");
+    if (!el) return;
+    el.innerHTML = "";
+    if (!servers.length) { el.innerHTML = '<p class="description-text">未登録です。</p>'; return; }
+    servers.forEach((s) => {
+      const grantedSet = new Set(bots.filter((b) => (b.granted_mcp_ids || []).includes(s.id)).map((b) => b.id));
+      const card = document.createElement("div");
+      card.className = "glass";
+      card.style.cssText = "padding:12px 14px;border-radius:8px;";
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div style="min-width:0;"><strong>${intEsc(s.name)}</strong> <span style="font-size:0.72rem;color:${s.enabled ? "#10b981" : "#71717a"};">${s.enabled ? "有効" : "無効"}</span>
+            <div style="font-size:0.72rem;color:var(--color-zinc-muted,#a1a1aa);word-break:break-all;">${intEsc(s.endpoint_url)} ・ ${s.tools} tools</div></div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-secondary btn-sm" data-int-mcp-toggle="${s.id}" data-enabled="${s.enabled ? 1 : 0}">${s.enabled ? "無効化" : "有効化"}</button>
+            <button class="btn btn-secondary btn-sm" data-int-mcp-del="${s.id}">削除</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${intGrantChips(grantedSet, "intToggleMcp", s.id)}</div>`;
+      el.appendChild(card);
+    });
+    el.querySelectorAll("[data-int-mcp-toggle]").forEach((btn) => btn.addEventListener("click", async () => {
+      const id = Number(btn.getAttribute("data-int-mcp-toggle"));
+      const enabled = btn.getAttribute("data-enabled") === "1";
+      await intPost("/api/mcp-servers/toggle", { id, enabled: !enabled });
+      fetchIntegratedOverview();
+    }));
+    el.querySelectorAll("[data-int-mcp-del]").forEach((btn) => btn.addEventListener("click", async () => {
+      const id = Number(btn.getAttribute("data-int-mcp-del"));
+      if (!confirm("このMCPサーバーを削除しますか？")) return;
+      await intPost("/api/mcp-servers/delete", { id });
+      fetchIntegratedOverview();
+    }));
+  }
+
+  window.intToggleMcp = async (botId, serverId, granted) => {
+    const d = await intPost("/api/integrated/grants/mcp", { botId, serverId, granted });
+    if (!d.success) { alert(d.message || "更新に失敗しました。"); fetchIntegratedOverview(); }
+    else { const b = intOverview.bots.find((x) => x.id === botId); if (b) { b.granted_mcp_ids = b.granted_mcp_ids || []; if (granted) b.granted_mcp_ids.push(serverId); else b.granted_mcp_ids = b.granted_mcp_ids.filter((i) => i !== serverId); } }
+  };
+
+  // ── Google ──
+  function renderIntGoogle(accounts, bots) {
+    const listEl = document.getElementById("int-google-list");
+    const assignEl = document.getElementById("int-google-bot-assign");
+    if (listEl) {
+      listEl.innerHTML = accounts.length ? "" : '<p class="description-text">連携アカウントはありません。</p>';
+      accounts.forEach((a) => {
+        const card = document.createElement("div");
+        card.className = "glass";
+        card.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 14px;border-radius:8px;";
+        card.innerHTML = `
+          <div><strong>${intEsc(a.email || "(メール不明)")}</strong> ${a.is_primary ? '<span style="font-size:0.7rem;color:#10b981;">primary</span>' : ""}
+            <div style="font-size:0.72rem;color:var(--color-zinc-muted,#a1a1aa);">同期対象: ${a.calendars.length}件</div></div>
+          <div style="display:flex;gap:6px;">
+            ${a.is_primary ? "" : `<button class="btn btn-secondary btn-sm" data-int-ga-primary="${a.id}">primaryに</button>`}
+            <button class="btn btn-secondary btn-sm" data-int-ga-cal="${a.id}">カレンダー</button>
+            <button class="btn btn-secondary btn-sm" data-int-ga-del="${a.id}">削除</button>
+          </div>`;
+        listEl.appendChild(card);
+      });
+      listEl.querySelectorAll("[data-int-ga-primary]").forEach((btn) => btn.addEventListener("click", async () => { await intPost("/api/integrated/google/accounts/primary", { accountId: Number(btn.getAttribute("data-int-ga-primary")) }); fetchIntegratedOverview(); }));
+      listEl.querySelectorAll("[data-int-ga-del]").forEach((btn) => btn.addEventListener("click", async () => { if (!confirm("このGoogleアカウント連携を解除しますか？")) return; await intPost("/api/integrated/google/accounts/delete", { accountId: Number(btn.getAttribute("data-int-ga-del")) }); fetchIntegratedOverview(); }));
+      listEl.querySelectorAll("[data-int-ga-cal]").forEach((btn) => btn.addEventListener("click", () => intEditCalendars(Number(btn.getAttribute("data-int-ga-cal")))));
+    }
+    // Bot別 使用アカウント（system_default は対象外）。primary既定 / 連携なし / 特定アカウント の3択。
+    if (assignEl) {
+      assignEl.innerHTML = "";
+      const options = accounts.map((a) => `<option value="acct:${a.id}">${intEsc(a.email || ("アカウント#" + a.id))}</option>`).join("");
+      const owned = bots.filter((b) => !b.is_system_default);
+      owned.forEach((b) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;";
+        row.innerHTML = `<span style="font-size:0.85rem;">${intEsc(b.name)}</span>
+          <select data-int-ga-assign="${b.id}" style="min-width:200px;">
+            <option value="primary">（primaryを使用）</option>
+            <option value="none">連携なし</option>
+            ${options}
+          </select>`;
+        assignEl.appendChild(row);
+        const sel = row.querySelector("select");
+        const gs = b.google_setting;
+        sel.value = (gs === "primary" || gs === "none") ? gs : ("acct:" + gs);
+        sel.addEventListener("change", async () => {
+          const v = sel.value;
+          let body;
+          if (v === "primary") body = { botId: b.id, mode: "primary" };
+          else if (v === "none") body = { botId: b.id, mode: "none" };
+          else body = { botId: b.id, mode: "account", accountId: Number(v.slice(5)) };
+          const d = await intPost("/api/integrated/grants/google", body);
+          if (!d.success && d.message) { alert(d.message); fetchIntegratedOverview(); }
+        });
+      });
+      if (!owned.length) assignEl.innerHTML = '<p class="description-text">所有Botがありません。</p>';
+    }
+  }
+
+  async function intEditCalendars(accountId) {
+    let avail = [];
+    try { const r = await (await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)).json(); avail = r.calendars || []; } catch (e) {}
+    const acct = (intOverview?.googleAccounts || []).find((a) => a.id === accountId);
+    const current = new Set(acct?.calendars || []);
+    const list = avail.length ? avail.map((c) => `${current.has(c.id) ? "[x]" : "[ ]"} ${c.summary} (${c.id})`).join("\n") : "(取得できませんでした)";
+    const input = prompt(`同期対象にするカレンダーIDをカンマ区切りで入力してください。\n\n利用可能:\n${list}\n\n現在: ${[...current].join(", ") || "(なし)"}`, [...current].join(", "));
+    if (input === null) return;
+    const calendars = input.split(",").map((s) => s.trim()).filter(Boolean);
+    await intPost("/api/integrated/google/accounts/calendars", { accountId, calendars });
+    fetchIntegratedOverview();
+  }
+
+  function wireIntegratedForms() {
+    intWired = true;
+    const refresh = document.getElementById("int-refresh");
+    if (refresh) refresh.addEventListener("click", fetchIntegratedOverview);
+
+    const credForm = document.getElementById("int-cred-form");
+    if (credForm) credForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        serviceName: document.getElementById("int-cred-service").value.trim(),
+        username: document.getElementById("int-cred-username").value.trim(),
+        password: document.getElementById("int-cred-password").value,
+        url: document.getElementById("int-cred-url").value.trim() || undefined,
+      };
+      const d = await intPost("/api/credentials/register", payload);
+      alert(d.message || (d.success ? "登録しました。" : "登録に失敗しました。"));
+      if (d.success) { credForm.reset(); fetchIntegratedOverview(); }
+    });
+
+    const mcpForm = document.getElementById("int-mcp-form");
+    if (mcpForm) mcpForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        name: document.getElementById("int-mcp-name").value.trim(),
+        endpointUrl: document.getElementById("int-mcp-endpoint").value.trim(),
+        requiresConfirmation: document.getElementById("int-mcp-confirm").checked,
+      };
+      const auth = document.getElementById("int-mcp-auth").value;
+      if (auth) payload.authCredential = auth;
+      if (activeUserRole === "admin") payload.scope = document.getElementById("int-mcp-scope").value === "system" ? "system" : "user";
+      const d = await intPost("/api/mcp-servers/add", payload);
+      alert(d.message || (d.success ? "登録しました。" : "登録に失敗しました。"));
+      if (d.success) { mcpForm.reset(); document.getElementById("int-mcp-confirm").checked = true; fetchIntegratedOverview(); }
+    });
+
+    const gConnect = document.getElementById("int-google-connect");
+    if (gConnect) gConnect.addEventListener("click", async () => {
+      try { const r = await (await fetch("/api/settings/google/oauth/url")).json(); if (r.url) window.location.href = r.url; }
+      catch (e) { alert("OAuth URLの取得に失敗しました。"); }
     });
   }
 

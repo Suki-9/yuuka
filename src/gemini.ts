@@ -12,7 +12,7 @@ import {
 } from "./functions/index.js";
 import { buildFunctionRegistry } from "./functions/registry.js";
 import { getMcpFunctionModuleForBot } from "./functions/mcpDynamic.js";
-import { isCalendarEnabled, getCachedCalendars } from "./services/googleCalendarService.js";
+import { isCalendarEnabled, getCachedCalendars, getResolvedCalendarId } from "./services/googleCalendarService.js";
 import {
   addMessageLog,
   getRecentContext,
@@ -101,11 +101,10 @@ async function buildSystemInstruction(userId: string, botId: string, richReplyEn
 
   // 連携中のGoogleカレンダー情報
   let calendarInfo = "";
-  if (isCalendarEnabled(userId)) {
+  if (isCalendarEnabled(userId, botId)) {
     try {
-      const calendars = await getCachedCalendars(userId);
-      const googleConfig = getUserGoogleConfig(userId);
-      const defaultCalendarId = googleConfig?.calendarId || "";
+      const calendars = await getCachedCalendars(userId, botId);
+      const defaultCalendarId = getResolvedCalendarId(userId, botId);
       if (calendars.length > 0) {
         calendarInfo = `\n# 連携中のGoogleカレンダー一覧\n現在、予定を登録可能なカレンダーは以下の通りです。ユーザーからの予定追加指示の際、その内容や目的に最も適したカレンダーの「ID」を選択し、addSchedule関数の calendar_id 引数に指定して登録してください。\n`;
         for (const cal of calendars) {
@@ -620,8 +619,8 @@ export async function processMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      // 秘書モード: userId がそのBot文脈のオーナー。(userId, botId) スコープで取得する。
-      mcpModule = await getMcpFunctionModuleForBot(userId, botId);
+      // v5: 当該Botに利用許可(bot_mcp_access)されたサーバー＋システムレベルから取得する。
+      mcpModule = await getMcpFunctionModuleForBot(botId);
     } catch (err) {
       console.error("MCP動的ツールの取得に失敗しました（スキップ）:", err);
     }
@@ -934,8 +933,8 @@ export async function processGuildMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      // ギルド経路: bot.user_id がMCPサーバーの所有者（発話者 speaker.userId とは異なる）
-      mcpModule = await getMcpFunctionModuleForBot(bot.user_id, botId);
+      // ギルド経路: 当該Botに利用許可されたMCPサーバーのみ（発話者には依存しない）。
+      mcpModule = await getMcpFunctionModuleForBot(botId);
     } catch (err) {
       console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
     }
@@ -1015,8 +1014,8 @@ export async function processBotDmMessage(
   let mcpModule: FunctionModule = { declarations: [], handlers: {} };
   if (caps.has("mcp")) {
     try {
-      // owner DM: bot.user_id がMCPサーバーの所有者（owner.userId と同一だが bot レコードから取る）
-      mcpModule = await getMcpFunctionModuleForBot(bot.user_id, botId);
+      // owner DM: 当該Botに利用許可されたMCPサーバーのみ。
+      mcpModule = await getMcpFunctionModuleForBot(botId);
     } catch (err) {
       console.error("Bot紐付けMCP動的ツールの取得に失敗しました（スキップ）:", err);
     }

@@ -481,9 +481,20 @@
         <!-- Dynamically generated bot cards will go here -->
       </div>
 
+      <!-- 全体管理への入口（Bot個別ではなく owner/システム全体の管理） -->
+      <div class="bot-selection-management-row"
+        style="margin-top: 28px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
+        <button id="btn-open-integrated" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px;">
+          <span class="material-symbols-outlined">hub</span> Bot統合管理
+        </button>
+        <button id="btn-open-admin" class="btn btn-secondary" style="display: none; align-items: center; gap: 8px; padding: 10px 18px;">
+          <span class="material-symbols-outlined">admin_panel_settings</span> 管理者用設定
+        </button>
+      </div>
+
       <!-- Actions -->
       <div class="bot-selection-actions"
-        style="margin-top: 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+        style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
         <button id="btn-bot-logout" class="btn btn-secondary"
           style="min-width: 120px; padding: 10px 20px;">ログアウト</button>
         <button id="btn-show-add-bot" class="btn btn-primary" style="min-width: 180px; padding: 10px 20px;">＋
@@ -591,10 +602,6 @@
         <a href="/config" class="menu-item" data-tab="config">
           <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
             設定</span>
-        </a>
-        <a href="/admin" class="menu-item" data-tab="admin" id="menu-item-admin" style="display: none;">
-          <span class="material-symbols-outlined menu-icon-symbol">admin_panel_settings</span> <span
-            class="menu-text">管理者用設定</span>
         </a>
       </nav>
     </aside>
@@ -1437,11 +1444,11 @@
             <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google
               アカウントとの連携を行います。</p>
 
-            <div style="margin-top: 18px; display: flex; justify-content: center;">
-              <button type="button" id="btn-google-auth" class="btn btn-primary"
-                style="width: 100%; max-width: 320px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px;">
-                <span class="material-symbols-outlined">link</span> Google 連携認証を開始する
-              </button>
+            <!-- v5: Googleアカウントの連携（複数可）・Bot別の使用アカウント選択は「Bot統合管理」に集約。
+                 ここは連携状況の確認のみ（バックアップ実行は下のカードで継続）。 -->
+            <div style="margin-top: 18px; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <span class="field-sub">Googleアカウントの連携（複数可）とBot別の使用設定は「Bot統合管理」で行います。</span>
+              <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
             </div>
           </div>
 
@@ -1519,9 +1526,10 @@
               </table>
             </div>
 
-            <!-- Add Credential Button trigger -->
-            <div style="margin-top: 18px; display: flex; justify-content: flex-end;">
-              <button id="btn-new-credential" class="btn btn-primary">＋ 認証情報を追加</button>
+            <!-- v5: 登録・Bot別の利用許可は「Bot統合管理」ページに集約（ここは状況確認のみ） -->
+            <div style="margin-top: 18px; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+              <span class="field-sub">認証情報の登録・Bot別の利用許可は「Bot統合管理」で行います。</span>
+              <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
             </div>
           </div>
         </section>
@@ -1834,8 +1842,12 @@
              ========================================== -->
         <section id="tab-mcp" class="tab-view">
           <p id="mcp-current-bot-label" class="description-text" style="margin-bottom: 12px; font-size: 0.85rem;"></p>
+          <div class="card" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span class="field-sub">MCPサーバーの登録・削除・Bot別の利用許可は「Bot統合管理」ページに集約しました（ここは状況確認のみ）。</span>
+            <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
+          </div>
           <div class="expense-actions-columns">
-            <div class="action-column card">
+            <div class="action-column card" style="display:none;">
               <div class="column-header">
                 <h3><span class="material-symbols-outlined header-icon-symbol">add_link</span>MCPサーバーの追加</h3>
               </div>
@@ -1880,11 +1892,116 @@
             </div>
           </div>
         </section>
+      </div>
+    </main>
+  </div>
+  <!-- /#app-container : ここまでが「Bot個別の管理画面」 -->
 
-        <!-- ==========================================
-             6. ADMIN VIEW (Admin ロールのみ表示)
-             ========================================== -->
-        <section id="tab-admin" class="tab-view">
+  <!-- ==========================================
+       Bot統合管理 VIEW（owner単位の横断管理。Bot選択画面から開く独立オーバーレイ, v5）
+       ========================================== -->
+  <div id="integrated-overlay" class="overlay">
+    <div class="management-overlay-card">
+      <div class="management-overlay-header">
+        <h1><span class="material-symbols-outlined" style="vertical-align:middle;font-size:1.6rem;">hub</span> Bot統合管理</h1>
+        <button class="btn btn-secondary" data-management-back>
+          <span class="material-symbols-outlined icon-button-left">arrow_back</span> Bot選択に戻る
+        </button>
+      </div>
+      <div class="management-overlay-body">
+        <section id="tab-integrated">
+          <p class="description-text" style="margin-bottom: 16px;">
+            あなたのBotのヘルス確認・起動停止と、認証情報・MCP・Googleアカウントの<strong>登録</strong>および<strong>Bot別の利用許可</strong>を一括管理します。リソースの登録はこのページから行います（個別タブは状況確認のみ）。
+          </p>
+
+          <!-- Bots: health + start/stop -->
+          <div class="card" style="margin-bottom: 20px;">
+            <div class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">smart_toy</span>Bot ヘルス / 起動・停止</h3>
+              <button id="int-refresh" class="btn btn-secondary btn-sm">
+                <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">refresh</span> 更新
+              </button>
+            </div>
+            <div id="int-bots-list" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+              <!-- Generated dynamically -->
+            </div>
+          </div>
+
+          <!-- Credentials -->
+          <details class="card collapsible-group" open style="margin-bottom:16px;padding:20px;">
+            <summary>認証情報（パスワードマネージャ）</summary>
+            <div class="expense-actions-columns" style="margin-top:12px;">
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">新規登録（暗号化保存）。登録後、下の一覧で使わせるBotを許可してください。</p>
+                <form id="int-cred-form" style="display:flex;flex-direction:column;gap:10px;">
+                  <div class="form-group"><label>サービス名 *</label><input type="text" id="int-cred-service" required placeholder="例: github" pattern="[a-zA-Z0-9_\-]+"></div>
+                  <div class="form-group"><label>ユーザー名 / メール *</label><input type="text" id="int-cred-username" required autocomplete="off"></div>
+                  <div class="form-group"><label>パスワード *</label><input type="password" id="int-cred-password" required autocomplete="new-password"></div>
+                  <div class="form-group"><label>ログインURL（任意）</label><input type="text" id="int-cred-url" placeholder="https://..."></div>
+                  <button type="submit" class="btn btn-primary btn-block">認証情報を登録</button>
+                </form>
+              </div>
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">登録済み（Bot別の利用許可）</p>
+                <div id="int-cred-list" style="display:flex;flex-direction:column;gap:12px;max-height:520px;overflow-y:auto;"></div>
+              </div>
+            </div>
+          </details>
+
+          <!-- MCP servers -->
+          <details class="card collapsible-group" open style="margin-bottom:16px;padding:20px;">
+            <summary>MCPサーバー</summary>
+            <div class="expense-actions-columns" style="margin-top:12px;">
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">外部MCPサーバーを登録。登録後、使わせるBotを許可してください。</p>
+                <form id="int-mcp-form" style="display:flex;flex-direction:column;gap:10px;">
+                  <div class="form-group"><label>名前 *</label><input type="text" id="int-mcp-name" required placeholder="例: my-tools"></div>
+                  <div class="form-group"><label>エンドポイントURL *</label><input type="url" id="int-mcp-endpoint" required placeholder="https://example.com/mcp" style="font-family:var(--font-family-mono);"></div>
+                  <div class="form-group"><label>認証情報（Bearerトークン等・任意）</label><input type="password" id="int-mcp-auth" autocomplete="off" placeholder="登録後は表示されません"></div>
+                  <div class="form-group" style="display:flex;align-items:center;gap:10px;"><input type="checkbox" id="int-mcp-confirm" checked style="width:20px;height:20px;"><label for="int-mcp-confirm" style="margin:0;">Tool実行前にユーザー確認を必須</label></div>
+                  <div class="form-group" id="int-mcp-scope-group" style="display:none;"><label>登録スコープ (Adminのみ)</label><select id="int-mcp-scope"><option value="user">ユーザーレベル（自分のみ）</option><option value="system">システムレベル（全ユーザー）</option></select></div>
+                  <button type="submit" class="btn btn-primary btn-block">MCPサーバーを登録</button>
+                </form>
+              </div>
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">登録済み（Bot別の利用許可）</p>
+                <div id="int-mcp-list" style="display:flex;flex-direction:column;gap:12px;max-height:520px;overflow-y:auto;"></div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Google accounts -->
+          <details class="card collapsible-group" open style="margin-bottom:16px;padding:20px;">
+            <summary>Googleアカウント連携（複数可）</summary>
+            <div style="margin-top:12px;">
+              <button id="int-google-connect" class="btn btn-primary">
+                <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">add</span> Googleアカウントを連携
+              </button>
+              <p class="description-text" style="margin-top:8px;">複数のGoogleアカウントを連携でき、Botごとに使うアカウントを選べます。バックアップはprimaryアカウントを使用します。</p>
+              <div id="int-google-list" style="margin-top:12px;display:flex;flex-direction:column;gap:12px;"></div>
+              <p class="description-text" style="margin-top:16px;margin-bottom:8px;"><strong>Bot別 使用アカウント</strong></p>
+              <div id="int-google-bot-assign" style="display:flex;flex-direction:column;gap:10px;"></div>
+            </div>
+          </details>
+        </section>
+      </div>
+    </div>
+  </div>
+  <!-- /#integrated-overlay -->
+
+  <!-- ==========================================
+       管理者用設定 VIEW（admin専用。Bot選択画面から開く独立オーバーレイ）
+       ========================================== -->
+  <div id="admin-overlay" class="overlay">
+    <div class="management-overlay-card">
+      <div class="management-overlay-header">
+        <h1><span class="material-symbols-outlined" style="vertical-align:middle;font-size:1.6rem;">admin_panel_settings</span> 管理者用設定</h1>
+        <button class="btn btn-secondary" data-management-back>
+          <span class="material-symbols-outlined icon-button-left">arrow_back</span> Bot選択に戻る
+        </button>
+      </div>
+      <div class="management-overlay-body">
+        <section id="tab-admin">
 
           <!-- KPI Row -->
           <div class="admin-kpi-row">
@@ -2136,10 +2253,10 @@
           </div>
 
         </section>
-
       </div>
-    </main>
+    </div>
   </div>
+  <!-- /#admin-overlay -->
 
   <!-- ==========================================
        MODALS DIALOGS

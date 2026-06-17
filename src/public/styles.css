@@ -404,6 +404,65 @@ button, input, select, textarea {
   transform: scale(1);
 }
 
+/* ── 全体管理オーバーレイ（Bot統合管理 / 管理者用設定）。Bot選択画面から開く独立フルスクリーンページ ── */
+.management-overlay-card {
+  width: min(1100px, 96vw);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface-1dp);
+  border: 1px solid var(--border-matte);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transform: scale(0.98);
+  transition: var(--transition-smooth);
+}
+.overlay.active .management-overlay-card {
+  transform: scale(1);
+}
+.management-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-divider);
+  flex-shrink: 0;
+}
+.management-overlay-header h1 {
+  font-size: 1.35rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.management-overlay-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+/* オーバーレイ内に移したセクションは常に表示（.tab-view の表示制御から外す） */
+.management-overlay-body > section {
+  display: block;
+}
+@media (max-width: 768px) {
+  .management-overlay-card {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+  .management-overlay-header {
+    padding: 12px 14px;
+  }
+  .management-overlay-body {
+    padding: 14px 12px;
+  }
+}
+
 .usage-content {
   max-height: 60vh;
   overflow-y: auto;

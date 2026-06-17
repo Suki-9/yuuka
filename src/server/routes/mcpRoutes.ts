@@ -55,15 +55,15 @@ function revokeProxyTokensForServer(serverId: number): void {
 }
 import {
   addServer,
-  listServersForManagement,
+  listServersForOwner,
   listSystemServers,
+  listBotIdsForServer,
   getServerById,
   setEnabled,
   deleteServer,
   parseToolsCache,
   type McpServerRecord,
 } from "../../db/mcpRepo.js";
-import { hasBotAccess } from "../../db/botRepo.js";
 import { getUserByDiscordId } from "../../db/userRepo.js";
 import {
   refreshToolsCache,
@@ -118,18 +118,19 @@ function canManage(server: McpServerRecord, userId: string, isAdmin: boolean): b
 }
 
 export const mcpRoutes: RouteDef[] = [
-  // ── 一覧（自分の登録 + システムレベル） ──
+  // ── 一覧（owner本人の登録 + システムレベル）。読み取り＋許可Bot情報を返す。 ──
+  // v5: 登録/許可は統合管理ページで行う。ここは owner所有サーバー（許可付与の対象）＋システムレベル。
   {
     method: "GET",
     path: "/api/mcp-servers",
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
-      const rawBotId = ctx.url.searchParams.get("botId") ?? undefined;
-      // botId が指定されアクセス権がある場合はそのスコープ、そうでなければ system_default
-      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
-      const own = listServersForManagement(userId, botId).map(toSafeView);
-      const system = listSystemServers().map(toSafeView);
+      const own = listServersForOwner(userId).map((s) => ({
+        ...toSafeView(s),
+        granted_bot_ids: listBotIdsForServer(s.id),
+      }));
+      const system = listSystemServers().map((s) => ({ ...toSafeView(s), granted_bot_ids: [] as string[] }));
       sendJson(ctx.res, 200, { success: true, servers: [...own, ...system] });
     },
   },
@@ -148,13 +149,6 @@ export const mcpRoutes: RouteDef[] = [
       const requiresConfirmation = ctx.body.requiresConfirmation !== false;
       const scope = ctx.body.scope === "system" ? "system" : "user";
 
-      // botId の解決: body から取得し、アクセス権検証。権限なければ 403（登録先を曖昧にしない）
-      const rawBotId = typeof ctx.body.botId === "string" ? ctx.body.botId : "system_default";
-      if (scope !== "system" && rawBotId !== "system_default" && !hasBotAccess(user.discordId, rawBotId)) {
-        return sendJson(ctx.res, 403, { success: false, message: "指定Botへの権限がありません。" });
-      }
-      const botId = scope === "system" ? "system_default" : rawBotId;
-
       if (!name || !endpointUrl) {
         return sendJson(ctx.res, 400, { success: false, message: "name と endpointUrl は必須です。" });
       }
@@ -167,7 +161,8 @@ export const mcpRoutes: RouteDef[] = [
         return sendJson(ctx.res, 403, { success: false, message: "システムレベルのMCPサーバー登録はAdminのみ可能です。" });
       }
 
-      const server = addServer(scope === "system" ? null : user.discordId, botId, {
+      // v5: owner所有として登録（どのBotに使わせるかは bot_mcp_access の許可で別途設定）。
+      const server = addServer(scope === "system" ? null : user.discordId, {
         name,
         endpointUrl,
         authCredential,

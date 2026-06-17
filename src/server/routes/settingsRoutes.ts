@@ -34,7 +34,16 @@ import {
 } from "../../db/botRepo.js";
 import { startCustomBot, stopCustomBot, restartDefaultBot } from "../../bot.js";
 import { encryptText, decryptText } from "../../utils/crypto.js";
-import { getCachedCalendars, invalidateCalendarCache } from "../../services/googleCalendarService.js";
+import {
+  getCachedCalendars,
+  invalidateCalendarCache,
+  invalidateCalendarCacheForAccount,
+} from "../../services/googleCalendarService.js";
+import {
+  addGoogleAccount,
+  getPrimaryGoogleAccount,
+  listGoogleAccountsSafe,
+} from "../../db/googleAccountRepo.js";
 import { extractDriveFolderId } from "../../services/googleDriveService.js";
 
 // ─── ユーザー設定・ステータス HTTPルート ─────────────────────────────────────
@@ -112,12 +121,13 @@ export const settingsRoutes: RouteDef[] = [
         expenseTrend.push(sumRow && sumRow.total ? sumRow.total : 0);
       }
 
-      const googleConfig = getUserGoogleConfig(userId);
       const geminiConfig = getUserGeminiConfig(userId);
       const backupConfig = getUserBackupConfig(userId);
-      const googleLinked = !!googleConfig?.refreshTokenEncrypted;
+      // v5: Google連携状況は user_google_accounts（primary）から判定する。
+      const primaryGoogle = getPrimaryGoogleAccount(userId);
+      const googleLinked = !!primaryGoogle;
 
-      // 利用可能なカレンダー一覧をフェッチ (OAuth設定済みの場合のみ)
+      // 利用可能なカレンダー一覧をフェッチ (連携済みの場合のみ。primaryアカウント基準)
       const calendars = googleLinked ? await getCachedCalendars(userId) : [];
 
       sendJson(ctx.res, 200, {
@@ -138,9 +148,10 @@ export const settingsRoutes: RouteDef[] = [
         config: {
           dbPath: config.dbPath,
           reminderCron: config.reminderCron,
-          googleCalendarId: googleConfig?.calendarId || "未設定",
+          googleCalendarId: primaryGoogle?.calendar_id || "未設定",
           googleCalendars: calendars,
           googleLinked,
+          googleAccountCount: listGoogleAccountsSafe(userId).length,
           geminiModel: geminiConfig?.model || "gemini-3.1-flash-lite",
           geminiApiKey: mask(geminiConfig?.apiKeyEncrypted ? "configured" : null),
           backupEnabled: backupConfig?.enabled === true,
@@ -445,22 +456,18 @@ export const settingsRoutes: RouteDef[] = [
           console.warn("Failed to fetch user email during settings link:", e);
         }
 
-        const currentConfig = getUserGoogleConfig(userId);
+        // v5: 複数アカウント連携。新規アカウント行を追加（同一emailは更新）。
         if (tokens.refresh_token) {
-          const enc = encryptText(tokens.refresh_token);
-          updateUserGoogleSettings(userId, {
-            refreshTokenEncrypted: enc.encrypted,
-            refreshTokenIv: enc.iv,
-            refreshTokenTag: enc.authTag,
-            calendarId: currentConfig?.calendarId || googleEmail || null,
+          const acct = addGoogleAccount(userId, {
+            email: googleEmail,
+            refreshToken: tokens.refresh_token,
+            calendarId: googleEmail || null,
           });
-          invalidateCalendarCache(userId);
+          invalidateCalendarCacheForAccount(acct.id);
           addAuditLog(userId, "auth.google_link", googleEmail ?? undefined);
           redirect("/?oauth=success");
-        } else if (currentConfig?.refreshTokenEncrypted) {
-          // 既存トークンを継続利用
-          redirect("/?oauth=success&note=existing_token_used");
         } else {
+          // refresh_token が来ない（再同意なし）場合は明示エラー。URL生成側で prompt=consent を付与済み。
           redirect("/?oauth=error&msg=no_refresh_token");
         }
       } catch (err) {
