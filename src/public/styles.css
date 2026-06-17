@@ -448,6 +448,12 @@ button, input, select, textarea {
   display: block;
 }
 @media (max-width: 768px) {
+  /* スマホでは統合管理／管理者設定を画面全体で覆う。
+     後段の汎用 .overlay { padding: 20px } を ID 詳細度で打ち消し、端の隙間と横スクロールをなくす。 */
+  #integrated-overlay,
+  #admin-overlay {
+    padding: 0;
+  }
   .management-overlay-card {
     width: 100vw;
     height: 100vh;
