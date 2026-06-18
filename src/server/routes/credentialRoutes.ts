@@ -1,6 +1,8 @@
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
 import * as secretService from "../../services/secretService.js";
+import { hasBotAccess } from "../../db/botRepo.js";
+import { listCredentialNamesForBot } from "../../db/credentialAccessRepo.js";
 
 // ─── パスワードマネージャ HTTPルート（§6: ユーザー鍵暗号化） ──────────────────
 // 監査ログは secretService 層で記録される（二重記録しない）。
@@ -11,7 +13,20 @@ export const credentialRoutes: RouteDef[] = [
     path: "/api/credentials",
     auth: "user",
     async handler(ctx) {
-      const list = secretService.listCredentialServices(ctx.user!.discordId);
+      // Bot個別の「利用可能なAI認証情報」欄向け。認証情報は (owner=user) 所有のまま、
+      // 当該Botへ利用を許可済み（bot_credential_access）のものだけ返す（ランタイムの
+      // isCredentialGrantedToBot ゲートと一致させる）。未許可の認証情報は表示しない。
+      const userId = ctx.user!.discordId;
+      const rawBotId =
+        (typeof ctx.body.botId === "string" && ctx.body.botId) ||
+        ctx.url.searchParams.get("botId") ||
+        "";
+      // アクセス権の無いBotは system_default にフォールバック（他人のBotのスコープで覗かせない）。
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+      const grantedSet = new Set(listCredentialNamesForBot(botId, userId));
+      const list = secretService
+        .listCredentialServices(userId)
+        .filter((c) => grantedSet.has(c.service_name));
       sendJson(ctx.res, 200, { success: true, credentials: list });
     },
   },

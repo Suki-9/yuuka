@@ -164,6 +164,26 @@ document.addEventListener("DOMContentLoaded", () => {
         item.style.display = isAssistant ? "none" : "";
       }
     });
+
+    // ダッシュボード内の秘書系セクション / 汎用モードのAPI使用量セクションを切り替える
+    applyDashboardMode(isAssistant);
+  }
+
+  /**
+   * ダッシュボードの表示モードを現在のBotプリセットに合わせて切り替える。
+   * 汎用モード(mcp_assistant)では財務・タスク・予定など無効な機能のカードを隠し、
+   * 代わりにAPI使用量チャートを表示する（Bot属性 §4.7）。
+   */
+  function applyDashboardMode(isAssistant) {
+    const assistant = typeof isAssistant === "boolean"
+      ? isAssistant
+      : currentBotPreset() === "mcp_assistant";
+    document.querySelectorAll(".dashboard-secretary-only").forEach(el => {
+      el.style.display = assistant ? "none" : "";
+    });
+    document.querySelectorAll(".dashboard-assistant-only").forEach(el => {
+      el.style.display = assistant ? "" : "none";
+    });
   }
 
   // Dashboard DOM
@@ -261,6 +281,7 @@ document.addEventListener("DOMContentLoaded", () => {
       webhooks: "Webhook 連携",
       mcp: "MCPサーバー管理",
       playbooks: "Playbook 設定",
+      discord: "Discord 連携設定",
       config: "システム設定情報"
     };
     currentTabTitle.textContent = titles[tabId] || "ダッシュボード";
@@ -377,7 +398,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navigateTo("/", false);
         return;
       }
-      const BOT_TABS = ["dashboard", "tasks", "schedules", "expenses", "reminders", "personal", "personas", "delivery", "webhooks", "mcp", "playbooks", "config"];
+      const BOT_TABS = ["dashboard", "tasks", "schedules", "expenses", "reminders", "personal", "personas", "delivery", "webhooks", "mcp", "playbooks", "discord", "config"];
       let tabId = cleanPath === "/bot" ? "config" : cleanPath.slice(5); // "/bot/".length === 5
       if (!BOT_TABS.includes(tabId)) tabId = "config";
       window.currentBotId = botId;
@@ -536,6 +557,11 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (activeTab === "personas") {
       fetchPersonasList();
       fetchPersonaMarketplace();
+      // 旧「Bot設定」から移設した Bot単位ペルソナ／推奨ペルソナのカードもこのタブで読み込む
+      fetchBotAttributeConfig();
+      fetchBotShares();
+    } else if (activeTab === "discord") {
+      fetchDiscordSettings();
     } else if (activeTab === "delivery") {
       fetchBriefingConfig();
       fetchReportConfigs();
@@ -1301,6 +1327,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // D. DASHBOARD STATS POLL
   async function fetchDashboardStats() {
+    // 汎用モードでは秘書統計(/api/status, /api/expenses)はゼロになるため、
+    // API使用量ダッシュボードを描画して終了する。
+    applyDashboardMode();
+    if (currentBotPreset() === "mcp_assistant") {
+      return fetchAssistantUsageDashboard();
+    }
     try {
       const statusRes = await fetch("/api/status");
       const statusData = await statusRes.json();
@@ -1421,6 +1453,198 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       console.error("ダッシュボード情報の更新エラー:", err);
       yuukaBubbleText.textContent = "ダッシュボード情報の取得中にエラーが発生しました。サーバーの接続状況を確認してください。";
+    }
+  }
+
+  // ── 汎用モード: API使用量ダッシュボード ───────────────────────────────────────
+
+  function setUsageText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  /** 'YYYY-MM-DD' を 'M/D' に整形する（先頭ゼロなし） */
+  function formatMonthDay(dateStr) {
+    const parts = String(dateStr).split("-");
+    if (parts.length < 3) return dateStr;
+    return `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}`;
+  }
+
+  async function fetchAssistantUsageDashboard() {
+    try {
+      const botId = window.currentBotId || localStorage.getItem("currentBotId") || "system_default";
+      // 注: /api/bots/* は fetch override の botId 自動付与対象外のため、明示的に付与する
+      const res = await originalFetch(`/api/bots/usage?botId=${encodeURIComponent(botId)}&days=14`);
+      const data = await res.json();
+      if (!data.success) {
+        if (yuukaBubbleText) yuukaBubbleText.textContent = "API使用量の取得に失敗しました。";
+        return;
+      }
+      renderUsageDashboard(data);
+      updateAssistantSpeechBubble(data);
+    } catch (err) {
+      console.error("API使用量の取得エラー:", err);
+      if (yuukaBubbleText) {
+        yuukaBubbleText.textContent = "API使用量の取得中にエラーが発生しました。サーバーの接続状況を確認してください。";
+      }
+    }
+  }
+
+  function renderUsageDashboard(data) {
+    const series = Array.isArray(data.series) ? data.series : [];
+    const totals = data.totals || { requests: 0, responses: 0 };
+    const days = data.days || series.length || 14;
+
+    const today = series.length ? series[series.length - 1].requests : 0;
+    const totalReq = totals.requests || 0;
+    const totalRes = totals.responses || 0;
+    const avg = series.length ? Math.round(totalReq / series.length) : 0;
+
+    let peak = 0;
+    let peakDate = "";
+    series.forEach(s => {
+      if (s.requests > peak) {
+        peak = s.requests;
+        peakDate = s.date;
+      }
+    });
+
+    setUsageText("usage-stat-today", today.toLocaleString());
+    setUsageText("usage-stat-total", totalReq.toLocaleString());
+    setUsageText("usage-stat-avg", avg.toLocaleString());
+    setUsageText("usage-stat-peak", peak.toLocaleString());
+    setUsageText("usage-stat-peak-date", peakDate ? `${formatMonthDay(peakDate)} が最多` : "データなし");
+    setUsageText("usage-stat-period-badge", `${days} DAYS`);
+    setUsageText("usage-period-label", `${days}日`);
+    setUsageText("usage-total-responses", totalRes.toLocaleString());
+    setUsageText("usage-response-rate", totalReq > 0 ? `${Math.round((totalRes / totalReq) * 100)}%` : "—");
+
+    renderUsageChart(series);
+    renderUsageAxes(series);
+    renderRateLimits(data.rate_limits);
+  }
+
+  /** API使用量推移のSVGチャートを描画する（preserveAspectRatio=none + 非スケール線幅で全幅表示） */
+  function renderUsageChart(series) {
+    const svg = document.getElementById("usage-trend-chart");
+    if (!svg) return;
+
+    const W = 400;
+    const H = 150;
+    const padTop = 12;
+    const padBottom = 8;
+    const innerH = H - padTop - padBottom;
+    const n = series.length;
+
+    if (n === 0) {
+      svg.replaceChildren();
+      return;
+    }
+
+    const maxVal = Math.max(1, ...series.map(s => Math.max(s.requests, s.responses)));
+    const xAt = (i) => (n <= 1 ? W / 2 : (i / (n - 1)) * W);
+    const yAt = (v) => padTop + innerH - (v / maxVal) * innerH;
+    const toLine = (pts) => pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+
+    const reqPts = series.map((s, i) => [xAt(i), yAt(s.requests)]);
+    const resPts = series.map((s, i) => [xAt(i), yAt(s.responses)]);
+    const reqLine = toLine(reqPts);
+    const resLine = toLine(resPts);
+    const baseY = (padTop + innerH).toFixed(1);
+    const reqArea = `${reqLine} L${xAt(n - 1).toFixed(1)},${baseY} L${xAt(0).toFixed(1)},${baseY} Z`;
+
+    const gridLines = [0.25, 0.5, 0.75].map(f => {
+      const y = (padTop + innerH - f * innerH).toFixed(1);
+      return `<line class="usage-chart-grid-line" x1="0" y1="${y}" x2="${W}" y2="${y}" />`;
+    }).join("");
+
+    // 注: 座標は信頼できる数値のみ（series はサーバ集計）。文字列の混入が無いため innerHTML を使用。
+    svg.innerHTML =
+      gridLines +
+      `<path class="usage-chart-req-area" d="${reqArea}" />` +
+      `<path class="usage-chart-res-line" d="${resLine}" vector-effect="non-scaling-stroke" />` +
+      `<path class="usage-chart-req-line" d="${reqLine}" vector-effect="non-scaling-stroke" />`;
+  }
+
+  /** チャートのX軸日付ラベルとY軸目盛を描画する */
+  function renderUsageAxes(series) {
+    const n = series.length;
+    const maxVal = Math.max(1, ...series.map(s => Math.max(s.requests, s.responses)));
+
+    const yaxis = document.getElementById("usage-chart-yaxis");
+    if (yaxis) {
+      yaxis.replaceChildren();
+      [maxVal, Math.round(maxVal * 2 / 3), Math.round(maxVal / 3), 0].forEach(v => {
+        const sp = document.createElement("span");
+        sp.textContent = v;
+        yaxis.appendChild(sp);
+      });
+    }
+
+    const xaxis = document.getElementById("usage-chart-xaxis");
+    if (xaxis) {
+      xaxis.replaceChildren();
+      if (n > 0) {
+        const labelCount = Math.min(5, n);
+        const idxs = [];
+        for (let k = 0; k < labelCount; k++) {
+          idxs.push(Math.round((k / (labelCount - 1 || 1)) * (n - 1)));
+        }
+        [...new Set(idxs)].forEach(i => {
+          const sp = document.createElement("span");
+          sp.textContent = formatMonthDay(series[i].date);
+          xaxis.appendChild(sp);
+        });
+      }
+    }
+  }
+
+  function renderRateLimits(rl) {
+    const grid = document.getElementById("usage-ratelimit-grid");
+    if (!grid) return;
+    grid.replaceChildren();
+
+    if (!rl) {
+      const note = document.createElement("div");
+      note.className = "usage-empty-note";
+      note.textContent = "レート制限の設定情報を取得できませんでした。";
+      grid.appendChild(note);
+      return;
+    }
+
+    const items = [
+      { label: "ユーザー / 分", value: rl.userPerMinute },
+      { label: "ユーザー / 日", value: rl.userPerDay },
+      { label: "サーバー / 日", value: rl.guildPerDay },
+    ];
+    items.forEach(it => {
+      const card = document.createElement("div");
+      card.className = "usage-ratelimit-item";
+
+      const val = document.createElement("div");
+      val.className = "usage-rl-value";
+      val.textContent = (it.value === undefined || it.value === null) ? "—" : it.value.toLocaleString();
+
+      const lbl = document.createElement("div");
+      lbl.className = "usage-rl-label";
+      lbl.textContent = it.label;
+
+      card.appendChild(val);
+      card.appendChild(lbl);
+      grid.appendChild(card);
+    });
+  }
+
+  function updateAssistantSpeechBubble(data) {
+    if (!yuukaBubbleText) return;
+    const series = Array.isArray(data.series) ? data.series : [];
+    const today = series.length ? series[series.length - 1].requests : 0;
+    const total = (data.totals && data.totals.requests) || 0;
+    const days = data.days || series.length || 14;
+    if (total === 0) {
+      yuukaBubbleText.textContent = "まだAPIの利用がありません。Discordサーバーでこのアシスタントにメンションして話しかけてみましょう。";
+    } else {
+      yuukaBubbleText.textContent = `直近${days}日間で ${total.toLocaleString()} 件のリクエストを処理しました（本日 ${today.toLocaleString()} 件）。下のチャートでAPI使用量の推移を確認できます。`;
     }
   }
 
@@ -2569,10 +2793,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const assistantCard = document.getElementById("config-assistant-card");
     const nameCard = document.getElementById("config-bot-name-card");
     const inviteCard = document.getElementById("config-bot-invite-card");
+    // 移設した汎用モード関連カード（Discord連携タブ・ペルソナタブに配置）
+    const assistantDiscordCard = document.getElementById("config-assistant-discord-card");
+    const assistantPersonaCard = document.getElementById("config-assistant-persona-card");
     if (attrCard) attrCard.classList.add("hidden");
     if (assistantCard) assistantCard.classList.add("hidden");
     if (nameCard) nameCard.classList.add("hidden");
     if (inviteCard) inviteCard.classList.add("hidden");
+    if (assistantDiscordCard) assistantDiscordCard.classList.add("hidden");
+    if (assistantPersonaCard) assistantPersonaCard.classList.add("hidden");
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default" || botId.startsWith("bot_default_")) return;
@@ -2631,14 +2860,42 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // ── 汎用モード設定カード ──
-      if (bot.preset === "mcp_assistant" && assistantCard) {
-        assistantCard.classList.remove("hidden");
+      // ── 汎用モード設定カード（本体は「Bot設定」、ギルド/メンバー/ノートは「Discord連携」、
+      //     Bot単位ペルソナは「ペルソナ」タブに分割配置。loadAssistantConfig が ID 単位で全カードを描画する） ──
+      if (bot.preset === "mcp_assistant") {
+        if (assistantCard) assistantCard.classList.remove("hidden");
+        if (assistantDiscordCard) assistantDiscordCard.classList.remove("hidden");
+        if (assistantPersonaCard) assistantPersonaCard.classList.remove("hidden");
         await loadAssistantConfig(botId);
       }
     } catch (e) {
       console.error("Bot属性設定の読み込みに失敗しました:", e);
     }
+  }
+
+  /**
+   * 「Discord連携」タブの読み込み。Discordトークン（マスク表示）を反映し、
+   * 招待リンクカード＋汎用モードのギルド/メンバー/共有ノートカードを fetchBotAttributeConfig 経由で描画する。
+   */
+  async function fetchDiscordSettings() {
+    const botId = window.currentBotId;
+    const isSystemDefault = !botId || botId === "system_default";
+    const isAdminUser = activeUserRole === "admin";
+
+    // Discord 独自Botトークン（マスク表示）。system_default は管理者のみ取得可。
+    const tokenInput = document.getElementById("discord-token");
+    if (tokenInput && (!isSystemDefault || isAdminUser)) {
+      try {
+        const res = await fetch("/api/settings/discord");
+        const data = await res.json();
+        if (data.success) tokenInput.value = data.tokenMasked;
+      } catch (err) {
+        console.error("Failed to load Discord settings:", err);
+      }
+    }
+
+    // 招待リンク・プロフィールカード＋汎用モードDiscord設定（ギルド/メンバー/共有ノート）を描画
+    await fetchBotAttributeConfig();
   }
 
   /** 汎用モード設定タブの内容を取得して描画する */
@@ -2660,7 +2917,7 @@ document.addEventListener("DOMContentLoaded", () => {
           warnings.appendChild(div);
         };
         if (!data.has_gemini_key) warn("⚠️ Bot専用のGemini APIキーが未設定です。設定されるまでこのBotは応答しません。");
-        if (!data.has_discord_token) warn("⚠️ 独自のDiscord Botトークンが未設定です。汎用モードは専用のDiscordクライアントとして動作するため、上の「Discord 独自Bot設定」から設定してください。");
+        if (!data.has_discord_token) warn("⚠️ 独自のDiscord Botトークンが未設定です。汎用モードは専用のDiscordクライアントとして動作するため、「Discord連携」ページの「Discord 独自Bot設定」から設定してください。");
         if ((data.guilds || []).length === 0) warn("⚠️ 応答許可ギルドが未設定です。許可したギルドでのみ応答します。");
       }
 
@@ -3153,14 +3410,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ペルソナ / コンテキストノートへの誘導リンク
-  const btnGotoPersonas = document.getElementById("btn-goto-personas");
-  if (btnGotoPersonas) {
-    btnGotoPersonas.addEventListener("click", () => navigateTo("/bot/personas"));
-  }
-  const btnGotoContextNote = document.getElementById("btn-goto-context-note");
-  if (btnGotoContextNote) {
-    btnGotoContextNote.addEventListener("click", () => navigateTo("/bot/personal"));
-  }
 
   // Handle password change
   const passwordConfigForm = document.getElementById("password-config-form");
@@ -3256,11 +3505,18 @@ document.addEventListener("DOMContentLoaded", () => {
   async function fetchBotShares() {
     const shareCard = document.getElementById("config-share-card");
     const sharesList = document.getElementById("bot-shares-list");
+    // 推奨ペルソナカードは「ペルソナ」タブに移設済み。共有カードと同じ owner 限定の可視条件で連動させる。
+    const recommendedPersonaCard = document.getElementById("config-recommended-persona-card");
     if (!shareCard || !sharesList) return;
+
+    const hideOwnerCards = () => {
+      shareCard.classList.add("hidden");
+      if (recommendedPersonaCard) recommendedPersonaCard.classList.add("hidden");
+    };
 
     const botId = window.currentBotId;
     if (!botId || botId === "system_default") {
-      shareCard.classList.add("hidden");
+      hideOwnerCards();
       return;
     }
 
@@ -3269,14 +3525,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       if (!data.success) {
         // 403 = オーナーではない → カードを隠す
-        shareCard.classList.add("hidden");
+        hideOwnerCards();
         return;
       }
       shareCard.classList.remove("hidden");
+      if (recommendedPersonaCard) recommendedPersonaCard.classList.remove("hidden");
       renderBotShares(data.shares || []);
       populateRecommendedPersonaSelect(data.recommended_persona_id ?? null);
     } catch (err) {
-      shareCard.classList.add("hidden");
+      hideOwnerCards();
     }
   }
 

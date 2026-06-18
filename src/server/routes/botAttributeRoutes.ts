@@ -2,6 +2,7 @@ import type { RouteDef, RouteRequestCtx } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
 import {
   getBotById,
+  hasBotAccess,
   setBotPersona,
   updateBotGeminiKey,
   type BotRecord,
@@ -28,7 +29,7 @@ import { getRateLimitSettings, RATE_LIMIT_DEFAULTS } from "../../services/botRat
 import { setSystemSetting } from "../../db/systemSettingsRepo.js";
 import { listPersonasForUser, listPublicPersonas, getPersonaById } from "../../db/personaRepo.js";
 import { listServersGrantedToBot } from "../../db/mcpRepo.js";
-import { countBotDailyUsage } from "../../db/messageLogRepo.js";
+import { countBotDailyUsage, getBotUsageSeries } from "../../db/messageLogRepo.js";
 import { isAdmin } from "../../db/userRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 import { encryptText } from "../../utils/crypto.js";
@@ -73,6 +74,35 @@ export const botAttributeRoutes: RouteDef[] = [
     auth: "user",
     async handler(ctx) {
       sendJson(ctx.res, 200, { success: true, presets: listPresets() });
+    },
+  },
+
+  // ── API使用量サマリ（汎用モードのダッシュボード用。読み取り専用・閲覧は hasBotAccess） ──
+  // 秘書業務統計(/api/status)と同様、選択中Botのスコープで集計する。書き込みは無いため owner 限定にしない。
+  {
+    method: "GET",
+    path: "/api/bots/usage",
+    auth: "user",
+    async handler(ctx) {
+      const userId = ctx.user!.discordId;
+      const rawBotId =
+        (typeof ctx.body.botId === "string" && ctx.body.botId) ||
+        ctx.url.searchParams.get("botId") ||
+        "";
+      // アクセス権の無いBotは system_default にフォールバック（他人のBotの利用量を覗けないようにする）
+      const botId = rawBotId && hasBotAccess(userId, rawBotId) ? rawBotId : "system_default";
+
+      const daysRaw = parseInt(ctx.url.searchParams.get("days") || "14", 10);
+      const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(daysRaw, 90) : 14;
+
+      const { series, totals } = getBotUsageSeries(botId, days);
+      sendJson(ctx.res, 200, {
+        success: true,
+        days,
+        series,
+        totals,
+        rate_limits: getRateLimitSettings(),
+      });
     },
   },
 
