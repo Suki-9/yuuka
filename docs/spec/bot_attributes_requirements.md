@@ -168,8 +168,12 @@ LLM統合Botを作成できるようにする。
 - 未設定時は既存のデフォルトペルソナ（gemini.ts の DEFAULT_PERSONA）を使用
 - **ペルソナの設定・変更は管理ページからのみ**行える【2026-06-13 決定】。
   会話（自然言語）からのペルソナ変更 Function は提供せず、利用者ごとの上書きも不可
-- 秘書プリセットは現行どおり**ユーザー単位**（users.active_persona_id）を維持し、
-  `bots.persona_id` は参照しない（優先順位の混在を避ける）
+- 秘書プリセットの適用ペルソナは **(user_id, bot_id) 単位**で独立する（`bot_active_personas`）
+  【2026-06-18 改訂 / schema v8】。当初（2026-06-13）は `users.active_persona_id` のユーザー単位据え置きと
+  していたが、context_notes / mcp_servers と同じ Bot 単位プロファイルへ揃える方針となったため移行した。
+  これにより同一ユーザーの複数秘書Bot（早瀬ユウカ system_default ＋ 独自秘書Bot）で人格が共有されず
+  完全に分離される。`users.active_persona_id` 列はレガシーとして残置するがランタイムは参照しない。
+  秘書プリセットは引き続き `bots.persona_id`（汎用モード専用）は参照しない（優先順位の混在を避ける）
 
 ### 4.5 MCP接続（Bot単位の紐付け）
 

@@ -24,8 +24,8 @@ import {
   getUserRichReplyEnabled,
   getUserRemindDefaultMinutes,
   getUserNotifyTarget,
-  getActivePersonaId,
 } from "../../db/userRepo.js";
+import { getActivePersonaIdForBot } from "../../db/personaRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 import {
   getBotById,
@@ -177,7 +177,7 @@ export const settingsRoutes: RouteDef[] = [
           richReplyEnabled: getUserRichReplyEnabled(userId),
           remindDefaultMinutes: getUserRemindDefaultMinutes(userId),
           notifyTarget: getUserNotifyTarget(userId),
-          activePersonaId: getActivePersonaId(userId),
+          activePersonaId: getActivePersonaIdForBot(userId, botId),
         },
       });
     },

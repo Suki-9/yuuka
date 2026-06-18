@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "7";
+const SCHEMA_VERSION = "8";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -42,6 +42,14 @@ function ensureColumns(
 function hasColumn(db: ReturnType<typeof getDb>, table: string, column: string): boolean {
   const cols = db.pragma(`table_info(${table})`) as { name: string }[];
   return cols.some((c) => c.name === column);
+}
+
+/** テーブルが存在するか。 */
+function tableExists(db: ReturnType<typeof getDb>, table: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as { name: string } | undefined;
+  return !!row;
 }
 
 /**
@@ -480,6 +488,44 @@ function migrateBotGoogleAccountNullable(db: ReturnType<typeof getDb>): void {
   console.log("✅ bot_google_account を NULL 許可へ再構築しました。");
 }
 
+/**
+ * v8: 秘書ペルソナの「適用状態」を (user_id, bot_id) 複合スコープへ移行する（一回限り・冪等）。
+ * 従来 users.active_persona_id（ユーザー単位）に保持していたため、同一ユーザーの複数秘書Bot
+ * （早瀬ユウカ system_default ＋ 独自秘書Bot）でペルソナが共有され分離できていなかった。
+ * context_notes / mcp_servers と同じく Bot 単位の独立プロファイルへ揃える。
+ * - bot_active_personas テーブルを新設し、既存 users.active_persona_id を system_default 帰属で引き継ぐ。
+ * - users.active_persona_id 列は後方互換のため残置するが、以後ランタイムは参照しない（レガシー）。
+ * - テーブルの存在有無を移行済み判定に使う（再実行で再バックフィルしない）。
+ */
+function migratePersonaToBotScope(db: ReturnType<typeof getDb>): void {
+  if (tableExists(db, "bot_active_personas")) return; // 作成済み = 移行済み
+
+  console.log("🔧 ペルソナの適用状態を (user_id, bot_id) スコープへ移行しています...");
+  db.exec(`
+    CREATE TABLE bot_active_personas (
+      user_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL DEFAULT 'system_default',
+      persona_id INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (user_id, bot_id),
+      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE,
+      FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bot_active_personas_persona ON bot_active_personas(persona_id);
+  `);
+
+  // 既存の users.active_persona_id を system_default（早瀬ユウカ）の適用状態として引き継ぐ。
+  if (hasColumn(db, "users", "active_persona_id")) {
+    db.exec(`
+      INSERT INTO bot_active_personas (user_id, bot_id, persona_id)
+      SELECT discord_id, 'system_default', active_persona_id
+      FROM users
+      WHERE active_persona_id IS NOT NULL
+    `);
+  }
+  console.log("✅ bot_active_personas を作成し、既存の適用ペルソナを system_default へ引き継ぎました。");
+}
+
 function getCurrentSchemaVersion(db: ReturnType<typeof getDb>): string {
   try {
     const row = db
@@ -560,7 +606,7 @@ export async function runMigrations(): Promise<void> {
       remind_default_minutes INTEGER NOT NULL DEFAULT 10, -- §3.3.2 通知前時間デフォルト
       notify_target_type TEXT NOT NULL DEFAULT 'dm',  -- 'dm' | 'channel'
       notify_target_id TEXT,
-      active_persona_id INTEGER,               -- §4.1 適用中ペルソナ
+      active_persona_id INTEGER,               -- 【レガシー/v8】Bot単位へ移行（bot_active_personas）。後方互換で残置・以後未参照
       timezone TEXT NOT NULL DEFAULT 'Asia/Tokyo',
       -- バックアップ設定（§8: ユーザー個人のGoogle Driveへ）
       backup_enabled INTEGER NOT NULL DEFAULT 0,
@@ -1143,6 +1189,10 @@ export async function runMigrations(): Promise<void> {
 
   // ─── v6: bot_google_account を NULL 許可へ（「連携なし」表現のため） ──
   migrateBotGoogleAccountNullable(db);
+
+  // ─── v8: 秘書ペルソナの適用状態を (user_id, bot_id) スコープへ分離 ──
+  // users / personas テーブルが作成済みである必要があるため、ここ（末尾）で実行する。
+  migratePersonaToBotScope(db);
 
   // スキーマバージョンを記録
   db.prepare(

@@ -88,10 +88,10 @@ async function buildSystemInstruction(userId: string, botId: string, richReplyEn
   const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][now.getDay()];
   const dateTimeStr = `${year}年${month}月${date}日 (${dayOfWeek}) ${hours}時${minutes}分${seconds}秒`;
 
-  // ペルソナ（§4.1: ユーザー毎に独立。未設定時はデフォルト）
+  // ペルソナ（§4.1 / v8: (user_id, bot_id) 毎に独立。未設定時はデフォルト）
   let personaPrompt: string | null = null;
   try {
-    personaPrompt = getActivePersonaPrompt(userId);
+    personaPrompt = getActivePersonaPrompt(userId, botId);
   } catch (err) {
     console.error("ペルソナの取得に失敗しました:", err);
   }

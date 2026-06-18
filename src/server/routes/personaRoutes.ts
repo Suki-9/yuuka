@@ -1,4 +1,4 @@
-import type { RouteDef } from "../../types/contracts.js";
+import type { RouteDef, RouteRequestCtx } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
 import {
   createPersona,
@@ -10,26 +10,39 @@ import {
   importPersona,
   adminUnpublishPersona,
   adminDeletePersona,
+  getActivePersonaIdForBot,
+  setActivePersonaForBot,
   PERSONA_MAX_LENGTH,
 } from "../../db/personaRepo.js";
-import { getActivePersonaId, updateUserSettings } from "../../db/userRepo.js";
-import { getBotById, setRecommendedPersona } from "../../db/botRepo.js";
+import { getBotById, setRecommendedPersona, hasBotAccess } from "../../db/botRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 
 // ─── ペルソナ管理・マーケットプレイス HTTPルート（§4.1, §5.2） ────────────────
 
+// 適用中ペルソナは (user_id, bot_id) スコープ（v8）。リクエストの botId を解決し、
+// 当該ユーザーがアクセスできない botId は system_default にフォールバックする
+// （他ユーザーのBotスコープへの書き込み・参照を避ける）。
+function resolveScopedBotId(ctx: RouteRequestCtx, userId: string): string {
+  const raw =
+    (typeof ctx.body?.botId === "string" && ctx.body.botId) ||
+    ctx.url.searchParams.get("botId") ||
+    "";
+  return raw && hasBotAccess(userId, raw) ? raw : "system_default";
+}
+
 export const personaRoutes: RouteDef[] = [
-  // ── 自分のペルソナ一覧 + 適用中ID ──
+  // ── 自分のペルソナ一覧 + 適用中ID（選択中Botスコープ） ──
   {
     method: "GET",
     path: "/api/personas",
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
+      const botId = resolveScopedBotId(ctx, userId);
       sendJson(ctx.res, 200, {
         success: true,
         personas: listPersonasForUser(userId),
-        active_persona_id: getActivePersonaId(userId),
+        active_persona_id: getActivePersonaIdForBot(userId, botId),
         max_length: PERSONA_MAX_LENGTH,
       });
     },
@@ -93,13 +106,14 @@ export const personaRoutes: RouteDef[] = [
     },
   },
 
-  // ── 適用（users.active_persona_id を更新） ──
+  // ── 適用（選択中Botの適用ペルソナを更新。v8: (user_id, bot_id) スコープ） ──
   {
     method: "POST",
     path: "/api/personas/activate",
     auth: "user",
     async handler(ctx) {
       const userId = ctx.user!.discordId;
+      const botId = resolveScopedBotId(ctx, userId);
       const id = ctx.body.id != null && ctx.body.id !== "" ? Number(ctx.body.id) : null;
 
       if (id != null) {
@@ -110,11 +124,11 @@ export const personaRoutes: RouteDef[] = [
         if (!persona || persona.owner_id !== userId) {
           return sendJson(ctx.res, 403, { success: false, message: "自分のペルソナのみ適用できます。" });
         }
-        updateUserSettings(userId, { activePersonaId: id });
+        setActivePersonaForBot(userId, botId, id);
         sendJson(ctx.res, 200, { success: true, message: `ペルソナ「${persona.name}」を適用しました。` });
       } else {
-        // null = デフォルトペルソナへ戻す
-        updateUserSettings(userId, { activePersonaId: null });
+        // null = デフォルトペルソナへ戻す（このBotの適用を解除）
+        setActivePersonaForBot(userId, botId, null);
         sendJson(ctx.res, 200, { success: true, message: "デフォルトペルソナに戻しました。" });
       }
     },

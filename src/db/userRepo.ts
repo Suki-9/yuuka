@@ -80,6 +80,7 @@ export interface UserSettingsUpdate {
   notifyTargetType?: "dm" | "channel";
   notifyTargetId?: string | null;
   timezone?: string;
+  /** @deprecated v8: 秘書ペルソナは bot_active_personas（Bot単位）へ移行。レガシー列のみ更新する。 */
   activePersonaId?: number | null;
 }
 
@@ -455,6 +456,8 @@ export function getUserRemindDefaultMinutes(discordId: string): number {
 
 /**
  * 適用中ペルソナIDを取得する（§4.1。未設定の場合は null）
+ * @deprecated v8 で秘書ペルソナは (user_id, bot_id) 単位へ移行。
+ *   personaRepo.getActivePersonaIdForBot(userId, botId) を使うこと。本関数はレガシー列を読む。
  */
 export function getActivePersonaId(discordId: string): number | null {
   const db = getDb();

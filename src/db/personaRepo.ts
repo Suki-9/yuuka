@@ -88,14 +88,14 @@ export function updatePersona(
 
 /**
  * ペルソナを削除する（所有者本人のみ）。
- * 適用中ユーザーの active_persona_id・Botの推奨設定も解除する。
+ * このペルソナを適用中の (user,bot) 適用状態・Botの推奨設定も解除する。
  */
 export function deletePersona(ownerId: string, id: number): boolean {
   const db = getDb();
   const tx = db.transaction(() => {
     const result = db.prepare("DELETE FROM personas WHERE id = ? AND owner_id = ?").run(id, ownerId);
     if (result.changes === 0) return false;
-    db.prepare("UPDATE users SET active_persona_id = NULL WHERE active_persona_id = ?").run(id);
+    db.prepare("DELETE FROM bot_active_personas WHERE persona_id = ?").run(id);
     db.prepare("UPDATE bots SET recommended_persona_id = NULL WHERE recommended_persona_id = ?").run(id);
     return true;
   });
@@ -147,18 +147,47 @@ export function importPersona(userId: string, publicPersonaId: number): PersonaR
 }
 
 /**
- * ユーザーの適用中ペルソナのプロンプトを取得する（gemini.ts のシステムプロンプト構築用）
+ * (user_id, bot_id) の適用中ペルソナのプロンプトを取得する（gemini.ts のシステムプロンプト構築用）。
+ * v8: 秘書ペルソナはユーザー単位ではなく Bot 単位で独立する（bot_active_personas）。
  */
-export function getActivePersonaPrompt(userId: string): string | null {
+export function getActivePersonaPrompt(userId: string, botId: string): string | null {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT p.prompt FROM users u
-       JOIN personas p ON p.id = u.active_persona_id
-       WHERE u.discord_id = ?`
+      `SELECT p.prompt FROM bot_active_personas a
+       JOIN personas p ON p.id = a.persona_id
+       WHERE a.user_id = ? AND a.bot_id = ?`
     )
-    .get(userId) as { prompt: string } | undefined;
+    .get(userId, botId) as { prompt: string } | undefined;
   return row?.prompt ?? null;
+}
+
+/**
+ * (user_id, bot_id) の適用中ペルソナID を取得する（管理画面の表示用）。未適用は null。
+ */
+export function getActivePersonaIdForBot(userId: string, botId: string): number | null {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT persona_id FROM bot_active_personas WHERE user_id = ? AND bot_id = ?")
+    .get(userId, botId) as { persona_id: number } | undefined;
+  return row?.persona_id ?? null;
+}
+
+/**
+ * (user_id, bot_id) に適用するペルソナを設定する。null でデフォルトへ戻す（適用解除）。
+ * 呼び出し側で personaId の所有権（owner_id === userId）を検証すること。
+ */
+export function setActivePersonaForBot(userId: string, botId: string, personaId: number | null): void {
+  const db = getDb();
+  if (personaId === null) {
+    db.prepare("DELETE FROM bot_active_personas WHERE user_id = ? AND bot_id = ?").run(userId, botId);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO bot_active_personas (user_id, bot_id, persona_id, updated_at)
+     VALUES (?, ?, ?, datetime('now', 'localtime'))
+     ON CONFLICT(user_id, bot_id) DO UPDATE SET persona_id = excluded.persona_id, updated_at = datetime('now', 'localtime')`
+  ).run(userId, botId, personaId);
 }
 
 // ─── Admin マーケットプレイス管理（§5.3.2） ──────────────────────────────────
@@ -181,7 +210,7 @@ export function adminDeletePersona(id: number): boolean {
   const tx = db.transaction(() => {
     const result = db.prepare("DELETE FROM personas WHERE id = ?").run(id);
     if (result.changes === 0) return false;
-    db.prepare("UPDATE users SET active_persona_id = NULL WHERE active_persona_id = ?").run(id);
+    db.prepare("DELETE FROM bot_active_personas WHERE persona_id = ?").run(id);
     db.prepare("UPDATE bots SET recommended_persona_id = NULL WHERE recommended_persona_id = ?").run(id);
     return true;
   });

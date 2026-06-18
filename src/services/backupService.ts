@@ -23,6 +23,7 @@ const BACKUP_PREFIX = "yuuka_backup_";
 /** user_id 列で分離されているユーザーデータテーブル（v2スキーマ） */
 const USER_SCOPED_TABLES = [
   "personas",
+  "bot_active_personas",  // v8: (user_id, bot_id) 単位の適用ペルソナ状態
   "message_logs",
   "todos",
   "schedules",
