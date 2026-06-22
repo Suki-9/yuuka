@@ -1,3 +1,4 @@
+import "./utils/timezone.js"; // 最初に: プロセスTZ未設定なら JST を既定化（他モジュールの Date/DB 読込前）
 import { startBot, stopBot } from "./bot.js";
 import { config } from "./config.js";
 import { closeDb, getDb } from "./db/database.js";
