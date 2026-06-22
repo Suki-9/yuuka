@@ -52,16 +52,21 @@ RUN pnpm prune --prod
 
 # ---- stage 3: runtime --------------------------------------------------------
 FROM node:24-bookworm-slim AS runtime
+# TZ=Asia/Tokyo: アプリは SQLite の datetime('now','localtime') や new Date()/getHours() など
+# プロセスのローカルTZに依存して時刻を扱う（JST前提）。Debian slim は既定 UTC のため、
+# 未設定だと全時刻が9時間ずれる。tzdata（下の apt-get）と併せて JST に固定する。
 ENV NODE_ENV=production \
+    TZ=Asia/Tokyo \
     PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /app
-# Puppeteer 用 system chromium + 日本語/絵文字フォント + crawler(reqwest) の TLS 依存
+# Puppeteer 用 system chromium + 日本語/絵文字フォント + crawler(reqwest) の TLS 依存 + tzdata(JST解決用)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       chromium \
       fonts-noto-cjk fonts-noto-color-emoji \
       ca-certificates libssl3 \
+      tzdata \
  && rm -rf /var/lib/apt/lists/*
 # アプリ本体（runtime に必要なものだけ builder から取得）
 COPY --from=node-builder /app/node_modules ./node_modules
