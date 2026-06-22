@@ -28,6 +28,10 @@ type HeaderBag = Record<string, unknown>;
 type GaxiosLikeOpts = { headers?: unknown };
 type GaxiosLikeRequest = (opts?: GaxiosLikeOpts) => unknown;
 
+// 除去キーと再設定キーを単一の定数に束ね、casing の取り違えを構造的に防ぐ。
+const ACCEPT_ENCODING = "Accept-Encoding";
+const IDENTITY = "identity";
+
 let applied = false;
 
 /**
@@ -57,11 +61,11 @@ export function applyGoogleHttpFix(): void {
 		};
 		applied = true;
 		console.log(
-			"🔧 [GoogleHttpFix] Accept-Encoding を identity に固定しました（node-fetch Premature close 回避・gzip 文字化け防止）。",
+			"🔧 [GoogleHttpFix] Accept-Encoding を identity に固定しました。",
 		);
 	} catch (err) {
 		console.warn(
-			"⚠️ [GoogleHttpFix] パッチ適用に失敗しました（Google API が不安定な可能性）:",
+			"⚠️ [GoogleHttpFix] パッチ適用に失敗しました:",
 			err instanceof Error ? err.message : err,
 		);
 	}
@@ -73,17 +77,18 @@ export function applyGoogleHttpFix(): void {
  */
 function withIdentityEncoding(src: unknown): HeaderBag {
 	const out: HeaderBag = {};
+	const drop = ACCEPT_ENCODING.toLowerCase();
 	if (src && typeof (src as { forEach?: unknown }).forEach === "function") {
 		(src as { forEach: (cb: (v: unknown, k: string) => void) => void }).forEach(
 			(v, k) => {
-				if (String(k).toLowerCase() !== "accept-encoding") out[k] = v;
+				if (String(k).toLowerCase() !== drop) out[k] = v;
 			},
 		);
 	} else if (src && typeof src === "object") {
 		for (const k of Object.keys(src as HeaderBag)) {
-			if (k.toLowerCase() !== "accept-encoding") out[k] = (src as HeaderBag)[k];
+			if (k.toLowerCase() !== drop) out[k] = (src as HeaderBag)[k];
 		}
 	}
-	out["Accept-Encoding"] = "identity";
+	out[ACCEPT_ENCODING] = IDENTITY;
 	return out;
 }
