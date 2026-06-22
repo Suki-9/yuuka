@@ -128,4 +128,28 @@ export const config = {
 
 	/** Google Search Console 所有権確認トークン */
 	googleSiteVerification: getSetting("GOOGLE_SITE_VERIFICATION", ""),
+
+	// ─── シナプス認知アーキテクチャ（v3 / schema v10）の機能フラグ ──────────────────
+	// すべて既定 OFF。新コンポーネントを OFF にすると現行挙動（直近15件の生注入）へ
+	// フォールバックする（docs/design 両RFCの「単独出荷可能・OFFで現行挙動」要件）。
+
+	/** R0: ツール実行実績(tool_outcomes/topic_tool_stats)を SQLite へ永続化する。 */
+	toolOutcomesEnabled: getSetting("TOOL_OUTCOMES_ENABLED", "false") === "true",
+
+	/** R1: Rust シナプスエンジン（埋め込み+RAM索引+2-Hop連想）を有効化する。 */
+	synapseEngineEnabled:
+		getSetting("SYNAPSE_ENGINE_ENABLED", "false") === "true",
+
+	/** R1: 会話ターンからシナプス（記憶の断片）を抽出・永続化・索引する。 */
+	synapseExtractionEnabled:
+		getSetting("SYNAPSE_EXTRACTION_ENABLED", "false") === "true",
+
+	/** R1: シナプス抽出に LLM(generateAuxText)を使う。OFF はヒューリスティック（LLMコストゼロ）。 */
+	synapseExtractLlm: getSetting("SYNAPSE_EXTRACT_LLM", "false") === "true",
+
+	/** R1: L2 想起(1st Hop KNN)の取得件数。 */
+	synapseRecallK: parseInt(getSetting("SYNAPSE_RECALL_K", "5"), 10),
+
+	/** 計測: §10 ベースライン指標の定期ログ出力を有効化する。 */
+	metricsEnabled: getSetting("METRICS_ENABLED", "false") === "true",
 };

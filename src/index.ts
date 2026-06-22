@@ -1,11 +1,31 @@
-import { runMigrations } from "./db/migrations.js";
 import { startBot, stopBot } from "./bot.js";
-import { closeDb, getDb } from "./db/database.js";
-import { startWebServer, stopWebServer } from "./server.js";
-import { initRedis, closeRedis } from "./db/redis.js";
 import { config } from "./config.js";
+import { closeDb, getDb } from "./db/database.js";
 import { seedInitialCodes } from "./db/inviteRepo.js";
-import { rotateSecretKey } from "./utils/crypto.js";
+import { runMigrations } from "./db/migrations.js";
+import { closeRedis, initRedis } from "./db/redis.js";
+import { startWebServer, stopWebServer } from "./server.js";
+import {
+	startBackupScheduler,
+	stopBackupScheduler,
+} from "./services/backupService.js";
+import {
+	startBirthdayReminderService,
+	stopBirthdayReminderService,
+} from "./services/birthdayReminderService.js";
+import {
+	startBriefingService,
+	stopBriefingService,
+} from "./services/briefingService.js";
+import {
+	startClipboardCleanup,
+	stopClipboardCleanup,
+} from "./services/clipboardCleanupService.js";
+import { startMetricsLogging, stopMetricsLogging } from "./services/metrics.js";
+import {
+	startPaymentRecurrenceService,
+	stopPaymentRecurrenceService,
+} from "./services/paymentRecurrenceService.js";
 import {
 	startPlaybookScheduleService,
 	stopPlaybookScheduleService,
@@ -15,29 +35,14 @@ import {
 	stopReminderEngine,
 } from "./services/reminderEngine.js";
 import {
-	startClipboardCleanup,
-	stopClipboardCleanup,
-} from "./services/clipboardCleanupService.js";
-import {
-	startBirthdayReminderService,
-	stopBirthdayReminderService,
-} from "./services/birthdayReminderService.js";
-import {
-	startPaymentRecurrenceService,
-	stopPaymentRecurrenceService,
-} from "./services/paymentRecurrenceService.js";
-import {
 	startReportService,
 	stopReportService,
 } from "./services/reportService.js";
 import {
-	startBriefingService,
-	stopBriefingService,
-} from "./services/briefingService.js";
-import {
-	startBackupScheduler,
-	stopBackupScheduler,
-} from "./services/backupService.js";
+	startSynapseEngine,
+	stopSynapseEngine,
+} from "./services/synapseEngine.js";
+import { rotateSecretKey } from "./utils/crypto.js";
 
 async function main() {
 	console.log("🚀 Yuuka 起動中...");
@@ -106,6 +111,10 @@ async function main() {
 	startBriefingService(); // 朝報: 天気・ニュース（§3.9）
 	startBackupScheduler(); // ユーザー単位Google Driveバックアップ（§8）
 
+	// シナプス認知アーキテクチャ（v3 / schema v10）。いずれも機能フラグ既定 OFF。
+	await startSynapseEngine(); // Rust シナプスエンジンのウォームスタート（OFF時は no-op）
+	startMetricsLogging(); // §10 ベースライン計測の定期ログ（OFF時は no-op）
+
 	console.log("✨ Yuuka が起動しました！");
 }
 
@@ -125,6 +134,8 @@ async function gracefulShutdown(): Promise<void> {
 	watchdog.unref();
 
 	try {
+		stopMetricsLogging();
+		stopSynapseEngine();
 		stopBackupScheduler();
 		stopBriefingService();
 		stopReportService();

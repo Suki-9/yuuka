@@ -8,14 +8,20 @@
 # インスタンス固有の差分（ポート/データ/シークレット/設定）は docker-compose 側で注入。
 # ==============================================================================
 
-# ---- stage 1: Rust crawler ---------------------------------------------------
+# ---- stage 1: Rust crawler + synapse engine ----------------------------------
 FROM rust:1-bookworm AS rust-builder
-WORKDIR /build
-# 依存解決に必要なマニフェストを先にコピー（レイヤキャッシュ）
+# クローラ（browser 不変層）
+WORKDIR /build/crawler
 COPY src/rust_crawler/Cargo.toml src/rust_crawler/Cargo.lock ./
 COPY src/rust_crawler/src ./src
 RUN cargo build --release \
  && cp target/release/yuuka-crawler /yuuka-crawler
+# シナプスエンジン（schema v10 / 一新案 v3。記憶の重い処理を V8 ヒープ外へ）
+WORKDIR /build/synapse
+COPY src/rust_synapse/Cargo.toml src/rust_synapse/Cargo.lock ./
+COPY src/rust_synapse/src ./src
+RUN cargo build --release \
+ && cp target/release/yuuka-synapse /yuuka-synapse
 
 # ---- stage 2: Node / TypeScript build ---------------------------------------
 FROM node:24-bookworm AS node-builder
@@ -38,8 +44,9 @@ COPY docs ./docs
 RUN pnpm exec tsgo \
  && mkdir -p dist/bin dist/assets \
  && cp -r src/assets/. dist/assets/
-# Rust クローラのバイナリを dist/bin へ配置（browserService が参照）
+# Rust バイナリを dist/bin へ配置（browserService / synapseEngine が参照）
 COPY --from=rust-builder /yuuka-crawler dist/bin/yuuka-crawler
+COPY --from=rust-builder /yuuka-synapse dist/bin/yuuka-synapse
 # 本番依存だけに刈り込み（tsx / biome / typescript 等の devDeps を除去）
 RUN pnpm prune --prod
 

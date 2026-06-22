@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "9";
+const SCHEMA_VERSION = "10";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -594,6 +594,69 @@ function getCurrentSchemaVersion(db: ReturnType<typeof getDb>): string {
 	} catch {
 		return "1"; // system_settings 自体が無い＝初回起動
 	}
+}
+
+// ─── v10: シナプス駆動 認知アーキテクチャの記憶層（synapse 設計書 §5 / 一新案 v3） ──
+// 経験統計（tool_outcomes / topic_tool_stats）と L2 連想記憶（synapses）を追加する。
+// すべて user_id（汎用モードは bot_id × guild_id も）でスコープし、message_logs と同一 .db に持つ。
+// データ分離の不変条件を継承するため、message_logs と同様に users への FK は張らない
+// （汎用モードでは Web 未登録の Discord ユーザー ID も user_id に入り得るため）。
+// SQLite が「正」（書き手は Node のみ）。Rust シナプスエンジンは embedding BLOB を read-only で
+// 読み出して RAM 索引を再構築する（索引喪失は性能劣化であって data loss ではない、v3 §7）。
+function migrateToSynapseEngine(db: ReturnType<typeof getDb>): void {
+	db.exec(`
+    -- ツール実行実績（経験。synapse 設計書 §5.2）
+    -- 種は既存 actionRecorder（Redis TTL 2h の揮発）。秘匿除外規約はそのままに SQLite へ永続化する。
+    CREATE TABLE IF NOT EXISTS tool_outcomes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     TEXT    NOT NULL,                 -- データ分離キー（必須）
+      bot_id      TEXT    NOT NULL,
+      guild_id    TEXT,                             -- NULL=DM/秘書、非NULL=汎用モードのギルド
+      topic_id    TEXT,                             -- 連想結合キー（R2でシナプスから付与。R1ではNULL可）
+      synapse_id  INTEGER,                          -- 任意: 関連シナプス（synapses.id）
+      tool_name   TEXT    NOT NULL,
+      args_digest TEXT,                             -- 引数要約（認証情報・秘匿系は除外。§6.3.2 継承）
+      status      TEXT    NOT NULL,                 -- 'success' | 'error'
+      latency_ms  INTEGER,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_outcomes_user  ON tool_outcomes(user_id, bot_id, tool_name);
+    CREATE INDEX IF NOT EXISTS idx_tool_outcomes_topic ON tool_outcomes(user_id, bot_id, topic_id);
+
+    -- トピック別ツール勝率（中間ビュー＝マテビュー相当。synapse 設計書 §5.3 / 2nd Hop 用）
+    -- tool_outcomes からインクリメンタルに更新する（書き手は Node のみ）。
+    CREATE TABLE IF NOT EXISTS topic_tool_stats (
+      user_id      TEXT    NOT NULL,
+      bot_id       TEXT    NOT NULL,
+      topic_id     TEXT    NOT NULL,
+      tool_name    TEXT    NOT NULL,
+      success      INTEGER NOT NULL DEFAULT 0,
+      total        INTEGER NOT NULL DEFAULT 0,
+      success_rate REAL    NOT NULL DEFAULT 0,      -- success / total（事前計算）
+      last_updated TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (user_id, bot_id, topic_id, tool_name)
+    );
+
+    -- L2 連想記憶＝シナプス（記憶の断片。synapse 設計書 §5.1）
+    -- content には認証情報・秘匿値を格納しない（§9.3 / actionRecorder 除外規約をエンジン側でも継承）。
+    CREATE TABLE IF NOT EXISTS synapses (
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id                 TEXT    NOT NULL,     -- データ分離キー（必須）
+      bot_id                  TEXT    NOT NULL,
+      guild_id                TEXT,                 -- NULL=DM/秘書、非NULL=汎用モードのギルド
+      content                 TEXT    NOT NULL,     -- 意味の最小単位（好み・制約・前提・事実）
+      topic_id                TEXT,                 -- トピック（疑似グラフの結合キー）
+      source_msg_id           INTEGER,              -- 抽出元 message_logs.id（任意）
+      embedding               BLOB,                 -- float32 little-endian の連結。NULL=未埋め込み
+      embedding_model_version TEXT,                 -- 埋め込みモデル世代（不一致は再埋め込み対象。v3 §7）
+      created_at              TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+      last_used_at            TEXT,                 -- 想起されるたび更新（鮮度）
+      use_count               INTEGER NOT NULL DEFAULT 0,
+      decay_score             REAL    NOT NULL DEFAULT 1.0  -- 想起の強度/減衰（退避の駆動値）
+    );
+    CREATE INDEX IF NOT EXISTS idx_synapses_user  ON synapses(user_id, bot_id);
+    CREATE INDEX IF NOT EXISTS idx_synapses_topic ON synapses(user_id, bot_id, topic_id);
+  `);
 }
 
 export async function runMigrations(): Promise<void> {
@@ -1280,6 +1343,10 @@ export async function runMigrations(): Promise<void> {
 	// ─── v8: 秘書ペルソナの適用状態を (user_id, bot_id) スコープへ分離 ──
 	// users / personas テーブルが作成済みである必要があるため、ここ（末尾）で実行する。
 	migratePersonaToBotScope(db);
+
+	// ─── v10: シナプス記憶層（tool_outcomes / topic_tool_stats / synapses） ──
+	// 新規テーブルのみの冪等追加（破壊的再構築なし）。新規DBでも既存DBでも CREATE IF NOT EXISTS で収束する。
+	migrateToSynapseEngine(db);
 
 	// スキーマバージョンを記録
 	db.prepare(

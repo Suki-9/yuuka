@@ -1,44 +1,47 @@
-import {
-	type Content,
-	type Part,
-	type FunctionCall,
-} from "@google/generative-ai";
-import type { EmbedBuilder } from "discord.js";
 import fs from "node:fs";
 import path from "node:path";
+import type { Content, FunctionCall, Part } from "@google/generative-ai";
+import type { EmbedBuilder } from "discord.js";
+import { config } from "./config.js";
+import { getBotGuildNote, getBotUserNote } from "./db/botNoteRepo.js";
+import { type BotRecord, getBotById } from "./db/botRepo.js";
+import { getContextNote } from "./db/contextNoteRepo.js";
+import {
+	addBotDmMessageLog,
+	addGuildMessageLog,
+	addMessageLog,
+	type ContextEntry,
+	GUILD_CONTEXT_LIMIT,
+	getBotDmContext,
+	getGuildContext,
+	getRecentContext,
+	resolveGuildReplyChain,
+	resolveReplyChain,
+} from "./db/messageLogRepo.js";
+import { getActivePersonaPrompt, getPersonaById } from "./db/personaRepo.js";
+import { touchSynapses } from "./db/synapseRepo.js";
+// ─── シナプス認知アーキテクチャ（v3 / schema v10）の統合点 ──────────────────────
+import { recordToolOutcome } from "./db/toolOutcomeRepo.js";
+import { getUserGoogleConfig, getUserRichReplyEnabled } from "./db/userRepo.js";
 import {
 	getFunctionModulesForCapabilities,
 	getGuildAssistantFunctionModules,
 } from "./functions/index.js";
-import { buildFunctionRegistry } from "./functions/registry.js";
 import { getMcpFunctionModuleForBot } from "./functions/mcpDynamic.js";
+import { buildFunctionRegistry } from "./functions/registry.js";
+import { recordFunctionCall } from "./services/actionRecorder.js";
+import { resolveBotCapabilities } from "./services/botCapabilities.js";
 import {
-	isCalendarEnabled,
 	getCachedCalendars,
 	getResolvedCalendarId,
+	isCalendarEnabled,
 } from "./services/googleCalendarService.js";
-import {
-	addMessageLog,
-	getRecentContext,
-	resolveReplyChain,
-	addGuildMessageLog,
-	getGuildContext,
-	resolveGuildReplyChain,
-	addBotDmMessageLog,
-	getBotDmContext,
-	GUILD_CONTEXT_LIMIT,
-	type ContextEntry,
-} from "./db/messageLogRepo.js";
-import { getActivePersonaPrompt, getPersonaById } from "./db/personaRepo.js";
-import { getContextNote } from "./db/contextNoteRepo.js";
-import { getBotUserNote, getBotGuildNote } from "./db/botNoteRepo.js";
-import { getBotById, type BotRecord } from "./db/botRepo.js";
-import { resolveBotCapabilities } from "./services/botCapabilities.js";
-import { recordFunctionCall } from "./services/actionRecorder.js";
-import { getUserGoogleConfig, getUserRichReplyEnabled } from "./db/userRepo.js";
-import { getUserGenAI, getBotGenAI } from "./services/llmClient.js";
-import { config } from "./config.js";
-import type { ToolContext, FunctionModule } from "./types/contracts.js";
+import { getBotGenAI, getUserGenAI } from "./services/llmClient.js";
+import { incrMetric, recordLatency } from "./services/metrics.js";
+import { assembleRecall, type SynapseScope } from "./services/synapseEngine.js";
+import { maybeExtractSynapse } from "./services/synapseExtractor.js";
+import type { FunctionModule, ToolContext } from "./types/contracts.js";
+import { redactSecretsInText } from "./utils/secretGuard.js";
 
 // ─── 検索クロールスキル（docs/skills/search_skills.md のインライン読み込み） ──────────
 
@@ -229,6 +232,41 @@ ${calendarInfo}`,
 	return parts.filter((p) => p !== "").join("\n");
 }
 
+// ─── L2 連想想起（シナプス）: systemInstruction へ追記する極小コンテキスト ──────────
+
+/**
+ * シナプスエンジンへ問い合わせ、入力に意味的に近い過去の記憶（1st Hop）を
+ * 「思考のカンペ（極小コンテキスト）」として整形して返す。
+ * エンジン無効・未起動・タイムアウト時は "" を返し、現行挙動（直近履歴のみ）へデグレードする。
+ * 想起したシナプスは鮮度（use_count / last_used_at / decay_score）を更新する。
+ */
+async function buildRecallSection(
+	scope: SynapseScope,
+	query: string,
+): Promise<string> {
+	const q = query.trim();
+	if (!q) return "";
+	const t0 = Date.now();
+	const recall = await assembleRecall(scope, q, config.synapseRecallK);
+	recordLatency("assemble", Date.now() - t0);
+	if (!recall || recall.synapses.length === 0) {
+		incrMetric("recall_empty");
+		return "";
+	}
+	incrMetric("recall_hit");
+	// 想起されたシナプスの鮮度を更新（id 群はスコープ済み assemble の結果）。失敗は無視。
+	try {
+		touchSynapses(recall.synapses.map((s) => s.id));
+	} catch {}
+	const lines = recall.synapses.map((s) => `- ${s.content}`).join("\n");
+	return (
+		"\n# 関連する過去の記憶（連想想起／参考情報）\n" +
+		"以下はあなたが過去の会話から記憶した、現在の発話に関連し得る事項です。" +
+		"関連する場合のみ参考にし、無関係なら無視してください（古い情報の可能性があります）。\n" +
+		lines
+	);
+}
+
 // ─── Gemini API 呼び出し（リトライ付き） ─────────────────────────────────────
 
 export interface ChatMessage {
@@ -294,6 +332,29 @@ function sanitizeArgsForLog(
 	return JSON.stringify(masked).slice(0, 500);
 }
 
+/**
+ * 自由入力テキストを引数に持つツール（値そのものに認証情報がタイプされ得る）。
+ * これらは値が秘匿キー名でなくても永続化前に伏せる必要がある（§9.3）。
+ */
+const FREE_TEXT_INPUT_TOOLS = new Set(["browserInteractiveType"]);
+
+/**
+ * tool_outcomes.args_digest 用の引数ダイジェスト（永続化＝ログより強い秘匿要件）。
+ * sanitizeArgsForLog（キー名マスク＋認証系Function全伏せ）に加え、
+ *   1) 自由入力系ツールの text 値を構造的に伏せ（タイプされた認証情報を弾く）、
+ *   2) 値の「形状」から秘匿らしいトークン（JWT/APIキー/鍵等）を伏字化する（§9.3 多層防御）。
+ */
+function buildOutcomeArgsDigest(
+	name: string,
+	args: Record<string, unknown>,
+): string {
+	let safeArgs = args;
+	if (FREE_TEXT_INPUT_TOOLS.has(name) && typeof args.text === "string") {
+		safeArgs = { ...args, text: `(入力値:${args.text.length}文字)` };
+	}
+	return redactSecretsInText(sanitizeArgsForLog(name, safeArgs));
+}
+
 /** GenAI ハンドル（getUserGenAI / getBotGenAI の戻り値） */
 type GenAiHandle = NonNullable<ReturnType<typeof getUserGenAI>>;
 
@@ -330,7 +391,7 @@ async function generateWithRetry(
 				attempt < maxRetries
 			) {
 				// RetryInfo からリトライ待機時間を取得、なければ指数バックオフ
-				let waitMs = Math.min(1000 * Math.pow(2, attempt + 1), 60000);
+				let waitMs = Math.min(1000 * 2 ** (attempt + 1), 60000);
 
 				const errorDetails = (
 					error as {
@@ -480,14 +541,47 @@ async function runFunctionCallingLoop(
 				sanitizeArgsForLog(name, (args ?? {}) as Record<string, unknown>),
 			);
 
+			const dispatchStart = Date.now();
 			const functionResult = await registry.dispatch(
 				ctx,
 				name,
 				(args ?? {}) as Record<string, unknown>,
 			);
+			const dispatchLatencyMs = Date.now() - dispatchStart;
 			console.log(
 				`📤 Function Result (Sent to Gemini): ${functionResult.substring(0, 500)}${functionResult.length > 500 ? "... (truncated in console log)" : ""}`,
 			);
+
+			// R0/R2: ツール実行実績を SQLite へ永続化（経験統計＝topic_tool_stats の素地）。
+			// 引数ダイジェストは buildOutcomeArgsDigest で秘匿マスク済み（§6.3.2 / §9.3 の除外規約を継承）。
+			// topic_id は R1 では未付与（2nd Hop によるトピック紐付けは R2 課題）。
+			if (config.toolOutcomesEnabled) {
+				try {
+					let outcomeStatus: "success" | "error" = "success";
+					try {
+						const parsed = JSON.parse(functionResult);
+						if (parsed && parsed.success === false) outcomeStatus = "error";
+					} catch {
+						/* JSON でない結果（説明文等）は success 扱い */
+					}
+					incrMetric("tool_calls");
+					recordToolOutcome({
+						userId: ctx.userId,
+						botId: ctx.botId,
+						guildId: ctx.guildId ?? null,
+						topicId: null,
+						toolName: name,
+						argsDigest: buildOutcomeArgsDigest(
+							name,
+							(args ?? {}) as Record<string, unknown>,
+						),
+						status: outcomeStatus,
+						latencyMs: dispatchLatencyMs,
+					});
+				} catch (err) {
+					console.warn("[ToolOutcome] 記録に失敗しました（無視）:", err);
+				}
+			}
 
 			// マクロ登録用に操作履歴を記録（§3.6 実行ベース登録。秘匿系は記録側で除外される）
 			if (options.recordActions) {
@@ -731,6 +825,16 @@ export async function processMessage(
 		richReplyEnabled,
 	);
 
+	// L2 連想想起（シナプス）を systemInstruction の末尾へ追記する（エンジン無効時は ""）。
+	// 秘書モードのスコープは (userId, botId)。guild_id は付けない（DM/秘書利用）。
+	const recallSection = await buildRecallSection(
+		{ userId, botId },
+		message.text ?? "",
+	);
+	const effectiveSystemInstruction = recallSection
+		? systemInstruction + recallSection
+		: systemInstruction;
+
 	try {
 		const ai = getUserGenAI(userId);
 		if (!ai) {
@@ -739,16 +843,19 @@ export async function processMessage(
 			);
 		}
 
+		incrMetric("messages");
+		const responseStart = Date.now();
 		const { text, browserToolCalled, browserToolFailed } =
 			await runFunctionCallingLoop(
 				ai,
-				systemInstruction,
+				effectiveSystemInstruction,
 				registry,
 				contents,
 				ctx,
 				onStatusChange,
 				{ recordActions: true },
 			);
+		recordLatency("response", Date.now() - responseStart);
 
 		// 最終テキスト応答を決定し、実際に返す文面を必ず会話ログへ保存する。
 		// 重要: 空応答時のフォールバック定型文も保存すること。これを怠ると当該ターンに
@@ -763,6 +870,17 @@ export async function processMessage(
 					? "ブラウザ操作に失敗しました。求めた結果が得られませんでした。"
 					: "処理が完了しました。";
 		await addMessageLog(userId, botId, "assistant", replyText);
+
+		// R1: 会話ターンからシナプス（記憶の断片）を抽出して長期記憶へ蓄積する。
+		// バックグラウンド実行（await しない・投げない）。機能フラグ OFF 時は即時 return。
+		if (logText) {
+			void maybeExtractSynapse({
+				scope: { userId, botId },
+				userText: logText,
+				assistantText: replyText,
+			});
+		}
+
 		return { text: replyText, embeds: ctx.embeds, files: ctx.files };
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("API Key")) {
