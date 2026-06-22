@@ -15,6 +15,8 @@ export interface BotRecord {
   /** Discord側のbot user ID（= application/client ID）。招待リンク・プロフィールURLの生成に使用 */
   discord_application_id: string | null;
   suspended: number;
+  /** オーナーによる手動停止フラグ（再起動後も停止状態を維持。1=停止 / 0=自動起動）。管理者処分の suspended とは独立。 */
+  stopped: number;
   /** Bot属性: ケーパビリティのJSON配列（bot_attributes_requirements.md §3） */
   capabilities: string;
   /** Bot単位ペルソナ（汎用モード用。要件 §4.4） */
@@ -189,6 +191,27 @@ export function unsuspendBot(botId: string): boolean {
 export function isBotSuspended(botId: string): boolean {
   const bot = getBotById(botId);
   return !!bot && bot.suspended === 1;
+}
+
+/**
+ * オーナーによる起動/停止の希望状態を永続化する。
+ * stopped=1 にすると次回ブート時の自動起動対象から外れ、再起動後も停止が維持される。
+ * （管理者処分の suspend/unsuspend とは独立したフラグ）
+ */
+export function setBotStopped(botId: string, stopped: boolean): boolean {
+  const db = getDb();
+  return (
+    db
+      .prepare(
+        `UPDATE bots SET stopped = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
+      )
+      .run(stopped ? 1 : 0, botId).changes > 0
+  );
+}
+
+export function isBotStopped(botId: string): boolean {
+  const bot = getBotById(botId);
+  return !!bot && bot.stopped === 1;
 }
 
 /**

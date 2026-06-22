@@ -21,7 +21,7 @@ import { isRegisteredUser } from "./db/userRepo.js";
 import {
   getBotById,
   getBotDiscordConfig,
-  listAllBotIds,
+  listAllBots,
   listBotsForUser,
   updateBotDiscordProfile,
   isBotSuspended,
@@ -956,12 +956,17 @@ export async function startBot(): Promise<void> {
     console.log("ℹ️ デフォルトBot (system_default) のトークンが登録されていません。初期セットアップを完了してください。");
   }
 
-  // 2. 登録済み全Botをチェックし、独自Discord Tokenが設定されている場合はそれぞれBotを起動
-  const botIds = listAllBotIds();
-  for (const botId of botIds) {
-    if (botId === "system_default") continue;
-    await startCustomBot(botId).catch((err) => {
-      console.error(`[Discord Bot] Bot ${botId} の独自Bot起動中に例外発生:`, err);
+  // 2. 登録済み全Botをチェックし、独自Discord Tokenが設定されている場合はそれぞれBotを起動。
+  //    オーナーが手動停止した（stopped=1）Botは自動起動の対象外＝再起動後も停止状態を維持する。
+  const bots = listAllBots();
+  for (const bot of bots) {
+    if (bot.id === "system_default") continue;
+    if (bot.stopped === 1) {
+      console.log(`⏸️ Bot ${bot.id} はオーナーにより停止中のため自動起動しません。`);
+      continue;
+    }
+    await startCustomBot(bot.id).catch((err) => {
+      console.error(`[Discord Bot] Bot ${bot.id} の独自Bot起動中に例外発生:`, err);
     });
   }
 }

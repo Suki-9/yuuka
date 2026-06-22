@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "8";
+const SCHEMA_VERSION = "9";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -634,6 +634,9 @@ export async function runMigrations(): Promise<void> {
       discord_avatar_url TEXT,
       discord_application_id TEXT,             -- Discord側のbot user ID(= application/client ID)。招待リンク・プロフィールURLの生成に使用
       suspended INTEGER NOT NULL DEFAULT 0,
+      -- オーナーによる手動停止フラグ（v9）。再起動後も停止状態を維持する。
+      -- suspended（管理者処分）とは独立: 1=ブート時に自動起動しない / 0=従来どおり自動起動。
+      stopped INTEGER NOT NULL DEFAULT 0,
       -- Bot属性（要件 §3: ケーパビリティ集合。core は全Bot必須のため記載しない）
       capabilities TEXT NOT NULL DEFAULT '["persona","memory","mcp","secretary"]',
       persona_id INTEGER,                      -- 要件 §4.4: Bot単位ペルソナ（汎用モード用）
@@ -665,6 +668,8 @@ export async function runMigrations(): Promise<void> {
   // 動作・プロンプト・Functionセットは現行と完全に一致する。要件 §7 後方互換）
   ensureColumns(db, "bots", [
     { name: "capabilities", ddl: `capabilities TEXT NOT NULL DEFAULT '["persona","memory","mcp","secretary"]'` },
+    // v9: オーナー手動停止の永続化（既存行は DEFAULT 0 = 自動起動継続で後方互換）
+    { name: "stopped", ddl: "stopped INTEGER NOT NULL DEFAULT 0" },
     { name: "persona_id", ddl: "persona_id INTEGER" },
     { name: "gemini_api_key_encrypted", ddl: "gemini_api_key_encrypted TEXT" },
     { name: "gemini_api_key_iv", ddl: "gemini_api_key_iv TEXT" },

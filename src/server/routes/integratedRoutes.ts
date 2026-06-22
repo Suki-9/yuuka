@@ -1,6 +1,6 @@
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
-import { listBotsOwnedBy, getBotById, isBotSuspended, hasBotAccess, type BotRecord } from "../../db/botRepo.js";
+import { listBotsOwnedBy, getBotById, isBotSuspended, setBotStopped, hasBotAccess, type BotRecord } from "../../db/botRepo.js";
 import { clearContext } from "../../db/messageLogRepo.js";
 import { client, customClients, startCustomBot, stopCustomBot } from "../../bot.js";
 import { parseCapabilities, presetIdForCapabilities } from "../../services/botCapabilities.js";
@@ -79,6 +79,8 @@ export const integratedRoutes: RouteDef[] = [
           is_system_default: isSystemDefault,
           preset: presetOf(bot),
           suspended: bot.suspended === 1,
+          // オーナーが手動停止した希望状態（running はランタイム実状態。再起動後も維持される）
+          stopped: bot.stopped === 1,
           has_token: !!bot.discord_token_encrypted,
           running: status.running,
           connected: status.connected,
@@ -137,6 +139,8 @@ export const integratedRoutes: RouteDef[] = [
       if (!bot.discord_token_encrypted) {
         return sendJson(ctx.res, 409, { success: false, message: "Discordトークンが未設定です（Bot設定で登録してください）。" });
       }
+      // 希望状態=起動。stopped を解除し、再起動後も自動起動するようにする。
+      setBotStopped(botId, false);
       const ok = await startCustomBot(botId);
       addAuditLog(userId, "bot.owner_start", botId);
       const status = botRunStatus(botId);
@@ -162,6 +166,8 @@ export const integratedRoutes: RouteDef[] = [
         return sendJson(ctx.res, 403, { success: false, message: "このBotを操作する権限がありません。" });
       }
       stopCustomBot(botId);
+      // 希望状態=停止として永続化。再起動後も自動起動せず停止状態を維持する。
+      setBotStopped(botId, true);
       addAuditLog(userId, "bot.owner_stop", botId);
       return sendJson(ctx.res, 200, { success: true, message: "停止しました。", running: false, connected: false });
     },
@@ -185,6 +191,8 @@ export const integratedRoutes: RouteDef[] = [
       if (!bot.discord_token_encrypted) {
         return sendJson(ctx.res, 409, { success: false, message: "Discordトークンが未設定です（Bot設定で登録してください）。" });
       }
+      // 再起動は起動状態で終わるため、希望状態=起動として stopped を解除する。
+      setBotStopped(botId, false);
       stopCustomBot(botId);
       const ok = await startCustomBot(botId);
       addAuditLog(userId, "bot.owner_restart", botId);
