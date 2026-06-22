@@ -9,6 +9,10 @@ const MAX_CONTENT_LEN = 300;
 // 抽出対象から除外する最小文字数（trim 後）
 const MIN_USER_TEXT_LEN = 8;
 
+// マーカー語を含まない発話を「長さだけ」で記憶する場合の下限（trim 後）。
+// 文法語マーカーを廃したぶん高めに設定し、短〜中程度の社交辞令を取りこぼさせる（選別重視）。
+const MEMORABLE_MIN_LEN = 80;
+
 /**
  * 秘匿値ガード（architecture §9.3 不変条件）。
  * 認証情報・トークン類を含むユーザー発話からはシナプスを一切作らない。
@@ -17,11 +21,12 @@ const SECRET_GUARD_RE =
 	/password|passwd|パスワード|secret|シークレット|token|api[_-]?key|credential|暗証|ワンタイム|otp/i;
 
 /**
- * 「記憶に値する」発話を判定する軽量ヒューリスティック。
- * 嗜好・事実・制約のマーカー、または十分に長い発話を memorable とみなす。
+ * 「記憶に値する」発話を判定する軽量ヒューリスティック（選別重視）。
+ * 嗜好・習慣・事実・制約・記憶依頼の意味的マーカーで判定する。
+ * 文法語（です/だ/である）は日本語のほぼ全文に一致しノイズ源になるため含めない。
  */
 const MEMORABLE_RE =
-	/好き|嫌い|いつも|毎週|毎日|苦手|アレルギー|誕生日|締め切り|目標|である|です|だ|設定|覚え/;
+	/好き|嫌い|苦手|お気に入り|推し|いつも|毎日|毎週|毎朝|毎晩|習慣|誕生日|記念日|アレルギー|出身|在住|住ん|勤め|所属|締め切り|期限|目標|設定|覚え|記憶|忘れない/;
 
 /** 純粋なコマンドっぽい入力（先頭が記号トリガ）を雑に判定する */
 function looksLikeCommand(text: string): boolean {
@@ -78,8 +83,9 @@ export async function maybeExtractSynapse(args: {
 		if (trimmed.length < MIN_USER_TEXT_LEN) return;
 		if (looksLikeCommand(trimmed)) return;
 
-		// ヒューリスティック抽出（LLM コストゼロ）: マーカー語を含むか十分に長い発話を memorable とみなす。
-		const isMemorable = MEMORABLE_RE.test(trimmed) || trimmed.length > 30;
+		// ヒューリスティック抽出（LLM コストゼロ）: 意味マーカーを含むか、十分に長い実質発話のみ memorable。
+		const isMemorable =
+			MEMORABLE_RE.test(trimmed) || trimmed.length >= MEMORABLE_MIN_LEN;
 		if (!isMemorable) return;
 		const content = capContent(userText);
 		const topicId = deriveTopicId(trimmed);
