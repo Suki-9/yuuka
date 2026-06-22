@@ -1,6 +1,6 @@
 {
   "name": "yuuka",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Discord Gemini 秘書ボット & Web管理ダッシュボード",
   "license": "MIT",
   "private": true,
@@ -11,8 +11,13 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "cargo build --release --manifest-path src/rust_crawler/Cargo.toml && mkdir -p dist/bin dist/assets && cp src/rust_crawler/target/release/yuuka-crawler dist/bin/ && cp -r src/assets/. dist/assets/ && tsc",
-    "start": "node dist/index.js"
+    "build": "cargo build --release --manifest-path src/rust_crawler/Cargo.toml && mkdir -p dist/bin dist/assets && cp src/rust_crawler/target/release/yuuka-crawler dist/bin/ && cp -r src/assets/. dist/assets/ && tsgo",
+    "start": "node dist/index.js",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "typecheck": "tsgo --noEmit",
+    "check": "pnpm typecheck && pnpm lint"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -29,15 +34,26 @@
     "node-cron": "^3.0.3",
     "puppeteer": "^25.1.0",
     "redis": "^4.7.1",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
     "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.19",
     "@types/node-cron": "^3.0.11",
+    "@typescript/native-preview": "7.0.0-dev.20260615.1",
     "tsx": "^4.22.3",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "comment": "推移的依存の既知脆弱性をパッチ版へ固定。互換性維持のため undici は discord.js が前提とする 6.x 系内の修正版に留める（メジャー跨ぎを避ける）。uuid も修正版直近の系統に固定。",
+    "overrides": {
+      "undici@<6.27.0": "^6.27.0",
+      "uuid@<11.1.1": "^11.1.1",
+      "esbuild@<0.28.1": ">=0.28.1"
+    }
   }
 }

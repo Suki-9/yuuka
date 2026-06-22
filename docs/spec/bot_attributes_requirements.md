@@ -1,10 +1,11 @@
 # Bot属性（Bot Attributes）拡張 要件定義書
 
 **バージョン:** 0.4-draft
-**最終更新:** 2026-06-13
-**ステータス:** Draft（主要論点 決定済み）
+**最終更新:** 2026-06-22
+**ステータス:** Draft（主要論点 決定済み・**Phase 1 実装済み**）
+**実装状況:** 本書の中核（capability プリセット secretary / mcp_assistant、Bot 専用 Gemini 鍵、2 層メモリ＝個人ノート `bot_context_notes`・ギルド共有ノート `bot_guild_notes`、利用メンバー制 `bot_members`、応答許可ギルド `bot_guilds`、ギルド単位コンテキスト30件、ペルソナの Bot 単位化）は実装済み（DB schema v9）。Bot 専用 Gemini 鍵は DB 上は NULL 許容だが、汎用モード起動時にランタイムで実質必須化する。
 **改訂履歴:** 0.4 — 実行APIキーを「Bot専用キー・設定必須」に決定、プリセット表示名は管理ページから変更可能、メンバー外の発話は記録しない（未登録は無視）。0.3 — §10 主要論点を決定（メモリ2層確定・個人/共有ノート両方・利用メンバー制・ギルド単位コンテキスト30件・ペルソナ変更は管理ページのみ・DMは owner のみ）。0.2 — 利用者スコープを「ギルド内全員」に決定、owner キー実行と利用量制御を追加。0.1 — 初版
-**関連文書:** docs/discordbot_spec.md (v0.6.1-draft), docs/architecture_v2.md
+**関連文書:** docs/spec/discordbot_spec.md (v0.6.2-draft), docs/architecture/architecture_v2.md
 
 > 表記注: 本書で **MCP** は Model Context Protocol を指す（仕様書 §4.4 の MCPサーバー拡張と同一）。
 
@@ -168,8 +169,12 @@ LLM統合Botを作成できるようにする。
 - 未設定時は既存のデフォルトペルソナ（gemini.ts の DEFAULT_PERSONA）を使用
 - **ペルソナの設定・変更は管理ページからのみ**行える【2026-06-13 決定】。
   会話（自然言語）からのペルソナ変更 Function は提供せず、利用者ごとの上書きも不可
-- 秘書プリセットは現行どおり**ユーザー単位**（users.active_persona_id）を維持し、
-  `bots.persona_id` は参照しない（優先順位の混在を避ける）
+- 秘書プリセットの適用ペルソナは **(user_id, bot_id) 単位**で独立する（`bot_active_personas`）
+  【2026-06-18 改訂 / schema v8】。当初（2026-06-13）は `users.active_persona_id` のユーザー単位据え置きと
+  していたが、context_notes / mcp_servers と同じ Bot 単位プロファイルへ揃える方針となったため移行した。
+  これにより同一ユーザーの複数秘書Bot（早瀬ユウカ system_default ＋ 独自秘書Bot）で人格が共有されず
+  完全に分離される。`users.active_persona_id` 列はレガシーとして残置するがランタイムは参照しない。
+  秘書プリセットは引き続き `bots.persona_id`（汎用モード専用）は参照しない（優先順位の混在を避ける）
 
 ### 4.5 MCP接続（Bot単位の紐付け）
 

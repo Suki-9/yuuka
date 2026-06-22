@@ -1,8 +1,8 @@
 import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 import {
-  listOverdueRecurringAcrossUsers,
-  advanceRecurring,
+	listOverdueRecurringAcrossUsers,
+	advanceRecurring,
 } from "../db/plannedPaymentRepo.js";
 
 // ─── 支払い予定 繰り返し自動生成サービス（§3.4.3） ───────────────────────────
@@ -21,8 +21,8 @@ let ticking = false;
 // ─── 次回期日の計算 ──────────────────────────────────────────────────────────
 
 function formatYmd(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /**
@@ -32,67 +32,78 @@ function formatYmd(d: Date): string {
  * @returns 次回期日。cron式が解釈できない場合は null
  */
 export function calcNextRecurringDueDate(
-  repeatRule: string,
-  fromDueDate: string
+	repeatRule: string,
+	fromDueDate: string,
 ): string | null {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
 
-  let cursor = new Date(`${fromDueDate}T00:00:00`);
-  if (Number.isNaN(cursor.getTime())) cursor = new Date();
+	let cursor = new Date(`${fromDueDate}T00:00:00`);
+	if (Number.isNaN(cursor.getTime())) cursor = new Date();
 
-  try {
-    // 安全弁: 異常なcron式で無限に進まないよう反復回数に上限を設ける
-    for (let i = 0; i < 1000; i++) {
-      const next = CronExpressionParser.parse(repeatRule, { currentDate: cursor })
-        .next()
-        .toDate();
-      if (next.getTime() >= today.getTime()) return formatYmd(next);
-      cursor = next;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+	try {
+		// 安全弁: 異常なcron式で無限に進まないよう反復回数に上限を設ける
+		for (let i = 0; i < 1000; i++) {
+			const next = CronExpressionParser.parse(repeatRule, {
+				currentDate: cursor,
+			})
+				.next()
+				.toDate();
+			if (next.getTime() >= today.getTime()) return formatYmd(next);
+			cursor = next;
+		}
+		return null;
+	} catch {
+		return null;
+	}
 }
 
 // ─── ティック実行 ────────────────────────────────────────────────────────────
 
 async function runTick(): Promise<void> {
-  if (ticking) return; // 前回の処理が長引いている場合はスキップ
-  ticking = true;
-  try {
-    // cron用の全ユーザー走査（plannedPaymentRepo 側に例外コメントあり）
-    const overdue = listOverdueRecurringAcrossUsers();
+	if (ticking) return; // 前回の処理が長引いている場合はスキップ
+	ticking = true;
+	try {
+		// cron用の全ユーザー走査（plannedPaymentRepo 側に例外コメントあり）
+		const overdue = listOverdueRecurringAcrossUsers();
 
-    for (const plan of overdue) {
-      try {
-        if (!plan.repeat_rule) continue; // リポジトリ側フィルタの保険
+		for (const plan of overdue) {
+			try {
+				if (!plan.repeat_rule) continue; // リポジトリ側フィルタの保険
 
-        const nextDue = calcNextRecurringDueDate(plan.repeat_rule, plan.due_date);
-        if (!nextDue) {
-          // cron式が壊れている場合はスキップ（行は pending のまま残し、修正を待つ）
-          console.error(
-            `❌ repeat_rule の解釈に失敗したためスキップします (plan #${plan.id}, rule: ${plan.repeat_rule}, user: ${plan.user_id})`
-          );
-          continue;
-        }
+				const nextDue = calcNextRecurringDueDate(
+					plan.repeat_rule,
+					plan.due_date,
+				);
+				if (!nextDue) {
+					// cron式が壊れている場合はスキップ（行は pending のまま残し、修正を待つ）
+					console.error(
+						`❌ repeat_rule の解釈に失敗したためスキップします (plan #${plan.id}, rule: ${plan.repeat_rule}, user: ${plan.user_id})`,
+					);
+					continue;
+				}
 
-        const created = advanceRecurring(plan.id, nextDue);
-        if (created) {
-          console.log(
-            `🔁 繰り返し支払い予定を次回へ更新: 「${plan.title}」 #${plan.id} → #${created.id} (期日: ${nextDue}, user: ${plan.user_id})`
-          );
-        }
-      } catch (err) {
-        console.error(`❌ 繰り返し支払い予定の処理エラー (plan #${plan.id}):`, err);
-      }
-    }
-  } catch (err) {
-    console.error("❌ 支払い予定繰り返しサービスのティック処理でエラーが発生しました:", err);
-  } finally {
-    ticking = false;
-  }
+				const created = advanceRecurring(plan.id, nextDue);
+				if (created) {
+					console.log(
+						`🔁 繰り返し支払い予定を次回へ更新: 「${plan.title}」 #${plan.id} → #${created.id} (期日: ${nextDue}, user: ${plan.user_id})`,
+					);
+				}
+			} catch (err) {
+				console.error(
+					`❌ 繰り返し支払い予定の処理エラー (plan #${plan.id}):`,
+					err,
+				);
+			}
+		}
+	} catch (err) {
+		console.error(
+			"❌ 支払い予定繰り返しサービスのティック処理でエラーが発生しました:",
+			err,
+		);
+	} finally {
+		ticking = false;
+	}
 }
 
 // ─── 開始 / 停止 ─────────────────────────────────────────────────────────────
@@ -103,26 +114,26 @@ async function runTick(): Promise<void> {
  * 停止中に期日を跨いだ繰り返し予定を復帰処理する（§10）。
  */
 export function startPaymentRecurrenceService(): void {
-  if (task) {
-    console.log("💳 支払い予定繰り返しサービスは既に開始されています");
-    return;
-  }
+	if (task) {
+		console.log("💳 支払い予定繰り返しサービスは既に開始されています");
+		return;
+	}
 
-  task = cron.schedule("5 0 * * *", () => {
-    void runTick();
-  });
+	task = cron.schedule("5 0 * * *", () => {
+		void runTick();
+	});
 
-  console.log("💳 支払い予定繰り返しサービス開始 (毎日 0:05)");
+	console.log("💳 支払い予定繰り返しサービス開始 (毎日 0:05)");
 
-  // 起動時の復帰処理
-  void runTick();
+	// 起動時の復帰処理
+	void runTick();
 }
 
 /** 支払い予定の繰り返し自動生成サービスを停止する */
 export function stopPaymentRecurrenceService(): void {
-  if (task) {
-    task.stop();
-    task = null;
-    console.log("💳 支払い予定繰り返しサービス停止");
-  }
+	if (task) {
+		task.stop();
+		task = null;
+		console.log("💳 支払い予定繰り返しサービス停止");
+	}
 }

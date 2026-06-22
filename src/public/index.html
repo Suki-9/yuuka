@@ -24,19 +24,8 @@
   <!-- Google Material Symbols (Outlined version matches shadcn/ui aesthetic perfectly) -->
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <script>
-    (function() {
-      try {
-        var t = localStorage.getItem('yuuka-theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', t);
-        document.documentElement.classList.add('theme-no-transition');
-        var colors = { dark: '#121212', light: '#FAFAFA', 'blue-archive': '#FBFCFF' };
-        var m = document.querySelector('meta[name="theme-color"]');
-        if (m) m.setAttribute('content', colors[t] || colors.dark);
-      } catch(e) {}
-    })();
-  </script>
-  <link rel="stylesheet" href="styles.css">
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
@@ -107,7 +96,7 @@
       <div class="login-card">
         <div class="login-header">
           <div class="logo-icon-container">
-            <img src="materials/yuka.webp" alt="早瀬ユウカ" class="login-avatar-img">
+            <img src="/materials/yuka.webp" alt="早瀬ユウカ" class="login-avatar-img">
           </div>
           <h1>Yuuka</h1>
           <p class="subtitle-accounting" style="font-size: 0.85rem; letter-spacing: 0.1em; color: var(--color-primary); margin-top: -8px; margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">Seminar Accounting</p>
@@ -153,7 +142,7 @@
             </div>
             <div class="form-group">
               <label for="reg-gemini-key">Gemini API Key *</label>
-              <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+              <input type="password" id="reg-gemini-key" required placeholder="AIzaSy..." autocomplete="new-password">
               <span class="field-sub">※各ユーザーが個別に用意する必要があります（<a href="https://aistudio.google.com/apikey" target="_blank"
                   rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
             </div>
@@ -161,7 +150,22 @@
               <label for="reg-invite-code">招待コード *</label>
               <input type="text" id="reg-invite-code" required placeholder="管理者から配布されたコード">
             </div>
-            <button type="submit" class="btn btn-primary btn-block">登録してログインする</button>
+            <button type="submit" class="btn btn-primary btn-block">確認コードを受け取る</button>
+          </form>
+
+          <!-- DMチャレンジ: 確認コード入力（登録送信後に表示。G1: Discord ID 所有確認） -->
+          <form id="register-verify-form" style="display: none;">
+            <div style="margin-bottom: 12px; font-size: 0.85rem; color: #a1a1aa;">
+              入力した Discord ID 宛に Bot から確認コードをDMしました。届いたコードを入力してください（10分間有効）。
+            </div>
+            <div class="form-group">
+              <label for="reg-verify-code">確認コード *</label>
+              <input type="text" id="reg-verify-code" inputmode="numeric" autocomplete="one-time-code"
+                pattern="[0-9]*" maxlength="6" required placeholder="6桁のコード">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">登録を完了する</button>
+            <button type="button" id="reg-verify-back" class="btn btn-secondary btn-block"
+              style="margin-top: 8px;">入力内容を修正する</button>
           </form>
         </div>
 
@@ -191,7 +195,7 @@
             </div>
             <div class="form-group">
               <label for="setup-gemini-key">Gemini API Key *</label>
-              <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="off">
+              <input type="password" id="setup-gemini-key" required placeholder="AIzaSy..." autocomplete="new-password">
               <span class="field-sub">※Google AI Studioで取得したAPIキー（<a href="https://aistudio.google.com/apikey"
                   target="_blank" rel="noopener" style="color:#8ab4f8;">取得はこちら</a>）</span>
             </div>
@@ -212,7 +216,7 @@
           <form id="bot-setup-form">
             <div class="form-group">
               <label for="bot-setup-token">デフォルト Bot トークン *</label>
-              <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力">
+              <input type="password" id="bot-setup-token" required placeholder="Discord Bot Token を入力" autocomplete="new-password">
               <span class="field-sub">※Discord Developer Portalから取得したBotのトークン</span>
             </div>
             <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">デフォルトBotをセットアップする</button>
@@ -459,36 +463,59 @@
   </div>
 
   <!-- ==========================================
-       BOT SELECTION VIEW (Matte dark overlay)
+       HOME DASHBOARD (ログイン後 "/" ルート)
        ========================================== -->
   <div id="bot-selection-overlay" class="overlay">
-    <div class="bot-selection-card">
-      <div class="login-header">
-        <div style="display: flex; align-items: center; gap: 16px;">
-          <div class="logo-icon-container">
-            <span class="material-symbols-outlined"
-              style="font-size: 2.2rem !important; color: var(--color-primary);">robot_2</span>
-          </div>
-          <div class="logo-text-wrapper">
-            <h1>BOT SELECTION</h1>
-            <p>管理または作成するアシスタントボットを選択してください</p>
-          </div>
+    <div class="home-dashboard">
+
+      <!-- ナビゲーションバー -->
+      <nav class="home-nav">
+        <div class="home-nav-brand">
+          <span class="material-symbols-outlined home-nav-logo">calculate</span>
+          <span class="home-nav-title">Yuuka</span>
+          <span class="home-nav-subtitle">Management Portal</span>
         </div>
+        <div class="home-nav-actions">
+          <button id="btn-open-integrated" class="btn btn-secondary btn-sm home-nav-btn">
+            <span class="material-symbols-outlined icon-button-left">hub</span>統合管理
+          </button>
+          <button id="btn-open-account" class="btn btn-secondary btn-sm home-nav-btn">
+            <span class="material-symbols-outlined icon-button-left">manage_accounts</span>アカウント管理
+          </button>
+          <button id="btn-open-admin" class="btn btn-secondary btn-sm home-nav-btn" style="display: none;">
+            <span class="material-symbols-outlined icon-button-left">admin_panel_settings</span>管理者設定
+          </button>
+          <button id="btn-bot-logout" class="btn btn-secondary btn-sm home-nav-btn">
+            <span class="material-symbols-outlined icon-button-left">logout</span>ログアウト
+          </button>
+        </div>
+      </nav>
+
+      <!-- グリーティング + サマリーステータス -->
+      <div class="home-hero">
+        <div class="home-greeting">
+          <h1 class="home-greeting-title">おかえりなさい、<span id="home-username-display">—</span></h1>
+          <p class="home-greeting-sub">AIアシスタントの管理ポータルへようこそ</p>
+        </div>
+        <!-- 統計カード（JSで動的レンダリング） -->
+        <div class="home-stats" id="home-stats"></div>
       </div>
 
-      <!-- Bot List Grid -->
-      <div id="bot-list" class="bot-list-grid">
-        <!-- Dynamically generated bot cards will go here -->
+      <!-- Botセクション -->
+      <div class="home-section">
+        <div class="home-section-header">
+          <div class="home-section-label">
+            <span class="material-symbols-outlined home-section-icon">robot_2</span>
+            <h2 class="home-section-title">アシスタント Bot</h2>
+          </div>
+          <button id="btn-show-add-bot" class="btn btn-primary btn-sm">
+            <span class="material-symbols-outlined icon-button-left">add</span>新規作成
+          </button>
+        </div>
+        <!-- Botカードグリッド（JSで動的レンダリング） -->
+        <div id="bot-list" class="bot-cards-grid"></div>
       </div>
 
-      <!-- Actions -->
-      <div class="bot-selection-actions"
-        style="margin-top: 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-        <button id="btn-bot-logout" class="btn btn-secondary"
-          style="min-width: 120px; padding: 10px 20px;">ログアウト</button>
-        <button id="btn-show-add-bot" class="btn btn-primary" style="min-width: 180px; padding: 10px 20px;">＋
-          新しいBotを作成</button>
-      </div>
     </div>
   </div>
 
@@ -546,55 +573,55 @@
       </div>
 
       <nav class="sidebar-menu">
-        <a href="/dashboard" class="menu-item active" data-tab="dashboard">
+        <a href="/bot/dashboard" class="menu-item active" data-tab="dashboard">
           <span class="material-symbols-outlined menu-icon-symbol">info</span> <span class="menu-text">一般情報</span>
         </a>
-        <a href="/tasks" class="menu-item" data-tab="tasks">
+        <a href="/bot/tasks" class="menu-item" data-tab="tasks">
           <span class="material-symbols-outlined menu-icon-symbol">checklist</span> <span class="menu-text">タスク管理</span>
         </a>
-        <a href="/schedules" class="menu-item" data-tab="schedules">
+        <a href="/bot/schedules" class="menu-item" data-tab="schedules">
           <span class="material-symbols-outlined menu-icon-symbol">calendar_today</span> <span
             class="menu-text">予定スケジュール</span>
         </a>
-        <a href="/expenses" class="menu-item" data-tab="expenses">
+        <a href="/bot/expenses" class="menu-item" data-tab="expenses">
           <span class="material-symbols-outlined menu-icon-symbol">payments</span> <span
             class="menu-text">経費・収支管理</span>
         </a>
-        <a href="/reminders" class="menu-item" data-tab="reminders">
+        <a href="/bot/reminders" class="menu-item" data-tab="reminders">
           <span class="material-symbols-outlined menu-icon-symbol">alarm</span> <span
             class="menu-text">リマインダー</span>
         </a>
-        <a href="/personal" class="menu-item" data-tab="personal">
+        <a href="/bot/personal" class="menu-item" data-tab="personal">
           <span class="material-symbols-outlined menu-icon-symbol">contacts</span> <span
             class="menu-text">メモ・連絡先</span>
         </a>
-        <a href="/personas" class="menu-item" data-tab="personas">
+        <a href="/bot/personas" class="menu-item" data-tab="personas">
           <span class="material-symbols-outlined menu-icon-symbol">theater_comedy</span> <span
             class="menu-text">ペルソナ</span>
         </a>
-        <a href="/delivery" class="menu-item" data-tab="delivery">
+        <a href="/bot/delivery" class="menu-item" data-tab="delivery">
           <span class="material-symbols-outlined menu-icon-symbol">campaign</span> <span
             class="menu-text">配信設定</span>
         </a>
-        <a href="/webhooks" class="menu-item" data-tab="webhooks">
+        <a href="/bot/webhooks" class="menu-item" data-tab="webhooks">
           <span class="material-symbols-outlined menu-icon-symbol">webhook</span> <span
             class="menu-text">Webhook</span>
         </a>
-        <a href="/mcp" class="menu-item" data-tab="mcp">
+        <a href="/bot/mcp" class="menu-item" data-tab="mcp">
           <span class="material-symbols-outlined menu-icon-symbol">extension</span> <span
             class="menu-text">MCPサーバー</span>
         </a>
-        <a href="/playbooks" class="menu-item" data-tab="playbooks">
+        <a href="/bot/playbooks" class="menu-item" data-tab="playbooks">
           <span class="material-symbols-outlined menu-icon-symbol">description</span> <span class="menu-text">Playbook
             管理</span>
         </a>
-        <a href="/config" class="menu-item" data-tab="config">
+        <a href="/bot/discord" class="menu-item" data-tab="discord">
+          <span class="material-symbols-outlined menu-icon-symbol">forum</span> <span
+            class="menu-text">Discord連携</span>
+        </a>
+        <a href="/bot/config" class="menu-item" data-tab="config">
           <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
             設定</span>
-        </a>
-        <a href="/admin" class="menu-item" data-tab="admin" id="menu-item-admin" style="display: none;">
-          <span class="material-symbols-outlined menu-icon-symbol">admin_panel_settings</span> <span
-            class="menu-text">管理者用設定</span>
         </a>
       </nav>
     </aside>
@@ -639,7 +666,7 @@
           <!-- Welcome Row with Yuuka speech bubble (Matte Card) -->
           <div class="welcome-card card">
             <div class="assistant-avatar-container">
-              <img src="materials/yuka.webp" alt="早瀬ユウカ" class="avatar-img">
+              <img src="/materials/yuka.webp" alt="早瀬ユウカ" class="avatar-img">
               <div class="avatar-badge">AI</div>
             </div>
 
@@ -651,8 +678,99 @@
             </div>
           </div>
 
+          <!-- ==========================================================
+               汎用モード（MCPアシスタント）専用: API使用量ダッシュボード
+               財務・タスク・予定など無効な機能の代わりに表示する
+               ========================================================== -->
+          <div class="dashboard-assistant-only" id="dashboard-assistant-usage" style="display: none;">
+
+            <!-- API使用量サマリカード -->
+            <div class="stats-grid usage-stats-grid">
+              <div class="stat-card card">
+                <div class="stat-card-badge-trend">TODAY</div>
+                <div class="stat-card-header"><span class="stat-label">本日のリクエスト</span></div>
+                <div class="stat-value" id="usage-stat-today">0</div>
+                <div class="stat-footer-text">本日の受信メッセージ数</div>
+              </div>
+              <div class="stat-card card">
+                <div class="stat-card-badge-trend" id="usage-stat-period-badge">14 DAYS</div>
+                <div class="stat-card-header"><span class="stat-label">期間合計</span></div>
+                <div class="stat-value" id="usage-stat-total">0</div>
+                <div class="stat-footer-text">集計期間の総リクエスト数</div>
+              </div>
+              <div class="stat-card card">
+                <div class="stat-card-badge-trend">AVG</div>
+                <div class="stat-card-header"><span class="stat-label">日次平均</span></div>
+                <div class="stat-value" id="usage-stat-avg">0</div>
+                <div class="stat-footer-text">1日あたりの平均リクエスト</div>
+              </div>
+              <div class="stat-card card">
+                <div class="stat-card-badge-trend">PEAK</div>
+                <div class="stat-card-header"><span class="stat-label">ピーク</span></div>
+                <div class="stat-value" id="usage-stat-peak">0</div>
+                <div class="stat-footer-text" id="usage-stat-peak-date">最も多かった日</div>
+              </div>
+            </div>
+
+            <!-- API使用量推移チャート -->
+            <div class="dashboard-columns dashboard-columns-single">
+              <div class="dashboard-column card">
+                <div class="column-header">
+                  <h3><span class="material-symbols-outlined header-icon-symbol">monitoring</span>API使用量推移</h3>
+                  <div class="usage-chart-legend">
+                    <span class="usage-legend-item"><span class="usage-legend-dot usage-dot-req"></span>リクエスト</span>
+                    <span class="usage-legend-item"><span class="usage-legend-dot usage-dot-res"></span>応答</span>
+                    <span class="hud-tag">LIVE</span>
+                  </div>
+                </div>
+                <div class="chart-main-wrapper">
+                  <div class="chart-y-axis" id="usage-chart-yaxis">
+                    <span>0</span><span>0</span><span>0</span><span>0</span>
+                  </div>
+                  <div class="chart-body">
+                    <svg id="usage-trend-chart" class="trend-chart-svg" viewBox="0 0 400 150"
+                      preserveAspectRatio="none"></svg>
+                    <div class="chart-x-axis" id="usage-chart-xaxis"></div>
+                  </div>
+                </div>
+                <div class="chart-sub-details">
+                  <div class="detail-item">
+                    <span class="det-label">合計応答数</span>
+                    <span class="det-value" id="usage-total-responses">0</span>
+                  </div>
+                  <div class="detail-item">
+                    <span class="det-label">応答率</span>
+                    <span class="det-value" id="usage-response-rate">—</span>
+                  </div>
+                  <div class="detail-item">
+                    <span class="det-label">集計期間</span>
+                    <span class="det-value" id="usage-period-label">14日</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- レート制限の現況 -->
+            <div class="full-width-urgent-row card">
+              <div class="column-header">
+                <h3><span class="material-symbols-outlined header-icon-symbol">speed</span>レート制限（現在の設定値）</h3>
+                <span class="hud-pulse-dot"></span>
+              </div>
+              <div class="usage-ratelimit-grid" id="usage-ratelimit-grid">
+                <!-- Generated dynamically -->
+              </div>
+              <p class="usage-ratelimit-note">
+                ※ 上のリクエスト数は Bot 全体（全サーバー・全ユーザーの合算）の集計です。一方この上限は
+                <strong>ユーザー1人ごと</strong>・<strong>サーバー1つごと</strong>に個別判定されるため、Bot 全体の合計が
+                これらの数値を上回っていても、各ユーザー・各サーバーが上限内であれば正常に応答します。
+                上限値の変更は管理者が「管理 → Bot属性設定」から行えます。
+              </p>
+            </div>
+
+          </div>
+
           <!-- Price Ticker Stats Cards Grid (Chic Matte Style) -->
-          <div class="stats-grid">
+          <div class="stats-grid dashboard-secretary-only">
 
             <!-- Card 1: Tasks -->
             <div class="stat-card card">
@@ -701,7 +819,7 @@
           </div>
 
           <!-- Dashboard Charts / High-tech Analytical Columns -->
-          <div class="dashboard-columns">
+          <div class="dashboard-columns dashboard-secretary-only">
 
             <!-- Cryptographic Price Chart Style Line Chart (Matte Style) -->
             <div class="dashboard-column card">
@@ -787,7 +905,7 @@
           </div>
 
           <!-- Urgent Schedules & ToDos HUD Column -->
-          <div class="full-width-urgent-row card">
+          <div class="full-width-urgent-row card dashboard-secretary-only">
             <div class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">bolt</span>今日の緊急予定 ＆ 滞留タスク</h3>
               <span class="hud-pulse-dot"></span>
@@ -865,7 +983,7 @@
 
           <!-- 支払い予定 Section -->
           <div class="expense-table-card card" style="margin-bottom:20px;">
-            <div class="column-header">
+            <div class="column-header action-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">event_upcoming</span>支払い予定</h3>
               <button id="btn-new-expense-plan" class="btn btn-primary btn-sm">＋ 予定追加</button>
             </div>
@@ -1092,7 +1210,7 @@
                 </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                   <label for="schedule-enabled" style="margin: 0;">有効</label>
-                  <input type="checkbox" id="schedule-enabled" checked style="width: auto; margin: 0;">
+                  <input type="checkbox" id="schedule-enabled" checked style="margin: 0;">
                 </div>
                 <button type="submit" class="btn btn-primary btn-block">スケジュールを保存</button>
               </form>
@@ -1128,69 +1246,16 @@
              5. CONFIG VIEW
              ========================================== -->
         <section id="tab-config" class="tab-view">
-          <!-- Theme Settings -->
-          <div class="config-card card">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">palette</span>テーマ設定</h3>
-            </div>
-            <p class="description-text">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
-            <div class="theme-options">
-              <button type="button" class="theme-option" data-theme="dark">
-                <div class="theme-preview dark-preview">
-                  <div class="preview-sidebar"></div>
-                  <div class="preview-content">
-                    <div class="preview-card"></div>
-                    <div class="preview-card"></div>
-                  </div>
-                </div>
-                <span>ダーク</span>
-              </button>
-              <button type="button" class="theme-option" data-theme="light">
-                <div class="theme-preview light-preview">
-                  <div class="preview-sidebar"></div>
-                  <div class="preview-content">
-                    <div class="preview-card"></div>
-                    <div class="preview-card"></div>
-                  </div>
-                </div>
-                <span>ライト</span>
-              </button>
-              <button type="button" class="theme-option" data-theme="blue-archive">
-                <div class="theme-preview ba-preview">
-                  <div class="preview-sidebar"></div>
-                  <div class="preview-content">
-                    <div class="preview-card"></div>
-                    <div class="preview-card"></div>
-                  </div>
-                </div>
-                <span>BA</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Profile Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">person</span>プロフィール設定</h3>
-            </div>
-            <p class="description-text">ご自身の表示名を設定できます。</p>
-            <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
-              <input type="text" id="config-profile-username" required placeholder="表示名 (例: ユーザー名)"
-                style="flex-grow: 1;">
-              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
-            </form>
-          </div>
-
           <!-- Gemini Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">psychology</span>Gemini AI 個別設定</h3>
-            </div>
+            </summary>
             <p class="description-text">Gemini API Key と使用するモデルを設定してください。</p>
             <form id="gemini-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="gemini-api-key">Gemini API Key</label>
-                <input type="password" id="gemini-api-key" placeholder="APIキーを変更する場合は入力してください (マスク表示中)">
+                <input type="password" id="gemini-api-key" placeholder="APIキーを変更する場合は入力してください (マスク表示中)" autocomplete="new-password">
               </div>
               <div class="form-group" style="margin-bottom: 12px;">
                 <label for="gemini-model-select">Gemini モデル</label>
@@ -1204,159 +1269,71 @@
               </div>
               <button type="submit" class="btn btn-primary">Gemini 設定を保存</button>
             </form>
-          </div>
-
-          <!-- Discord Bot Token Settings -->
-          <div id="config-discord-card" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
-              <span class="badge badge-accent">任意設定</span>
-            </div>
-            <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
-            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-              <div class="form-group" style="margin-bottom: 12px;">
-                <label for="discord-token">Discord Bot Token (任意)</label>
-                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
-                  autocomplete="off">
-                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
-              </div>
-              <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
-            </form>
-          </div>
+          </details>
 
           <!-- Bot属性（プリセット）設定: owner のみ表示 -->
-          <div id="config-bot-attribute-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <!-- Bot登録名: owner / Admin のみ表示 -->
+          <details id="config-bot-name-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">badge</span>Bot登録名</h3>
+            </summary>
+            <p class="description-text">このBotの登録名（管理画面・Bot選択画面で表示される名前）を変更します。Discord上の表示名とは別です。</p>
+            <form id="bot-name-form" style="display: flex; gap: 12px; margin-top: 12px;">
+              <input type="text" id="bot-name-input" required maxlength="50" placeholder="例: 経理アシスタント" autocomplete="off" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">登録名を保存</button>
+            </form>
+            <span id="bot-name-feedback" class="field-sub" style="display:none; margin-top: 8px;"></span>
+          </details>
+
+          <details id="config-bot-attribute-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header badge-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">category</span>Bot属性（プリセット）</h3>
               <span class="badge badge-accent" id="bot-attribute-current-badge"></span>
-            </div>
+            </summary>
             <p class="description-text">このBotの機能セットを選択します。変更は次のメッセージ処理から即時反映されます。</p>
             <div style="display: flex; gap: 12px; margin-top: 12px;">
               <select id="bot-attribute-preset-select" style="flex-grow: 1;"></select>
               <button type="button" id="btn-save-bot-attribute" class="btn btn-primary" style="white-space: nowrap;">属性を変更</button>
             </div>
             <span class="field-sub">※「汎用モード」はサーバー常駐の簡易Bot（MCP接続 + ペルソナ + メモリ）です。タスク・家計などの秘書機能は無効になります。</span>
-          </div>
+          </details>
 
           <!-- 汎用モード（MCPアシスタント）設定: owner のみ表示 -->
-          <div id="config-assistant-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-assistant-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header badge-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">extension</span><span id="assistant-card-title">汎用モード設定</span></h3>
               <span class="badge badge-accent">OWNER専用</span>
-            </div>
+            </summary>
             <p class="description-text">サーバー常駐アシスタントの動作設定です。応答には「Bot専用のGemini APIキー」「独自Discordトークン」「応答許可ギルド」の設定が必要です。</p>
             <div id="assistant-warnings" style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;"></div>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-gemini-key">Bot専用 Gemini APIキー（必須）</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>Bot専用 Gemini APIキー（必須）</summary>
               <div style="display: flex; gap: 12px;">
-                <input type="password" id="assistant-gemini-key" placeholder="このBot専用のAPIキーを入力" autocomplete="off" style="flex-grow: 1;">
+                <input type="password" id="assistant-gemini-key" placeholder="このBot専用のAPIキーを入力" autocomplete="new-password" style="flex-grow: 1;">
                 <button type="button" id="btn-save-assistant-key" class="btn btn-primary" style="white-space: nowrap;">保存</button>
               </div>
               <span class="field-sub">※あなた個人のAPIキーとは別に管理・暗号化保存されます。空欄で保存すると削除され、Botは応答を停止します。</span>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-persona-select">ペルソナ（Bot単位）</label>
-              <div style="display: flex; gap: 12px;">
-                <select id="assistant-persona-select" style="flex-grow: 1;"></select>
-                <button type="button" id="btn-save-assistant-persona" class="btn btn-primary" style="white-space: nowrap;">適用</button>
-              </div>
-              <span class="field-sub">※ギルドの全利用者に同じ人格で応答します。変更はこのページからのみ行えます（会話からの変更は不可）。</span>
-            </div>
-
-            <div class="form-group" style="margin-top: 16px;">
-              <label>MCPサーバー紐付け</label>
-              <p class="description-text" style="margin: 4px 0 8px;">あなたが登録したMCPサーバーをこのBotで利用可能にします。システムレベルのサーバーは常に利用可能です。</p>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用中のMCPサーバー</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">このBotに紐づくMCPサーバーの一覧です（読み取り専用）。システムレベルのサーバーは常に利用可能です。</p>
               <div id="assistant-mcp-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
-            </div>
+            </details>
 
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-guild-input">応答許可ギルド</label>
-              <p class="description-text" style="margin: 4px 0 8px;">登録したギルド（DiscordサーバーID）でのみ応答します。未許可ギルドでは一切応答・記録しません。</p>
-              <div style="display: flex; gap: 12px;">
-                <input type="text" id="assistant-guild-input" placeholder="ギルドID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
-                <button type="button" id="btn-add-assistant-guild" class="btn btn-primary" style="white-space: nowrap;">追加</button>
-              </div>
-              <div id="assistant-guild-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
-            </div>
-
-            <div class="form-group" style="margin-top: 16px;">
-              <label>利用メンバー</label>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
-              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
-                <input type="text" id="assistant-member-input" placeholder="ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
-                <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
-              </div>
-              <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
-            </div>
-
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="assistant-guild-note">共有ノート（ギルドノート）</label>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
-              <div style="display: flex; gap: 12px; margin-bottom: 8px;">
-                <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
-                <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
-              </div>
-              <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
-            </div>
-
-            <div class="form-group" style="margin-top: 16px;">
-              <label>利用量（直近14日）</label>
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用量（直近14日）</summary>
               <div id="assistant-usage" style="margin-top: 8px;"></div>
               <span class="field-sub" id="assistant-rate-limits"></span>
-            </div>
-          </div>
-
-          <!-- Persona / Context Note へ誘導するリンクカード -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">switch_account</span>ペルソナと長期メモの管理</h3>
-            </div>
-            <p class="description-text">AIのペルソナ（キャラクター設定）と長期メモ（コンテキストノート）の管理は、専用画面に移動しました。</p>
-            <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
-              <button type="button" id="btn-goto-personas" class="btn btn-secondary"
-                style="display: flex; align-items: center; gap: 6px;">
-                <span class="material-symbols-outlined" style="font-size: 18px;">theater_comedy</span>
-                ペルソナはペルソナタブへ
-              </button>
-              <button type="button" id="btn-goto-context-note" class="btn btn-secondary"
-                style="display: flex; align-items: center; gap: 6px;">
-                <span class="material-symbols-outlined" style="font-size: 18px;">sticky_note_2</span>
-                長期メモはコンテキストノートへ
-              </button>
-            </div>
-          </div>
-
-          <!-- Password Change -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">password</span>パスワード変更</h3>
-            </div>
-            <p class="description-text">管理画面ログイン用パスワードを変更します。変更すると他端末のセッションは無効化されます。</p>
-            <form id="password-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="config-current-password">現在のパスワード *</label>
-                  <input type="password" id="config-current-password" required placeholder="••••••••••••"
-                    autocomplete="current-password">
-                </div>
-                <div class="form-group">
-                  <label for="config-new-password">新しいパスワード *</label>
-                  <input type="password" id="config-new-password" required placeholder="••••••••••••"
-                    autocomplete="new-password">
-                </div>
-              </div>
-              <button type="submit" class="btn btn-primary" style="align-self: flex-start;">パスワードを変更</button>
-            </form>
-          </div>
+            </details>
+          </details>
 
           <!-- Assistant (User) Settings -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
               <h3><span class="material-symbols-outlined header-icon-symbol">tune</span>アシスタント設定</h3>
-            </div>
+            </summary>
             <p class="description-text">Discord上でのアシスタントの応答スタイルや通知先の既定値を設定します。</p>
             <form id="user-settings-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
               <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
@@ -1388,14 +1365,14 @@
               </div>
               <button type="submit" class="btn btn-primary" style="align-self: flex-start;">アシスタント設定を保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- Bot 共有管理 (オーナーのみ表示) -->
-          <div id="config-share-card" class="config-card card hidden" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-share-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header badge-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">group_add</span>Bot 共有管理</h3>
               <span class="badge badge-accent">オーナー専用</span>
-            </div>
+            </summary>
             <p class="description-text">このBotを他のユーザーと共有できます。招待DMが送信され、相手が承認するとアクセスが有効になります。</p>
             <div id="bot-shares-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px;">
               <!-- Generated dynamically -->
@@ -1405,54 +1382,14 @@
                 style="flex-grow: 1;">
               <button type="submit" class="btn btn-primary" style="white-space: nowrap;">招待を送信</button>
             </form>
-            <div class="form-group" style="margin-top: 20px;">
-              <label for="recommended-persona-select">推奨ペルソナ (公開ペルソナのみ)</label>
-              <div style="display: flex; gap: 12px;">
-                <select id="recommended-persona-select" style="flex-grow: 1;">
-                  <option value="">-- 推奨ペルソナなし --</option>
-                </select>
-                <button type="button" id="btn-save-recommended-persona" class="btn btn-secondary"
-                  style="white-space: nowrap;">設定</button>
-              </div>
-              <span class="field-sub">※共有招待時に相手へ推奨ペルソナとして案内されます。</span>
-            </div>
-          </div>
-
-          <!-- Google OAuth settings -->
-          <div id="config-google-section" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header" style="display: flex; justify-content: space-between; align-items: center;">
-              <h3><svg class="header-icon-symbol"
-                  style="width: 1.35rem; height: 1.35rem; fill: currentColor; vertical-align: middle; margin-right: 8px; display: inline-block;"
-                  viewBox="0 0 24 24">
-                  <path
-                    d="M12.24 10.285V13.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.866-3.577-7.866-8s3.536-8 7.866-8c2.46 0 4.105 1.025 5.047 1.926l2.427-2.334C17.955 2.192 15.34 1 12.24 1 5.48 1 0 6.48 0 13s5.48 12 12.24 12c7.06 0 11.75-4.97 11.75-11.96 0-.81-.08-1.42-.18-1.755H12.24z" />
-                </svg>Google アカウント連携 (OAuth2)</h3>
-              <div id="google-linked-status"
-                style="display: none; align-items: center; gap: 6px; font-size: 0.85rem; background-color: rgba(3, 218, 198, 0.1); border: 1px solid var(--color-secondary); padding: 4px 10px; border-radius: 20px;">
-                <span class="material-symbols-outlined"
-                  style="color: var(--color-secondary); font-size: 1.1rem;">check_circle</span>
-                <span style="color: var(--color-secondary); font-weight: 600;">連携済み</span>
-              </div>
-            </div>
-            <p class="description-text">Google カレンダーの同期や Google Drive へのデータバックアップを行うために、システム共通のセキュアな認証基盤を利用して Google
-              アカウントとの連携を行います。</p>
-
-            <div style="margin-top: 18px; display: flex; justify-content: center;">
-              <button type="button" id="btn-google-auth" class="btn btn-primary"
-                style="width: 100%; max-width: 320px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px;">
-                <span class="material-symbols-outlined">link</span> Google 連携認証を開始する
-              </button>
-            </div>
-          </div>
-
-
+          </details>
 
           <!-- Google Drive Backup Settings Card -->
-          <div id="config-backup-section" class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
+          <details id="config-backup-section" class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header badge-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">cloud_sync</span>Google Drive バックアップ</h3>
               <span class="badge badge-accent">Beta</span>
-            </div>
+            </summary>
             <p class="description-text">データベースや設定ファイル、プレイブックのデータをGoogle Driveへ安全にバックアップします。</p>
 
             <form id="backup-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
@@ -1481,16 +1418,16 @@
                   style="flex: 1;">今すぐバックアップ実行</button>
               </div>
             </form>
-          </div>
+          </details>
 
-          <!-- AI Credentials Management Card (Matte Flat Style) -->
-          <div class="config-card card" style="margin-top: 24px;">
-            <div class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">lock</span>AI認証情報管理 (AI Credentials)</h3>
-              <span class="badge badge-accent">セキュア暗号化</span>
-            </div>
+          <!-- AI Credentials (read-only: このBotが利用可能な認証情報の一覧) -->
+          <details class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">lock</span>利用可能なAI認証情報</h3>
+              <span class="badge badge-accent">読み取り専用</span>
+            </summary>
             <p class="description-text">
-              AIエージェントが自動ブラウジング等でログインするために使用するユーザー名とパスワードを安全に登録します。パスワードはAES-256-GCMにより強固に暗号化され、必要な時にのみオンデマンドで復号されます。
+              このBotがAIエージェントの自動ブラウジング等で利用できる認証情報の一覧です。パスワードはAES-256-GCMで暗号化保存され、ここには表示されません。認証情報の登録・管理は「Bot統合管理」で行います。
             </p>
 
             <!-- Credentials List Table -->
@@ -1508,9 +1445,6 @@
                       URL</th>
                     <th style="text-align: left; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa;">
                       最終更新</th>
-                    <th
-                      style="text-align: right; padding: 10px; font-weight: 500; font-size: 0.85rem; color: #a1a1aa; width: 110px;">
-                      操作</th>
                   </tr>
                 </thead>
                 <tbody id="config-credentials-list">
@@ -1519,11 +1453,111 @@
               </table>
             </div>
 
-            <!-- Add Credential Button trigger -->
-            <div style="margin-top: 18px; display: flex; justify-content: flex-end;">
-              <button id="btn-new-credential" class="btn btn-primary">＋ 認証情報を追加</button>
+            <!-- 登録・Bot別の利用許可は「Bot統合管理」ページに集約（ここは閲覧のみ） -->
+            <div style="margin-top: 18px; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+              <span class="field-sub">認証情報の登録・管理は「Bot統合管理」で行います。</span>
+              <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
             </div>
-          </div>
+          </details>
+        </section>
+
+        <!-- ==========================================
+             Discord 連携設定 VIEW
+             （独自Botトークン・招待リンク・汎用モードのギルド/メンバー/共有ノートを集約）
+             ========================================== -->
+        <section id="tab-discord" class="tab-view">
+
+          <!-- Discord Bot Token Settings -->
+          <details id="config-discord-card" class="config-card card" style="margin-top: 24px;" name="discord-acc">
+            <summary class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
+              <span class="badge badge-accent">任意設定</span>
+            </summary>
+            <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
+            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="discord-token">Discord Bot Token (任意)</label>
+                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
+                  autocomplete="new-password">
+                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
+              </div>
+              <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
+            </form>
+          </details>
+
+          <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
+          <details id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;" name="discord-acc">
+            <summary class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
+            </summary>
+            <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
+
+            <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-invite-url">導入リンク（サーバーに追加）</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-invite-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-invite" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-invite-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+                <span class="field-sub">※チャンネル表示・メッセージ送信／履歴閲覧・埋め込みリンク・ファイル添付の権限を付与した状態で開きます。</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-profile-url">プロフィールURL</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-profile-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-profile" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-profile-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+              </div>
+            </div>
+
+            <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+              <span class="field-sub">導入リンクを生成するには、このBotのDiscordトークンを設定してください（上の「Discord 独自Bot設定」カード）。トークンを設定すると、Botを起動していなくても導入リンク・プロフィールURLを表示できます。</span>
+              <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
+            </div>
+          </details>
+
+          <!-- 汎用モード（MCPアシスタント）の Discord 関連設定: owner かつ mcp_assistant のみ表示 -->
+          <details id="config-assistant-discord-card" class="config-card card hidden" style="margin-top: 24px;" name="discord-acc">
+            <summary class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">dns</span>汎用モード Discord 設定</h3>
+              <span class="badge badge-accent">OWNER専用</span>
+            </summary>
+            <p class="description-text">サーバー常駐アシスタントの応答許可ギルド・利用メンバー・共有ノートを設定します。応答にはBot専用のGemini APIキー・独自Discordトークンも必要です（「Bot設定」ページ）。</p>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>応答許可ギルド</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">登録したギルド（DiscordサーバーID）でのみ応答します。未許可ギルドでは一切応答・記録しません。</p>
+              <div style="display: flex; gap: 12px;">
+                <input type="text" id="assistant-guild-input" placeholder="ギルドID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
+                <button type="button" id="btn-add-assistant-guild" class="btn btn-primary" style="white-space: nowrap;">追加</button>
+              </div>
+              <div id="assistant-guild-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用メンバー</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
+              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
+                <input type="text" id="assistant-member-input" placeholder="ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
+                <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
+              </div>
+              <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>共有ノート（ギルドノート）</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
+              <div style="display: flex; gap: 12px; margin-bottom: 8px;">
+                <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
+                <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+              </div>
+              <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
+            </details>
+          </details>
+
         </section>
 
         <!-- ==========================================
@@ -1559,6 +1593,35 @@
             <div id="persona-marketplace-list" class="list-container" style="margin-top: 12px;">
               <!-- Generated dynamically -->
             </div>
+          </div>
+
+          <!-- 汎用モード: Bot単位ペルソナ（owner かつ mcp_assistant のみ表示。旧「汎用モード設定」から移設） -->
+          <div class="card hidden" id="config-assistant-persona-card" style="margin-top: 24px;">
+            <div class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">smart_toy</span>汎用モード Bot単位ペルソナ</h3>
+              <span class="badge badge-accent">OWNER専用</span>
+            </div>
+            <p class="description-text">サーバー常駐アシスタント（汎用モード）が全利用者へ同じ人格で応答する際のペルソナです。変更はこのページからのみ行えます（会話からの変更は不可）。</p>
+            <div style="display: flex; gap: 12px; margin-top: 12px;">
+              <select id="assistant-persona-select" style="flex-grow: 1;"></select>
+              <button type="button" id="btn-save-assistant-persona" class="btn btn-primary" style="white-space: nowrap;">適用</button>
+            </div>
+          </div>
+
+          <!-- Bot共有時の推奨ペルソナ（owner のみ表示。旧「Bot共有管理」から移設） -->
+          <div class="card hidden" id="config-recommended-persona-card" style="margin-top: 24px;">
+            <div class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">recommend</span>共有時の推奨ペルソナ</h3>
+              <span class="badge badge-accent">オーナー専用</span>
+            </div>
+            <p class="description-text">このBotを共有する際、招待相手へ案内する推奨ペルソナ（公開ペルソナのみ）です。</p>
+            <div style="display: flex; gap: 12px; margin-top: 12px;">
+              <select id="recommended-persona-select" style="flex-grow: 1;">
+                <option value="">-- 推奨ペルソナなし --</option>
+              </select>
+              <button type="button" id="btn-save-recommended-persona" class="btn btn-secondary" style="white-space: nowrap;">設定</button>
+            </div>
+            <span class="field-sub">※共有招待時に相手へ推奨ペルソナとして案内されます。</span>
           </div>
         </section>
 
@@ -1610,7 +1673,7 @@
                 <h3><span class="material-symbols-outlined header-icon-symbol">notifications</span>リマインダー一覧</h3>
                 <div class="filters-group" style="display: flex; align-items: center; gap: 8px;">
                   <label for="reminders-show-all" style="margin: 0; font-size: 0.8rem;">全件表示</label>
-                  <input type="checkbox" id="reminders-show-all" style="width: auto; margin: 0;">
+                  <input type="checkbox" id="reminders-show-all" style="margin: 0;">
                 </div>
               </div>
               <div id="reminders-list"
@@ -1652,7 +1715,7 @@
 
           <!-- 連絡先 -->
           <div class="card" style="margin-top: 24px;">
-            <div class="column-header">
+            <div class="column-header action-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">contacts</span>連絡先</h3>
               <button id="btn-new-contact" class="btn btn-primary btn-sm">＋ 連絡先追加</button>
             </div>
@@ -1833,8 +1896,13 @@
              12. MCP SERVERS VIEW
              ========================================== -->
         <section id="tab-mcp" class="tab-view">
+          <p id="mcp-current-bot-label" class="description-text" style="margin-bottom: 12px; font-size: 0.85rem;"></p>
+          <div class="card" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span class="field-sub">MCPサーバーの登録・削除・Bot別の利用許可は「Bot統合管理」ページに集約しました（ここは状況確認のみ）。</span>
+            <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
+          </div>
           <div class="expense-actions-columns">
-            <div class="action-column card">
+            <div class="action-column card" style="display:none;">
               <div class="column-header">
                 <h3><span class="material-symbols-outlined header-icon-symbol">add_link</span>MCPサーバーの追加</h3>
               </div>
@@ -1851,7 +1919,7 @@
                 </div>
                 <div class="form-group">
                   <label for="mcp-auth-credential">認証情報 (Bearerトークン等・任意)</label>
-                  <input type="password" id="mcp-auth-credential" placeholder="登録後は表示されません" autocomplete="off">
+                  <input type="password" id="mcp-auth-credential" placeholder="登録後は表示されません" autocomplete="new-password">
                 </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                   <input type="checkbox" id="mcp-requires-confirmation" checked style="width: 20px; height: 20px;">
@@ -1879,11 +1947,230 @@
             </div>
           </div>
         </section>
+      </div>
+    </main>
+  </div>
+  <!-- /#app-container : ここまでが「Bot個別の管理画面」 -->
 
-        <!-- ==========================================
-             6. ADMIN VIEW (Admin ロールのみ表示)
-             ========================================== -->
-        <section id="tab-admin" class="tab-view">
+  <!-- ==========================================
+       Bot統合管理 VIEW（owner単位の横断管理。Bot選択画面から開く独立オーバーレイ, v5）
+       ========================================== -->
+  <div id="integrated-overlay" class="overlay">
+    <div class="management-overlay-card">
+      <div class="management-overlay-header">
+        <h1><span class="material-symbols-outlined" style="vertical-align:middle;font-size:1.6rem;">hub</span> Bot統合管理</h1>
+        <button class="btn btn-secondary" data-management-back>
+          <span class="material-symbols-outlined icon-button-left">arrow_back</span> Bot選択に戻る
+        </button>
+      </div>
+      <div class="management-overlay-body">
+        <section id="tab-integrated">
+          <p class="description-text" style="margin-bottom: 16px;">
+            あなたのBotのヘルス確認・起動停止と、認証情報・MCP・Googleアカウントの<strong>登録</strong>および<strong>Bot別の利用許可</strong>を一括管理します。リソースの登録はこのページから行います（個別タブは状況確認のみ）。
+          </p>
+
+          <!-- Bots: health + start/stop -->
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>Bot ヘルス / 起動・停止</summary>
+            <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+              <button id="int-refresh" class="btn btn-secondary btn-sm">
+                <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">refresh</span> 更新
+              </button>
+            </div>
+            <div id="int-bots-list" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+              <!-- Generated dynamically -->
+            </div>
+          </details>
+
+          <!-- Credentials -->
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>認証情報（パスワードマネージャ）</summary>
+            <div class="expense-actions-columns" style="margin-top:12px;">
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">新規登録（暗号化保存）。登録後、下の一覧で使わせるBotを許可してください。</p>
+                <form id="int-cred-form" style="display:flex;flex-direction:column;gap:10px;">
+                  <div class="form-group"><label>サービス名 *</label><input type="text" id="int-cred-service" required placeholder="例: github" pattern="[a-zA-Z0-9_\-]+"></div>
+                  <div class="form-group"><label>ユーザー名 / メール *</label><input type="text" id="int-cred-username" required autocomplete="off"></div>
+                  <div class="form-group"><label>パスワード *</label><input type="password" id="int-cred-password" required autocomplete="new-password"></div>
+                  <div class="form-group"><label>ログインURL（任意）</label><input type="text" id="int-cred-url" placeholder="https://..."></div>
+                  <button type="submit" class="btn btn-primary btn-block">認証情報を登録</button>
+                </form>
+              </div>
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">登録済み（Bot別の利用許可）</p>
+                <div id="int-cred-list" style="display:flex;flex-direction:column;gap:12px;max-height:520px;overflow-y:auto;"></div>
+              </div>
+            </div>
+          </details>
+
+          <!-- MCP servers -->
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>MCPサーバー</summary>
+            <div class="expense-actions-columns" style="margin-top:12px;">
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">外部MCPサーバーを登録。登録後、使わせるBotを許可してください。</p>
+                <form id="int-mcp-form" style="display:flex;flex-direction:column;gap:10px;">
+                  <div class="form-group"><label>名前 *</label><input type="text" id="int-mcp-name" required placeholder="例: my-tools"></div>
+                  <div class="form-group"><label>エンドポイントURL *</label><input type="url" id="int-mcp-endpoint" required placeholder="https://example.com/mcp" style="font-family:var(--font-family-mono);"></div>
+                  <div class="form-group"><label>認証情報（Bearerトークン等・任意）</label><input type="password" id="int-mcp-auth" autocomplete="new-password" placeholder="登録後は表示されません"></div>
+                  <div class="form-group" style="display:flex;align-items:center;gap:10px;"><input type="checkbox" id="int-mcp-confirm" checked style="width:20px;height:20px;"><label for="int-mcp-confirm" style="margin:0;">Tool実行前にユーザー確認を必須</label></div>
+                  <div class="form-group" id="int-mcp-scope-group" style="display:none;"><label>登録スコープ (Adminのみ)</label><select id="int-mcp-scope"><option value="user">ユーザーレベル（自分のみ）</option><option value="system">システムレベル（全ユーザー）</option></select></div>
+                  <button type="submit" class="btn btn-primary btn-block">MCPサーバーを登録</button>
+                </form>
+              </div>
+              <div class="action-column">
+                <p class="description-text" style="margin-bottom:8px;">登録済み（Bot別の利用許可）</p>
+                <div id="int-mcp-list" style="display:flex;flex-direction:column;gap:12px;max-height:520px;overflow-y:auto;"></div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Google accounts -->
+          <details class="card collapsible-group" name="int-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>Googleアカウント連携（複数可）</summary>
+            <div style="margin-top:12px;">
+              <button id="int-google-connect" class="btn btn-primary">
+                <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">add</span> Googleアカウントを連携
+              </button>
+              <p class="description-text" style="margin-top:8px;">複数のGoogleアカウントを連携でき、Botごとに使うアカウントを選べます。バックアップはprimaryアカウントを使用します。</p>
+              <div id="int-google-list" style="margin-top:12px;display:flex;flex-direction:column;gap:12px;"></div>
+              <p class="description-text" style="margin-top:16px;margin-bottom:8px;"><strong>Bot別 使用アカウント</strong></p>
+              <div id="int-google-bot-assign" style="display:flex;flex-direction:column;gap:10px;"></div>
+            </div>
+          </details>
+
+        </section>
+      </div>
+    </div>
+  </div>
+  <!-- /#integrated-overlay -->
+
+  <!-- ==========================================
+       アカウント管理 VIEW（全ユーザー。Bot選択画面から開く独立オーバーレイ）
+       表示名・テーマ・ログインパスワードなどBot非依存のアカウント設定を集約
+       ========================================== -->
+  <div id="account-overlay" class="overlay">
+    <div class="management-overlay-card">
+      <div class="management-overlay-header">
+        <h1><span class="material-symbols-outlined" style="vertical-align:middle;font-size:1.6rem;">manage_accounts</span> アカウント管理</h1>
+        <button class="btn btn-secondary" data-management-back>
+          <span class="material-symbols-outlined icon-button-left">arrow_back</span> Bot選択に戻る
+        </button>
+      </div>
+      <div class="management-overlay-body">
+        <section id="tab-account">
+          <p class="description-text" style="margin-bottom: 16px;">
+            表示名・外観テーマ・ログインパスワードなど、特定のBotに依存しないアカウント共通の設定です。
+          </p>
+
+          <!-- 表示名（プロフィール） -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>表示名（プロフィール）</summary>
+            <p class="description-text" style="margin-top:12px;">ご自身の表示名を設定できます。</p>
+            <form id="profile-config-form" style="display: flex; gap: 12px; margin-top: 16px;">
+              <input type="text" id="config-profile-username" required placeholder="表示名 (例: ユーザー名)" style="flex-grow: 1;">
+              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+            </form>
+          </details>
+
+          <!-- テーマ設定 -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>テーマ設定</summary>
+            <p class="description-text" style="margin-top:12px;">管理画面の外観テーマを選択します。設定はブラウザに保存されます。</p>
+            <div class="theme-options">
+              <button type="button" class="theme-option" data-theme="dark">
+                <div class="theme-preview dark-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>ダーク</span>
+              </button>
+              <button type="button" class="theme-option" data-theme="light">
+                <div class="theme-preview light-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>ライト</span>
+              </button>
+              <button type="button" class="theme-option" data-theme="blue-archive">
+                <div class="theme-preview ba-preview">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-card"></div>
+                    <div class="preview-card"></div>
+                  </div>
+                </div>
+                <span>BA</span>
+              </button>
+            </div>
+          </details>
+
+          <!-- パスワード変更 -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>パスワード変更</summary>
+            <p class="description-text" style="margin-top:12px;">管理画面ログイン用パスワードを変更します。変更すると他端末のセッションは無効化されます。</p>
+            <form id="password-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="config-current-password">現在のパスワード *</label>
+                  <input type="password" id="config-current-password" required placeholder="••••••••••••"
+                    autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                  <label for="config-new-password">新しいパスワード *</label>
+                  <input type="password" id="config-new-password" required placeholder="••••••••••••"
+                    autocomplete="new-password">
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary" style="align-self: flex-start;">パスワードを変更</button>
+            </form>
+          </details>
+
+          <!-- アカウント削除（退会） -->
+          <details class="card collapsible-group" name="acc-acc" style="margin-bottom:16px;padding:20px;">
+            <summary>アカウントの削除</summary>
+            <p class="description-text" style="margin-top:12px;">
+              アカウントを削除すると、あなたが所有するBotや秘書業務データ（ToDo・予定・経費など）を含む関連データがすべて削除されます。<strong>この操作は取り消せません。</strong>
+            </p>
+            <p class="description-text" style="margin-top:8px;">
+              なお、あなたが唯一の管理者である場合は、システムの管理者が0人にならないよう削除できません。先に他のユーザーへ管理者権限を付与してください。
+            </p>
+            <form id="delete-account-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group">
+                <label for="config-delete-password">現在のパスワード *</label>
+                <input type="password" id="config-delete-password" required placeholder="••••••••••••"
+                  autocomplete="current-password">
+              </div>
+              <button type="submit" class="btn btn-danger" style="align-self: flex-start;">
+                <span class="material-symbols-outlined icon-button-left">delete_forever</span> アカウントを削除する
+              </button>
+            </form>
+          </details>
+        </section>
+      </div>
+    </div>
+  </div>
+  <!-- /#account-overlay -->
+
+  <!-- ==========================================
+       管理者用設定 VIEW（admin専用。Bot選択画面から開く独立オーバーレイ）
+       ========================================== -->
+  <div id="admin-overlay" class="overlay">
+    <div class="management-overlay-card">
+      <div class="management-overlay-header">
+        <h1><span class="material-symbols-outlined" style="vertical-align:middle;font-size:1.6rem;">admin_panel_settings</span> 管理者用設定</h1>
+        <button class="btn btn-secondary" data-management-back>
+          <span class="material-symbols-outlined icon-button-left">arrow_back</span> Bot選択に戻る
+        </button>
+      </div>
+      <div class="management-overlay-body">
+        <section id="tab-admin">
 
           <!-- KPI Row -->
           <div class="admin-kpi-row">
@@ -1913,37 +2200,37 @@
           </div>
 
           <!-- Default Bot Settings -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">smart_toy</span>システムデフォルト Bot
               </span>
               <span class="hud-tag"
                 style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
-            </div>
+            </summary>
             <p class="description-text">システム共通で動作するデフォルトBotのDiscordトークンを更新します。トークンは安全に暗号化されて保存されます。</p>
             <form id="admin-default-bot-form" style="margin-top: 16px;">
               <div class="form-group">
                 <label for="admin-default-bot-token">デフォルト Bot トークン *</label>
                 <div style="display: flex; gap: 12px; margin-top: 8px;">
                   <input type="password" id="admin-default-bot-token" required placeholder="新しい Discord Bot Token を入力"
-                    style="flex-grow: 1;">
+                    autocomplete="new-password" style="flex-grow: 1;">
                   <button type="submit" class="btn btn-primary" style="white-space: nowrap;">設定を更新</button>
                 </div>
                 <span class="field-sub">※更新すると、デフォルトBotは自動的に新しいトークンで再起動します。</span>
               </div>
             </form>
-          </div>
+          </details>
 
           <!-- System Settings -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">settings</span>システム全体設定
               </span>
               <span class="hud-tag"
                 style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
-            </div>
+            </summary>
             <p class="description-text">システム全体の共通設定を行います。</p>
             <form id="admin-system-settings-form" style="margin-top: 16px;">
               <div class="form-group">
@@ -1960,17 +2247,17 @@
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top: 16px; min-width: 150px;">設定を更新</button>
             </form>
-          </div>
+          </details>
 
           <!-- Bot Attribute Settings (プリセット表示名・レート制限) -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">category</span>Bot属性設定
               </span>
               <span class="hud-tag"
                 style="background-color: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;">SYSTEM</span>
-            </div>
+            </summary>
             <p class="description-text">Botプリセットのユーザー向け表示名と、汎用モード（MCPアシスタント）のレート制限既定値を設定します。内部IDは固定です。</p>
             <form id="admin-bot-attr-form" style="margin-top: 16px;">
               <div class="form-row">
@@ -1999,16 +2286,16 @@
               </div>
               <button type="submit" class="btn btn-primary" style="margin-top: 16px; min-width: 150px;">Bot属性設定を保存</button>
             </form>
-          </div>
+          </details>
 
           <!-- User Management -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">manage_accounts</span>ユーザー管理
               </span>
               <span class="hud-tag">ADMIN</span>
-            </div>
+            </summary>
             <p class="description-text">登録済みユーザーの一覧とロール管理を行います。個人情報（パスワード等）は表示されません。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
@@ -2024,16 +2311,16 @@
                 <tbody id="admin-users-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
           <!-- Bot Moderation -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">security</span>Bot モデレーション
               </span>
               <span class="hud-tag">MODERATION</span>
-            </div>
+            </summary>
             <p class="description-text">システム上の全Botの管理・差し押さえを行います。差し押さえるとBotのDiscordクライアントが停止され、所有者は再起動できなくなります。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
@@ -2049,16 +2336,16 @@
                 <tbody id="admin-bots-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
           <!-- Persona Marketplace Moderation -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">storefront</span>ペルソナ マーケットプレイス管理
               </span>
               <span class="hud-tag">MODERATION</span>
-            </div>
+            </summary>
             <p class="description-text">マーケットプレイスに公開されている全ペルソナの非公開化・削除を行います。</p>
             <div class="table-responsive" style="margin-top: 16px;">
               <table class="expense-table" style="width: 100%;">
@@ -2074,16 +2361,16 @@
                 <tbody id="admin-personas-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
           <!-- Audit Logs -->
-          <div class="admin-section">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">receipt_long</span>監査ログ
               </span>
               <span class="hud-tag">AUDIT</span>
-            </div>
+            </summary>
             <p class="description-text">セキュリティ関連の操作履歴です。直近の数件を表示しています。全件の閲覧・絞り込みは「すべて表示」から行えます。</p>
             <div class="table-responsive">
               <table class="expense-table" style="width: 100%;">
@@ -2104,15 +2391,15 @@
                 <span class="material-symbols-outlined">open_in_full</span>すべて表示
               </button>
             </div>
-          </div>
+          </details>
 
           <!-- Invite Codes -->
-          <div class="admin-section" style="border-bottom: none;">
-            <div class="admin-section-header">
+          <details class="admin-section" name="admin-acc" style="border-bottom: none;">
+            <summary class="admin-section-header">
               <span class="admin-section-title">
                 <span class="material-symbols-outlined">confirmation_number</span>招待コード管理
               </span>
-            </div>
+            </summary>
             <p class="description-text">新規ユーザー登録に必要な招待コードの管理を行います。</p>
             <form id="admin-invite-form" style="display: flex; gap: 12px; margin-top: 16px; margin-bottom: 20px;">
               <input type="text" id="admin-invite-code-input" required placeholder="新しい招待コードを入力" style="flex-grow: 1;">
@@ -2132,13 +2419,13 @@
                 <tbody id="admin-invites-tbody"></tbody>
               </table>
             </div>
-          </div>
+          </details>
 
         </section>
-
       </div>
-    </main>
+    </div>
   </div>
+  <!-- /#admin-overlay -->
 
   <!-- ==========================================
        MODALS DIALOGS
@@ -2409,6 +2696,43 @@
     </div>
   </div>
 
+  <!-- MCP Server Management Page Modal -->
+  <div id="modal-mcp-dashboard" class="modal">
+    <div class="modal-content wide-modal">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">tune</span><span id="mcp-dashboard-title">MCPサーバー管理ページ</span></h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div id="mcp-dashboard-container"
+        style="width: 100%; min-height: 70vh; border-radius: 8px; background: #fff; overflow: auto;"></div>
+    </div>
+  </div>
+
+  <!-- カレンダー同期設定モーダル（統合管理: Googleアカウント別に同期対象カレンダーを選択） -->
+  <div id="modal-int-calendars" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><span class="material-symbols-outlined header-icon-symbol">calendar_month</span>カレンダー同期設定</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <p id="int-cal-account-label" class="description-text" style="margin-bottom: 8px;"></p>
+      <p class="description-text" style="margin-bottom: 12px; font-size: 0.8rem;">同期対象にするカレンダーを選択してください。チェックしたカレンダーのみが同期されます。</p>
+      <div id="int-cal-error" class="field-sub" style="display:none; color:#f87171; margin-bottom: 10px;"></div>
+      <div id="int-cal-list"
+        style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; margin-bottom:16px;">
+        <!-- 動的生成 -->
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary btn-close-modal">キャンセル</button>
+        <button type="button" id="int-cal-save" class="btn btn-primary">同期設定を保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- AI Receipt Result Modal -->
   <div id="modal-receipt-result" class="modal">
     <div class="modal-content wide-modal">
@@ -2538,7 +2862,7 @@
         </div>
         <div class="form-group">
           <label for="webhook-secret">署名シークレット (任意)</label>
-          <input type="password" id="webhook-secret" placeholder="HMAC-SHA256 署名検証に使用" autocomplete="off">
+          <input type="password" id="webhook-secret" placeholder="HMAC-SHA256 署名検証に使用" autocomplete="new-password">
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -2574,7 +2898,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="/app.js"></script>
 </body>
 
 </html>

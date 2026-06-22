@@ -1,6 +1,6 @@
-# Yuuka v2 アーキテクチャ規範（仕様書 docs/discordbot_spec.md v0.6.1 準拠）
+# Yuuka v2 アーキテクチャ規範（仕様書 docs/spec/discordbot_spec.md v0.6.2 準拠 / DB schema v9）
 
-本書は仕様書（docs/discordbot_spec.md）を既存コードベースへ落とし込むための**実装規範**である。
+本書は仕様書（docs/spec/discordbot_spec.md）を既存コードベースへ落とし込むための**実装規範**である。
 実装エージェント・開発者は必ず本書のコントラクトに従うこと。仕様書と本書が矛盾する場合は本書を優先する（本書は仕様書を既存実装と調和させた結果である）。
 
 ---
@@ -8,12 +8,12 @@
 ## 0. 最重要原則
 
 1. **データ分離**: 全ユーザーデータは `user_id`（DiscordユーザーID, TEXT）を WHERE 句の必須条件とする。`user_id` なしのワイルドカードクエリ禁止（cron系の全件走査は例外として明示コメントを書く）。
-   **例外パターン（Bot属性 docs/bot_attributes_requirements.md §6）**: 汎用モード（MCPアシスタント）のデータは `bot_id × user_id`（bot_context_notes）/ `bot_id × guild_id`（bot_guild_notes, bot_guilds, message_logs のギルド会話）の複合スコープを正式な分離キーとする。この user_id にはWebアカウント未登録のDiscordユーザーIDも入るため、message_logs / bot_context_notes / bot_members は users へのFKを持たない。
+   **例外パターン（Bot属性 docs/spec/bot_attributes_requirements.md §6）**: 汎用モード（MCPアシスタント）のデータは `bot_id × user_id`（bot_context_notes）/ `bot_id × guild_id`（bot_guild_notes, bot_guilds, message_logs のギルド会話）の複合スコープを正式な分離キーとする。この user_id にはWebアカウント未登録のDiscordユーザーIDも入るため、message_logs / bot_context_notes / bot_members は users へのFKを持たない。
 2. **ブラウザ操作層は不変**: `src/services/browserService.ts`・`src/rust_crawler/`・`src/functions/browserFunctions.ts` の既存アプローチ（Rustクローラーデーモン→Puppeteerフォールバック、ユーザー別永続セッション、`data-yuuka-id` 数値IDアノテーション）は変更しない。新機能はこの上に乗せる。
 3. **認証情報はLLMに渡さない**: パスワードマネージャの復号値は `browserService` へ直接渡す。Function Call の戻り値・ログ・プロンプトに含めてはならない。
-4. **既存データは破棄してよい**: スキーマバージョン2へ全面再構築する（migrations.ts が旧テーブルをDROPする）。
+4. **スキーマは前方移行する**: 現在の `SCHEMA_VERSION` は **"9"**。初版（v2 全面再構築）以降は破壊的再構築は行わず、`migrations.ts` の各 `migrate*` 関数が冪等な ALTER / 追加テーブルで段階移行する（v3〜v9 の概要は §2 末尾参照）。
 5. **コメント・ログは日本語**、既存コードのスタイル（セクション区切りコメント `// ─── ... ───`、絵文字ログ）を踏襲する。
-6. **TypeScript / ESM**: import は `.js` 拡張子付き相対パス。型は明示的に。新規依存の追加は禁止（導入済み: bcryptjs, @node-rs/argon2, rss-parser, @napi-rs/canvas, chart.js, cron-parser）。
+6. **TypeScript / ESM**: import は `.js` 拡張子付き相対パス。型は明示的に。新規依存の追加は原則禁止（導入済み: bcryptjs, @node-rs/argon2, rss-parser, @napi-rs/canvas, chart.js, cron-parser, archiver。lint/format は `@biomejs/biome`、型チェックは `tsgo`）。
 
 ---
 
@@ -26,6 +26,7 @@
 export interface ToolContext {
   botId: string;     // 実行中のBotインスタンスID（通知送信のクライアント解決に使用）
   userId: string;    // DiscordユーザーID（データ分離キー。全リポジトリ呼び出しに必須）
+  guildId?: string;  // 発話ギルドID（汎用モード等のギルド常駐Botのみ。DM/秘書では undefined）
   embeds: EmbedBuilder[];                 // リッチ返信キュー（push すると返信に添付）
   files: { attachment: Buffer; name: string }[]; // ファイル添付キュー（グラフPNG等）
   richReplyEnabled: boolean;              // ユーザー設定（falseならembeds/files禁止）
@@ -48,7 +49,7 @@ export interface RouteRequestCtx {
   params: Record<string, string>; // パスパターン :name の解決値
 }
 export interface RouteDef {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "DELETE" | "OPTIONS";
   path: string;                  // 例 "/api/contacts", "/hook/:token"
   auth: RouteAuth;
   handler: (ctx: RouteRequestCtx) => Promise<void>;
@@ -64,17 +65,17 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 
 ---
 
-## 2. DBスキーマ v2（src/db/migrations.ts が唯一の定義元）
+## 2. DBスキーマ v9（src/db/migrations.ts が唯一の定義元）
 
-スキーマは migrations.ts に集約済み。各リポジトリは**テーブルを再定義しない**。主要テーブル（全列は migrations.ts 参照）:
+スキーマは migrations.ts に集約済み（現 `SCHEMA_VERSION="9"`）。各リポジトリは**テーブルを再定義しない**。主要テーブル（全列は migrations.ts 参照）:
 
 | テーブル | キー/スコープ | 用途 |
 |---|---|---|
-| users | discord_id PK | 認証(bcrypt cost12) + salt(hex) + ユーザー設定(rich_reply_enabled, remind_default_minutes, notify_target_*, active_persona_id, timezone) + Gemini鍵(enc) + Google OAuth(enc, per-user) + バックアップ設定 |
-| bots | id PK, owner user_id | Botインスタンス（Discordトークンenc, recommended_persona_id, suspended） |
+| users | discord_id PK | 認証(bcrypt cost12) + salt(hex) + ユーザー設定(rich_reply_enabled, remind_default_minutes, notify_target_*, active_persona_id〔レガシー: ペルソナ適用は v8 で bot_active_personas へ移行〕, timezone) + Gemini鍵(enc) + バックアップ設定 |
+| bots | id PK, owner user_id | Botインスタンス（Discordトークンenc, recommended_persona_id, suspended〔管理者処分〕, **stopped〔v9: オーナー手動停止。再起動後も維持〕**, **capabilities〔JSON: ケーパビリティ集合〕**, **persona_id〔v8: Bot単位ペルソナ〕**, **gemini_api_key_*〔Bot専用キーenc。汎用モードは設定必須〕**, discord_application_id〔招待リンク導出〕） |
 | bot_shares | bot_id, shared_user_id | 共有招待 status: pending/active/revoked |
 | personas | id PK, owner_id | name, prompt(≤20000), is_public |
-| message_logs (+ message_logs_fts FTS5) | user_id | 全会話永続化, discord_msg_id, reply_to_msg_id, role: user/assistant |
+| message_logs (+ message_logs_fts FTS5) | user_id (+ bot_id, guild_id) | 全会話永続化, discord_msg_id, reply_to_msg_id, role: user/assistant。guild_id=NULL はDM/秘書利用、非NULLは汎用モードのギルド会話 |
 | todos | user_id | title, description, due_date, priority(high/medium/low/null), tags(JSON), status(open/done), linked_payment_id |
 | schedules | user_id | Googleカレンダー同期予定（既存構造を user スコープ化） |
 | reminders | user_id | message, trigger_at, repeat_rule(cron), target_type(dm/channel)+target_id, status(pending/sent/cancelled), source(manual/todo/schedule/payment/birthday/webhook), source_id |
@@ -91,9 +92,26 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 | webhook_deliveries | endpoint_id | 受信監査ログ payload, status |
 | briefing_configs | user_id PK | 朝報: enabled, schedule_cron, target, weather_lat/lng, location_name, news_feeds(JSON), news_keywords(JSON) |
 | report_configs | user_id, type(daily/weekly) | enabled, schedule_cron, target |
-| mcp_servers | id PK, user_id NULL可(NULL=システムレベル) | name, endpoint_url, auth_credential(enc), tools_cache(JSON), enabled, requires_confirmation |
+| mcp_servers | id PK, owner_id, (user_id, bot_id) スコープ | name, endpoint_url, auth_credential(enc), tools_cache(JSON), enabled, requires_confirmation。v4 で (user_id, bot_id) へ、v7 で owner_id 次元を追加（クロステナント露出修正） |
 | audit_logs | user_id | action, target, detail（PW本体は記録禁止） |
 | invite_codes / system_settings | 既存どおり |
+
+**汎用モード（MCPアシスタント）／Bot属性のテーブル**（bot_attributes_requirements.md §5。複合スコープが正式な分離キー）:
+
+| テーブル | キー/スコープ | 用途 |
+|---|---|---|
+| bot_active_personas | (user_id, bot_id) PK | v8: 秘書ペルソナの適用状態（旧 users.active_persona_id を Bot 単位へ分離） |
+| bot_context_notes | (bot_id, user_id) | 汎用モードの個人ノート（users へFKなし＝未登録Discord IDも可） |
+| bot_guild_notes | (bot_id, guild_id) | 汎用モードのギルド共有ノート |
+| bot_guilds | (bot_id, guild_id) | 応答許可ギルドリスト |
+| bot_members | (bot_id, guild_id, user_id) | 汎用モードの利用メンバー（users へFKなし） |
+| bot_mcp_access | (bot_id, owner_id, mcp_server_id) | Bot が利用可能な MCP サーバーの許可リスト |
+| bot_credential_access | (bot_id, owner_id, service_name) | Bot が利用可能な認証情報の許可リスト |
+| user_google_accounts | owner(user_id) | v5: Google 複数アカウント連携（OAuth enc, primary フラグ） |
+| bot_google_account | (bot_id) | v5: Bot ごとに割り当てる Google アカウント（NULL 許容 v7+） |
+
+**マイグレーション履歴**（各 `migrate*` 関数は冪等。新規DBは最終形を直接 CREATE）:
+v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`migrateToBotScopedData`）/ v4=MCP を (user_id, bot_id) 化（`migrateMcpToBotScope`）/ v5=owner リソース許可・Google複数アカウント（`migrateOwnerResourceGrants`）/ v6–v7=MCP/リソース許可へ owner_id 次元追加・bot_google_account を NULL 許容化（`migrateMcpAccessOwnerScope`・`migrateBotGoogleAccountNullable`）/ v8=ペルソナを Bot 単位化（`migratePersonaToBotScope`）/ v9=bots.stopped 追加。
 
 日時は既存スタイル（`datetime('now','localtime')` の `YYYY-MM-DD HH:MM:SS` テキスト）に合わせる。
 
@@ -118,8 +136,12 @@ export interface SessionUser { discordId: string; username: string; role: "user"
   - `getUserGenAI(userId): { genAI, model } | null` — **ユーザー自身のGemini APIキーのみ**使用（仕様§4.2。秘書系の対話・補助生成はこちら）。
   - `getBotGenAI(botId): { genAI, model } | null` — **Bot専用キー**（bots テーブルへ暗号化保存）。汎用モード（MCPアシスタント）の対話のみが使用し、発話ユーザーの個人キーは使わない（bot_attributes_requirements.md §4.3.3）。
   - `generateAuxText(userId, prompt, systemInstruction?): Promise<string>` — タグ自動付与・Webhook解釈・レポート要約などの補助生成用（Function Callなし、リトライ付き）。
-- `src/gemini.ts`（統合フェーズで書き換え）: per-user コンテキスト（Redis `context:{userId}` 直近15件）、返信チェーン解決、ペルソナ+コンテキストノート注入、MCP動的ツール、リッチ返信ゲート。
-- 会話履歴の正は `message_logs`（SQLite, user_id スコープ）。Redisキャッシュ消失時はSQLiteから直近15件を再構築。
+- `src/gemini.ts`: コンテキスト復元、返信チェーン解決、ペルソナ+コンテキストノート注入、MCP動的ツール、リッチ返信ゲート。Redis 会話キャッシュキーは利用形態で分かれる（`src/db/messageLogRepo.ts`）:
+  - `context:{botId}:secretary:{userId}` — 秘書モード（個人 DM）。
+  - `context:{botId}:{guildId}` — 汎用モードのギルド会話。
+  - `context:{botId}:dm:{ownerId}` — 汎用モードの owner DM。
+  - リセット境界は `context_floor:{botId}:{userId}` / `context_floor:{botId}:dm:{ownerId}`（会話履歴クリアの基準時刻）。
+- 会話履歴の正は `message_logs`（SQLite, (user_id, bot_id, guild_id) スコープ）。Redisキャッシュ消失時はSQLiteから再構築。
 
 ## 6. リッチ返信（§3.0）
 
@@ -159,22 +181,22 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 | モジュール | 所有ファイル |
 |---|---|
 | 基盤(完了) | types/contracts.ts, db/migrations.ts, db/database.ts, utils/crypto.ts, config.ts, db/auditRepo.ts, services/llmClient.ts, services/notifier.ts, server/routeRegistry.ts, functions/registry.ts |
-| auth | services/sessionService.ts, services/passwordPolicy.ts, db/userRepo.ts |
+| auth | services/sessionService.ts, services/passwordPolicy.ts, services/pendingRegistration.ts, db/userRepo.ts, server/routes/authRoutes.ts, server/routes/settingsRoutes.ts |
 | messagelog | db/messageLogRepo.ts, functions/conversationFunctions.ts |
-| todo | db/todoRepo.ts, functions/todoFunctions.ts, services/autoTagService.ts |
+| todo | db/todoRepo.ts, functions/todoFunctions.ts, services/autoTagService.ts, server/routes/todoRoutes.ts |
 | reminder | db/reminderRepo.ts, services/reminderEngine.ts, functions/reminderFunctions.ts, server/routes/reminderRoutes.ts |
-| finance | db/expenseRepo.ts, db/plannedPaymentRepo.ts, functions/financeFunctions.ts, services/paymentRecurrenceService.ts |
-| pwmanager | db/credentialRepo.ts, services/secretService.ts, functions/credentialFunctions.ts |
+| finance | db/expenseRepo.ts, db/plannedPaymentRepo.ts, functions/financeFunctions.ts, services/paymentRecurrenceService.ts, services/receiptParser.ts, server/routes/financeRoutes.ts |
+| pwmanager | db/credentialRepo.ts, db/credentialAccessRepo.ts, services/secretService.ts, functions/credentialFunctions.ts, server/routes/credentialRoutes.ts |
 | personal | db/contextNoteRepo.ts, db/clipboardRepo.ts, db/contactRepo.ts, functions/noteFunctions.ts, functions/clipboardFunctions.ts, functions/contactFunctions.ts, services/clipboardCleanupService.ts, services/birthdayReminderService.ts, server/routes/personalRoutes.ts |
-| macro | services/playbookService.ts, services/actionRecorder.ts, functions/playbookFunctions.ts, services/playbookScheduleService.ts |
+| macro | services/playbookService.ts, services/actionRecorder.ts, functions/playbookFunctions.ts, services/playbookScheduleService.ts, server/routes/playbookRoutes.ts |
 | reports | db/reportConfigRepo.ts, db/briefingConfigRepo.ts, services/reportService.ts, services/briefingService.ts, functions/briefingFunctions.ts, server/routes/deliveryRoutes.ts |
 | webhook | db/webhookRepo.ts, services/webhookProcessor.ts, server/routes/webhookRoutes.ts |
 | mcp | db/mcpRepo.ts, services/mcpClient.ts, functions/mcpDynamic.ts, server/routes/mcpRoutes.ts |
 | persona | db/personaRepo.ts, server/routes/personaRoutes.ts |
-| botattributes（Bot属性 docs/bot_attributes_requirements.md） | services/botCapabilities.ts, services/botRateLimit.ts, db/botAttributesRepo.ts, db/botNoteRepo.ts, functions/botAssistantFunctions.ts, server/routes/botAttributeRoutes.ts |
+| botattributes（Bot属性 docs/spec/bot_attributes_requirements.md） | services/botCapabilities.ts, services/botRateLimit.ts, db/botAttributesRepo.ts, db/botNoteRepo.ts, functions/botAssistantFunctions.ts, server/routes/botAttributeRoutes.ts |
 | charts | services/chartService.ts, functions/chartFunctions.ts |
-| calendar | services/googleCalendarService.ts, services/googleDriveService.ts, services/backupService.ts, db/scheduleRepo.ts, functions/scheduleFunctions.ts |
-| 統合 | gemini.ts, bot.ts, index.ts, server.ts, functions/index.ts, db/chatHistoryRepo.ts(廃止), db/taskRepo.ts(廃止), db/botRepo.ts, db/inviteRepo.ts, utils/embeds.ts, public/* |
+| calendar | services/googleCalendarService.ts, services/googleDriveService.ts, services/backupService.ts, db/scheduleRepo.ts, db/googleAccountRepo.ts, functions/scheduleFunctions.ts, server/routes/scheduleRoutes.ts |
+| 統合 | gemini.ts, bot.ts, index.ts, server.ts, functions/index.ts, db/botRepo.ts, db/inviteRepo.ts, db/systemSettingsRepo.ts, db/database.ts, db/redis.ts, utils/embeds.ts, server/routes/botRoutes.ts（Bot管理）, server/routes/integratedRoutes.ts（統合管理: Bot起動/停止/再起動・リソース許可・Google複数アカウント）, server/routes/adminRoutes.ts, public/* |
 
 ## 11. Function 命名規約（最終レジストリ）
 
