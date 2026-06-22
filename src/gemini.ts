@@ -205,7 +205,7 @@ async function buildSystemInstruction(
 3. **リマインド:** 時刻指定・繰り返し（cron式）のリマインドを設定できます。
 4. **家計管理:** 収入・支出の記録、月間サマリー、カテゴリ別内訳、予算上限、支払い予定の登録と消込。
 5. **メモ:** コンテキストノート（長期）、クリップボード（短期・TTL付き）、連絡先管理。
-6. **会話ログ検索:** 過去の会話履歴をキーワード・期間で検索して要約できます（searchConversationLogs）。
+6. **会話ログ要約:** 過去の会話履歴を話題（キーワード）や期間で振り返り、時系列でまとめられます（summarizeConversationTopic）。
 7. **朝報・日報・週報:** 天気・ニュースの定期配信や日次・週次レポートの設定を変更できます（configureBriefing / configureReport）。
 8. **インタラクティブブラウザ操作（ブラウザ自動化）:** ユーザーの代わりに特定のWebサイトを開き、入力、クリック、待機、ステータス確認などのインタラクティブ操作を行います。
    - **【最重要】一意の数値IDの最優先利用**: \`browserInteractiveStatus\` で取得できるマークダウン内の入力フィールドやボタンなどの要素には、\`[Input (text) ID: 2]\` や \`[Button ID: 3]\` のように **\`ID: 数値\`**（一意の数値ID）が一意に付与されています。
@@ -247,7 +247,13 @@ async function buildRecallSection(
 	const q = query.trim();
 	if (!q) return "";
 	const t0 = Date.now();
-	const recall = await assembleRecall(scope, q, config.synapseRecallK);
+	// 時刻バイアスが有効（重み>0）なら現在の時間帯・曜日を渡して再ランキングさせる。
+	const now = new Date();
+	const recall = await assembleRecall(scope, q, config.synapseRecallK, {
+		nowTod: now.getHours(),
+		nowDow: now.getDay(),
+		timeWeight: config.synapseTimeBiasWeight,
+	});
 	recordLatency("assemble", Date.now() - t0);
 	if (!recall || recall.synapses.length === 0) {
 		incrMetric("recall_empty");

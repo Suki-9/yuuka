@@ -48,12 +48,16 @@ export function insertSynapse(args: {
 	content: string;
 	topicId?: string | null;
 	sourceMsgId?: number | null;
+	/** 形成時の時間帯（0-23）。再ランキング専用。未指定は NULL（文脈未知）。 */
+	ctxTod?: number | null;
+	/** 形成時の曜日（0=日〜6=土）。再ランキング専用。未指定は NULL（文脈未知）。 */
+	ctxDow?: number | null;
 }): number {
 	const db = getDb();
 	const info = db
 		.prepare(
-			`INSERT INTO synapses (user_id, bot_id, guild_id, content, topic_id, source_msg_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO synapses (user_id, bot_id, guild_id, content, topic_id, source_msg_id, ctx_tod, ctx_dow)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			args.scope.userId,
@@ -62,6 +66,8 @@ export function insertSynapse(args: {
 			args.content,
 			args.topicId ?? null,
 			args.sourceMsgId ?? null,
+			args.ctxTod ?? null,
+			args.ctxDow ?? null,
 		);
 	return Number(info.lastInsertRowid);
 }

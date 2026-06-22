@@ -266,6 +266,12 @@ export async function assembleRecall(
 	scope: SynapseScope,
 	query: string,
 	k = 8,
+	/**
+	 * 時刻文脈の再ランキング指定（任意）。意味KNN後にコサインスコアへ補正をかける。
+	 * timeWeight=0（既定）または未指定のとき Rust 側は補正しない＝純粋な意味KNN。
+	 * nowTod=現在の時間帯(0-23) / nowDow=現在の曜日(0=日〜6=土)。
+	 */
+	timeCtx?: { nowTod: number; nowDow: number; timeWeight: number },
 ): Promise<RecallResult | null> {
 	const daemon = getDaemon();
 	if (!daemon) return null;
@@ -273,7 +279,19 @@ export async function assembleRecall(
 		// assemble は短いタイムアウト（既定 2500ms）でユーザー応答を遅延させない
 		const result = (await daemon.send(
 			"assemble",
-			{ scope: toWireScope(scope), query, k },
+			{
+				scope: toWireScope(scope),
+				query,
+				k,
+				// 重みが正のときのみ時刻文脈を送る（既定は送らず Rust 側を素通り）。
+				...(timeCtx && timeCtx.timeWeight > 0
+					? {
+							now_tod: timeCtx.nowTod,
+							now_dow: timeCtx.nowDow,
+							time_weight: timeCtx.timeWeight,
+						}
+					: {}),
+			},
 			2500,
 		)) as {
 			synapses?: Array<{
@@ -308,13 +326,22 @@ export async function indexSynapse(
 	scope: SynapseScope,
 	topicId: string | null,
 	content: string,
+	/** 形成時の時刻文脈（再ランキング専用）。未知なら null。 */
+	timeCtx?: { ctxTod: number | null; ctxDow: number | null },
 ): Promise<{ embeddingB64: string; modelVersion: string; dim: number } | null> {
 	const daemon = getDaemon();
 	if (!daemon) return null;
 	try {
 		const result = (await daemon.send(
 			"index",
-			{ sid: id, scope: toWireScope(scope), topic_id: topicId, content },
+			{
+				sid: id,
+				scope: toWireScope(scope),
+				topic_id: topicId,
+				content,
+				ctx_tod: timeCtx?.ctxTod ?? null,
+				ctx_dow: timeCtx?.ctxDow ?? null,
+			},
 			8000,
 		)) as {
 			embedding_b64?: string;

@@ -25,7 +25,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use embedder::{Embedder, HashNgramEmbedder};
-use index::{vector_to_le_bytes, Entry, Scope, SynapseIndex};
+use index::{vector_to_le_bytes, Entry, Scope, SynapseIndex, TimeContext};
 
 // ─── Daemon IPC プロトコル（凍結・Node クライアントと厳密一致） ─────────────────
 // Request:  {"id": <u64>, "command": <string>, ...fields}
@@ -120,6 +120,13 @@ struct AssembleReq {
     query: String,
     #[serde(default = "default_k")]
     k: usize,
+    // 時刻文脈（再ランキング・任意）。time_weight 省略/0 のときは補正しない。
+    #[serde(default)]
+    now_tod: Option<i64>,
+    #[serde(default)]
+    now_dow: Option<i64>,
+    #[serde(default)]
+    time_weight: Option<f32>,
 }
 fn default_k() -> usize {
     5
@@ -132,6 +139,11 @@ struct IndexReq {
     #[serde(default)]
     topic_id: Option<String>,
     content: String,
+    // 形成時の時刻文脈（再ランキング専用・任意）。
+    #[serde(default)]
+    ctx_tod: Option<i64>,
+    #[serde(default)]
+    ctx_dow: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -192,7 +204,18 @@ impl Engine {
                 Ok(r) => {
                     let scope: Scope = r.scope.into();
                     let qvec = self.embedder.embed(&r.query);
-                    let neighbors = self.index.knn(&scope, &qvec, r.k);
+                    // 時刻文脈は now_tod/now_dow/time_weight が揃ったときのみ構築。
+                    let time_ctx = match (r.now_tod, r.now_dow, r.time_weight) {
+                        (Some(now_tod), Some(now_dow), Some(weight)) if weight > 0.0 => {
+                            Some(TimeContext {
+                                now_tod,
+                                now_dow,
+                                weight,
+                            })
+                        }
+                        _ => None,
+                    };
+                    let neighbors = self.index.knn(&scope, &qvec, r.k, time_ctx);
                     let synapses: Vec<Value> = neighbors
                         .into_iter()
                         .map(|n| {
@@ -229,6 +252,8 @@ impl Engine {
                             topic_id: r.topic_id,
                             content: r.content,
                             vector,
+                            ctx_tod: r.ctx_tod,
+                            ctx_dow: r.ctx_dow,
                         },
                     );
 

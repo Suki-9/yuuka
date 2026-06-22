@@ -40,7 +40,7 @@ pub fn load_index(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, user_id, bot_id, guild_id, content, topic_id, embedding \
+            "SELECT id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow \
              FROM synapses WHERE embedding IS NOT NULL",
         )
         .map_err(|e| format!("クエリ準備に失敗: {}", e))?;
@@ -54,7 +54,11 @@ pub fn load_index(
             let content: String = row.get(4)?;
             let topic_id: Option<String> = row.get(5)?;
             let embedding: Vec<u8> = row.get(6)?;
-            Ok((id, user_id, bot_id, guild_id, content, topic_id, embedding))
+            let ctx_tod: Option<i64> = row.get(7)?;
+            let ctx_dow: Option<i64> = row.get(8)?;
+            Ok((
+                id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow,
+            ))
         })
         .map_err(|e| format!("行の読み出しに失敗: {}", e))?;
 
@@ -62,13 +66,14 @@ pub fn load_index(
     let expected_bytes = dim * 4;
 
     for row in rows {
-        let (id, user_id, bot_id, guild_id, content, topic_id, embedding) = match row {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("[synapse] 行の取得をスキップ: {}", e);
-                continue;
-            }
-        };
+        let (id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow) =
+            match row {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[synapse] 行の取得をスキップ: {}", e);
+                    continue;
+                }
+            };
 
         let vector = match le_bytes_to_vector(&embedding) {
             Some(v) if v.len() * 4 == expected_bytes => v,
@@ -103,6 +108,8 @@ pub fn load_index(
                 topic_id,
                 content,
                 vector,
+                ctx_tod,
+                ctx_dow,
             },
         );
         loaded += 1;

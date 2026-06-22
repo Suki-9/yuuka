@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "10";
+const SCHEMA_VERSION = "11";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -652,11 +652,21 @@ function migrateToSynapseEngine(db: ReturnType<typeof getDb>): void {
       created_at              TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
       last_used_at            TEXT,                 -- 想起されるたび更新（鮮度）
       use_count               INTEGER NOT NULL DEFAULT 0,
-      decay_score             REAL    NOT NULL DEFAULT 1.0  -- 想起の強度/減衰（退避の駆動値）
+      decay_score             REAL    NOT NULL DEFAULT 1.0, -- 想起の強度/減衰（退避の駆動値）
+      -- v11: 時刻文脈（再ランキング専用。意味埋め込みには混ぜない）。
+      -- 抽出時の現地時刻から導出。NULL=文脈未知（再ランキングで中立扱い）。
+      ctx_tod                 INTEGER,              -- 形成時の時間帯（0-23）
+      ctx_dow                 INTEGER               -- 形成時の曜日（0=日〜6=土）
     );
     CREATE INDEX IF NOT EXISTS idx_synapses_user  ON synapses(user_id, bot_id);
     CREATE INDEX IF NOT EXISTS idx_synapses_topic ON synapses(user_id, bot_id, topic_id);
   `);
+
+  // 既存DB（v10 以前で synapses 作成済み）向けに不足列を追加（冪等）。
+  ensureColumns(db, "synapses", [
+    { name: "ctx_tod", ddl: "ctx_tod INTEGER" },
+    { name: "ctx_dow", ddl: "ctx_dow INTEGER" },
+  ]);
 }
 
 export async function runMigrations(): Promise<void> {

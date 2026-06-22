@@ -32,6 +32,47 @@ pub struct Entry {
     pub topic_id: Option<String>,
     pub content: String,
     pub vector: Vec<f32>,
+    /// 形成時の時間帯（0-23）。再ランキング専用。None=文脈未知（中立扱い）。
+    pub ctx_tod: Option<i64>,
+    /// 形成時の曜日（0=日〜6=土）。再ランキング専用。None=文脈未知（中立扱い）。
+    pub ctx_dow: Option<i64>,
+}
+
+/// 想起時の時刻文脈（再ランキング指定）。意味KNN後にスコアへ補正をかける。
+/// weight=0 のときは補正しない（純粋な意味KNN）。
+#[derive(Clone, Copy, Debug)]
+pub struct TimeContext {
+    pub now_tod: i64,
+    pub now_dow: i64,
+    pub weight: f32,
+}
+
+/// 時刻近接度 [0,1]。1=完全一致、0=最遠。環状距離（24h/7d の周期）で算出。
+/// tod/dow の双方が None なら 0.5（中立）。片方のみ既知ならその次元のみで判定。
+fn time_affinity(entry: &Entry, ctx: &TimeContext) -> f32 {
+    let mut sum = 0.0f32;
+    let mut n = 0u32;
+    if let Some(tod) = entry.ctx_tod {
+        let d = circular_distance(tod, ctx.now_tod, 24);
+        sum += 1.0 - (d as f32) / 12.0; // 最大環状距離 12
+        n += 1;
+    }
+    if let Some(dow) = entry.ctx_dow {
+        let d = circular_distance(dow, ctx.now_dow, 7);
+        sum += 1.0 - (d as f32) / 3.5; // 最大環状距離 3.5
+        n += 1;
+    }
+    if n == 0 {
+        0.5 // 文脈未知＝中立（補正ゼロになる）
+    } else {
+        sum / n as f32
+    }
+}
+
+/// 周期 `period` 上での環状距離（0〜period/2）。
+fn circular_distance(a: i64, b: i64, period: i64) -> i64 {
+    let raw = (a - b).abs() % period;
+    raw.min(period - raw)
 }
 
 /// 1スコープあたりの保持上限。超過時は最小 id を退避（FIFO 近似）し、
@@ -126,7 +167,15 @@ impl SynapseIndex {
     }
 
     /// 指定スコープに対する総当たりコサイン KNN（スコア降順、最大 k 件）。
-    pub fn knn(&self, scope: &Scope, query: &[f32], k: usize) -> Vec<Neighbor> {
+    /// `time_ctx` 指定かつ weight>0 のとき、コサインスコアへ時刻近接の補正をかける
+    /// （意味埋め込みは変えず、最終スコアのみ再ランキング）。
+    pub fn knn(
+        &self,
+        scope: &Scope,
+        query: &[f32],
+        k: usize,
+        time_ctx: Option<TimeContext>,
+    ) -> Vec<Neighbor> {
         let bucket = match self.buckets.get(scope) {
             Some(b) => b,
             None => return Vec::new(),
@@ -134,7 +183,17 @@ impl SynapseIndex {
 
         let mut scored: Vec<(f32, &Entry)> = bucket
             .iter()
-            .map(|e| (cosine(query, &e.vector), e))
+            .map(|e| {
+                let base = cosine(query, &e.vector);
+                // 時刻補正: weight*(affinity-0.5)。affinity=0.5（中立/文脈未知）で補正ゼロ。
+                let score = match time_ctx {
+                    Some(ctx) if ctx.weight > 0.0 => {
+                        base + ctx.weight * (time_affinity(e, &ctx) - 0.5)
+                    }
+                    _ => base,
+                };
+                (score, e)
+            })
             .collect();
 
         // スコア降順（NaN は最後尾相当に倒す）。

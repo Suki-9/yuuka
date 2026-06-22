@@ -141,17 +141,28 @@ export async function maybeExtractSynapse(args: {
 		if (SECRET_GUARD_RE.test(content)) return;
 		if (containsSecretValue(content)) return;
 
+		// 形成時の時刻文脈（再ランキング専用）。現地時刻の時間帯・曜日を記録する。
+		// 意味埋め込みには混ぜない。SYNAPSE_TIME_BIAS_WEIGHT=0 のとき想起では未使用。
+		const now = new Date();
+		const ctxTod = now.getHours(); // 0-23
+		const ctxDow = now.getDay(); // 0=日〜6=土
+
 		// 永続化（Node が SQLite の唯一の書き手）。
 		const id = insertSynapse({
 			scope: args.scope,
 			content,
 			topicId,
 			sourceMsgId: args.sourceMsgId ?? null,
+			ctxTod,
+			ctxDow,
 		});
 
 		// RAM 索引へ登録し、埋め込み(base64)を受け取って永続化する。
 		// エンジンが落ちていれば null（行は埋め込みなしで残る → 将来の reindex で補完）。
-		const indexed = await indexSynapse(id, args.scope, topicId, content);
+		const indexed = await indexSynapse(id, args.scope, topicId, content, {
+			ctxTod,
+			ctxDow,
+		});
 		if (indexed) {
 			const buffer = Buffer.from(indexed.embeddingB64, "base64");
 			updateSynapseEmbedding(id, buffer, indexed.modelVersion);

@@ -150,6 +150,16 @@ export const config = {
 	/** R1: L2 想起(1st Hop KNN)の取得件数。 */
 	synapseRecallK: parseInt(getSetting("SYNAPSE_RECALL_K", "5"), 10),
 
+	/**
+	 * R1: 時刻文脈の再ランキング重み。0=無効(意味KNNのみ／現挙動)。
+	 * KNN後に「現在の時間帯・曜日」とシナプス形成時の時間帯・曜日の環状近接で
+	 * コサインスコアへ補正をかける（意味埋め込みには一切混ぜない）。
+	 * 推奨レンジ 0.0〜0.3 程度（0.1 で軽い時刻バイアス）。
+	 */
+	synapseTimeBiasWeight: Number.parseFloat(
+		getSetting("SYNAPSE_TIME_BIAS_WEIGHT", "0"),
+	),
+
 	/** 計測: §10 ベースライン指標の定期ログ出力を有効化する。 */
 	metricsEnabled: getSetting("METRICS_ENABLED", "false") === "true",
 };
