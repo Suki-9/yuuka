@@ -646,16 +646,20 @@ export async function processMessage(
       { recordActions: true }
     );
 
-    // 最終テキスト応答を永続ログへ保存
-    if (text && text.trim()) {
-      await addMessageLog(userId, botId, "assistant", text);
-      return { text, embeds: ctx.embeds, files: ctx.files };
-    } else {
-      if (browserToolCalled || browserToolFailed) {
-        return { text: "ブラウザ操作に失敗しました。求めた結果が得られませんでした。", embeds: ctx.embeds, files: ctx.files };
-      }
-      return { text: "処理が完了しました。", embeds: ctx.embeds, files: ctx.files };
-    }
+    // 最終テキスト応答を決定し、実際に返す文面を必ず会話ログへ保存する。
+    // 重要: 空応答時のフォールバック定型文も保存すること。これを怠ると当該ターンに
+    // assistant の記録が一切残らず、次ターンのコンテキストではユーザーの元の要求が
+    // 「未応答」のまま見えてしまう。するとモデルがその要求を満たそうとして直前の
+    // ブラウザ操作（ページ取得・Web検索）を勝手に再実行し、daemon が暖まった2回目は
+    // 成功するため「前回のブラウザ操作の結果」を次の命令で返す回帰が起きる。
+    const replyText =
+      text && text.trim()
+        ? text
+        : browserToolCalled || browserToolFailed
+          ? "ブラウザ操作に失敗しました。求めた結果が得られませんでした。"
+          : "処理が完了しました。";
+    await addMessageLog(userId, botId, "assistant", replyText);
+    return { text: replyText, embeds: ctx.embeds, files: ctx.files };
   } catch (error) {
     if (error instanceof Error && error.message.includes("API Key")) {
       return { text: `⚠️ ${error.message}`, embeds: [], files: [] };
@@ -954,11 +958,11 @@ export async function processGuildMessage(
 
     const { text } = await runFunctionCallingLoop(ai, systemInstruction, registry, contents, ctx, onStatusChange);
 
-    if (text && text.trim()) {
-      await addGuildMessageLog(botId, guildId, speaker.userId, "assistant", text);
-      return { text, embeds: ctx.embeds, files: ctx.files };
-    }
-    return { text: "処理が完了しました。", embeds: ctx.embeds, files: ctx.files };
+    // 空応答時のフォールバック定型文も必ずログへ保存する（assistant の記録欠落により
+    // ユーザー要求が次ターンで「未応答」扱いとなり、直前操作が再実行されるのを防ぐ）。
+    const replyText = text && text.trim() ? text : "処理が完了しました。";
+    await addGuildMessageLog(botId, guildId, speaker.userId, "assistant", replyText);
+    return { text: replyText, embeds: ctx.embeds, files: ctx.files };
   } catch (error) {
     return guildErrorResult(error);
   }
@@ -1038,11 +1042,11 @@ export async function processBotDmMessage(
 
     const { text } = await runFunctionCallingLoop(ai, systemInstruction, registry, contents, ctx, onStatusChange);
 
-    if (text && text.trim()) {
-      await addBotDmMessageLog(botId, owner.userId, "assistant", text);
-      return { text, embeds: ctx.embeds, files: ctx.files };
-    }
-    return { text: "処理が完了しました。", embeds: ctx.embeds, files: ctx.files };
+    // 空応答時のフォールバック定型文も必ずログへ保存する（assistant の記録欠落により
+    // ユーザー要求が次ターンで「未応答」扱いとなり、直前操作が再実行されるのを防ぐ）。
+    const replyText = text && text.trim() ? text : "処理が完了しました。";
+    await addBotDmMessageLog(botId, owner.userId, "assistant", replyText);
+    return { text: replyText, embeds: ctx.embeds, files: ctx.files };
   } catch (error) {
     return guildErrorResult(error);
   }
