@@ -6,6 +6,7 @@ import { browserInteractiveType } from "../services/browserService.js";
 import {
 	isCredentialGrantedToBot,
 	grantCredentialToBot,
+	listCredentialNamesForBot,
 	deleteAllGrantsForCredential,
 } from "../db/credentialAccessRepo.js";
 
@@ -167,12 +168,19 @@ const declarations: FunctionDeclaration[] = [
 const handlers: FunctionModule["handlers"] = {
 	// 登録済みサービス一覧（§6.4 list_services。パスワードは含まない）
 	async listCredentialServices(ctx: ToolContext): Promise<string> {
-		const services = secretService.listCredentialServices(ctx.userId);
+		// v5: 当該Botへ利用を許可済み（bot_credential_access）の認証情報のみを返す。
+		// browserFillCredential の isCredentialGrantedToBot ゲート、および HTTP /api/credentials と
+		// 一致させ、未許可Botに他の認証情報（サービス名・ユーザー名・URL）を露出させない。
+		// 一覧だけ全件見えて利用時にゲートで弾かれる「認識の不整合」を防ぐ。
+		const grantedSet = new Set(listCredentialNamesForBot(ctx.botId, ctx.userId));
+		const services = secretService
+			.listCredentialServices(ctx.userId)
+			.filter((s) => grantedSet.has(s.service_name));
 		if (services.length === 0) {
 			return JSON.stringify({
 				success: true,
 				message:
-					"パスワードマネージャに登録済みの認証情報はありません。addCredential で登録できます。",
+					"このBotが利用を許可された認証情報はありません。addCredential で登録すると自動的にこのBotへ許可されます。既存の認証情報は統合管理ページ（Bot統合管理）でこのBotへ利用を許可してください。",
 				services: [],
 			});
 		}
