@@ -1,0 +1,18 @@
+# ビルドコンテキストから除外（ビルド成果物・実行時データ・秘密情報）
+.git
+node_modules
+dist
+data
+scratch
+docs/design
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/*.db.bak-*
+src/rust_crawler/target
+deploy/*/data
+deploy/*/secret.key
+deploy/*/secret.key.new
+*.code-workspace
+.env

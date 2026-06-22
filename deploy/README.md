@@ -1,0 +1,60 @@
+# Yuuka Docker デプロイ / 複数インスタンス運用
+
+同一ホスト上で Yuuka を **複数インスタンス**（本番 `prod` / 開発 `dev` / 任意の `<name>`）として
+互いに隔離して起動するための Docker 構成です。1つの `Dockerfile` / `docker-compose.yml` を
+インスタンスごとの設定で使い回します。
+
+## 構成
+
+```
+Dockerfile              マルチステージ（rust crawler → tsgo build → system-chromium 同梱 runtime）
+docker-compose.yml      パラメータ化された app + redis（インスタンス専用 redis を同梱）
+deploy/
+  instance.sh           インスタンス操作ヘルパー
+  prod/
+    instance.env        非機密の起動パラメータ（ポート/データパス/プロジェクト名 …）
+    secret.key          暗号化シークレット（YUUKA_ENCRYPTION_SECRET）※gitignore
+    config.yaml         システム共通設定（:ro マウント）※gitignore
+  dev/
+    instance.env / secret.key / config.yaml / data/
+```
+
+### 隔離のしくみ
+- **プロジェクト名**（`COMPOSE_PROJECT_NAME`）でコンテナ/ネットワーク/ボリュームを名前空間分離
+- **データ**: `DATA_DIR` を `/app/data` に bind マウント（DB・スクショ・ブラウザプロファイル等は全てこの下）
+- **Redis**: インスタンスごとに専用コンテナ（キャッシュ専用・非永続。落ちても SQLite から再構築）
+- **ポート**: `HOST_PORT` をホスト側 `127.0.0.1` に公開（外部公開はリバースプロキシ/トンネル経由）
+- **シークレット**: `secret.key` をシェル経由で literal に渡す（`$` 等を含むため compose 変数展開を回避）
+
+## 使い方
+
+```bash
+# ビルド（初回・コード更新時）
+deploy/instance.sh prod build          # = docker compose ... build
+
+# 起動 / 停止 / ログ / 状態
+deploy/instance.sh prod up -d
+deploy/instance.sh prod logs -f
+deploy/instance.sh prod ps
+deploy/instance.sh prod down
+
+deploy/instance.sh dev up -d           # 開発インスタンス（ホスト :7855）
+```
+
+## 新しいインスタンスを追加する
+1. `deploy/<name>/` を作成し `instance.env` / `config.yaml` / `secret.key` を用意
+   （`COMPOSE_PROJECT_NAME` と `HOST_PORT` は他と重複させない）
+2. `openssl rand -base64 48 | tr -d '\n' > deploy/<name>/secret.key && chmod 600 …`
+3. `deploy/instance.sh <name> up -d`
+
+## 暗号化シークレットのローテーション
+1. `deploy/<name>/secret.key.new` に新しい鍵を置く（instance.sh が `YUUKA_ENCRYPTION_SECRET_NEW` として渡す）
+2. `deploy/instance.sh <name> up -d` → 起動時に全暗号化データが新鍵で再暗号化される
+3. 完了後 `secret.key` を新鍵に置き換え、`secret.key.new` を削除して再起動
+
+## 本番ロールバック（systemd へ戻す）
+コンテナと systemd は同じ `data/` を共有するため **同時起動は不可**（SQLite WAL 単一ライター）。
+```bash
+deploy/instance.sh prod down
+sudo systemctl start yuuka       # 旧 systemd 運用へ復帰
+```

@@ -1,0 +1,52 @@
+# ==============================================================================
+# Yuuka - パラメータ化 docker-compose
+# 1つの定義を複数インスタンス（prod / dev / ...）で使い回す。
+# インスタンス固有値は deploy/<name>/instance.env（--env-file で注入）と
+# deploy/<name>/secret.key（暗号化シークレット、シェル経由でパススルー）で与える。
+#
+#   起動例:  ./deploy/instance.sh prod up -d
+#            ./deploy/instance.sh dev  up -d
+#
+# 重要: 暗号化シークレットは "$" 等を含むため compose の変数展開を通さず、
+#       environment の pass-through 形式（値なし）でホスト環境変数から literal 注入する。
+#       instance.sh が `export YUUKA_ENCRYPTION_SECRET="$(cat secret.key)"` してから呼ぶ。
+# ==============================================================================
+
+services:
+  app:
+    image: yuuka:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      - NODE_ENV=production
+      # pass-through（compose の変数展開を回避し literal で渡す）
+      - YUUKA_ENCRYPTION_SECRET
+      - YUUKA_ENCRYPTION_SECRET_NEW
+      - TRUSTED_PROXIES
+    volumes:
+      - "${DATA_DIR:?set DATA_DIR in instance.env}:/app/data"
+      - "${CONFIG_FILE:?set CONFIG_FILE in instance.env}:/app/config.yaml:ro"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:?set HOST_PORT in instance.env}:7854"
+    depends_on:
+      - redis
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # キャッシュ専用途のため永続化しない（再作成時は SQLite から再構築される）
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
