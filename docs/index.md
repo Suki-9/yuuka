@@ -16,8 +16,11 @@ docs/
 ├── spec/                    ← 機能仕様・要件
 │   ├── discordbot_spec.md
 │   └── bot_attributes_requirements.md
-└── skills/                  ← LLM 実行時に注入されるスキル仕様
-    └── search_skills.md
+├── skills/                  ← LLM 実行時に注入されるスキル仕様
+│   └── search_skills.md
+└── design/                  ← 将来構想の設計方針（提案 / 未実装）
+    ├── synapse_cognitive_architecture.md   ← 設計思想・研究裏付け
+    └── architecture_renewal_v3.md          ← 全体アーキテクチャ一新案（Rustエンジン/トポロジ）
 ```
 
 ---
@@ -53,3 +56,12 @@ LLM が `searchWeb` / `fetchDynamicPage` を使う際の推奨ドメイン・ク
 
 ### （横断）[project_overview.md](project_overview.md) — AI オンボーディングガイド
 リポジトリ全体のアーキテクチャ図・ディレクトリ/モジュールマップ・主要ランタイムフロー・不変条件・コーディング規約を 1 枚に集約。新規参加者（人間・AI）の最初の入口。
+
+---
+
+## 🧪 提案・将来構想（未実装 / 権威順序の外）
+
+実装規範ではなく、まだ確定していない設計方針。現行コードへの拘束力はない（着手時に architecture へ昇格）。
+
+- [design/synapse_cognitive_architecture.md](design/synapse_cognitive_architecture.md) — **シナプス駆動 認知アーキテクチャ設計方針書**（思想・研究裏付け）。軽量LLMの思考補助を「生履歴注入」から「データ層へ外付けしたシナプス記憶＋2-Hop連想」へ刷新する提案。ハイブリッドLLM構成（重い推論=Gemini / 前処理=ローカル軽量LLM）、記憶エンジン比較（SQLite+sqlite-vec vs DuckDB）、構造化出力の推論劣化回避＋ペルソナ両立、投機的実行、評価指標、段階導入ロードマップを研究裏付け付きで記述。
+- [design/architecture_renewal_v3.md](design/architecture_renewal_v3.md) — **全体アーキテクチャ一新案（v3 提案）**（システム実装面）。シナプス関連を **Rust の独立プロセス**（埋め込み/USearch索引/2-Hop/勝率集計）として切り出し、Node(V8)のメモリトラブルを回避する 3 プロセス構成（Node / Rustシナプスエンジン / ローカルSLM）。プロセストポロジ・制御フロー・Rustエンジン設計・メモリ安全設計・データ所有/不変条件保全・Stranglerパターンの段階移行を記述。
