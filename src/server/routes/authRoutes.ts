@@ -14,7 +14,7 @@ import { validatePassword } from "../../services/passwordPolicy.js";
 import {
 	createUser,
 	getUserByDiscordId,
-	verifyPassword,
+	verifyPasswordConstantTime,
 	listAllUsers,
 } from "../../db/userRepo.js";
 import { isValidCode, validateAndConsumeCode } from "../../db/inviteRepo.js";
@@ -391,7 +391,14 @@ export const authRoutes: RouteDef[] = [
 
 			const user = getUserByDiscordId(cleanDiscordId);
 
-			if (user && verifyPassword(password, user.password_hash)) {
+			// タイミングオラクル対策: ユーザー不在でも一定の bcrypt 比較時間を消費し、
+			// 応答時間差による Discord ID の存在判定（アカウント列挙）を防ぐ。
+			const passwordOk = verifyPasswordConstantTime(
+				password,
+				user?.password_hash,
+			);
+
+			if (user && passwordOk) {
 				// ログイン成功：試行カウントをリセット
 				loginAttempts.delete(rlKey);
 

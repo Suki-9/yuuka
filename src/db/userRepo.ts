@@ -107,6 +107,29 @@ export function verifyPassword(password: string, storedHash: string): boolean {
 	}
 }
 
+// タイミング均一化用のダミーハッシュ（BCRYPT_COST と同コストで生成済み）。
+// ユーザーが存在しない場合でも同等の bcrypt 比較時間を消費し、応答時間差による
+// アカウント列挙（存在判定）を防ぐ。コストを変更したらこの値も再生成すること。
+const DUMMY_PASSWORD_HASH =
+	"$2b$12$tvcUPxX5xmqpVZCS6aSDQe7WKkrXvMd8batVtwbJFI1uJ42EzpGlG";
+
+/**
+ * ユーザー有無に依らず一定の bcrypt 比較時間を消費したうえでパスワードを照合する。
+ * storedHash が null（＝ユーザー不在）でもダミーハッシュとの比較を行い、必ず false を返す。
+ * ログイン処理でのタイミングオラクル（アカウント列挙）対策に用いる。
+ */
+export function verifyPasswordConstantTime(
+	password: string,
+	storedHash: string | null | undefined,
+): boolean {
+	if (!storedHash) {
+		// ユーザー不在でもダミー比較で時間を消費し、存在判定を防ぐ
+		verifyPassword(password, DUMMY_PASSWORD_HASH);
+		return false;
+	}
+	return verifyPassword(password, storedHash);
+}
+
 // ─── ユーザーCRUD ────────────────────────────────────────────────────────────
 
 /**

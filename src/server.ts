@@ -195,6 +195,13 @@ export async function serverHandler(
 				}
 			}
 		}
+		// HSTS: HTTPS本番デプロイ時は全レスポンスに付与する（SSLストリッピング対策）。
+		// setHeader で先に積むことで、以降の writeHead（静的配信・API・エラー）すべてに反映される。
+		// 2年・サブドメイン込み。preload は申請が伴うため運用判断に委ねて含めない。
+		res.setHeader(
+			"Strict-Transport-Security",
+			"max-age=63072000; includeSubDomains",
+		);
 	}
 
 	// 2. CORS対応 (ローカル接続または信頼されたオリジンに限定)
