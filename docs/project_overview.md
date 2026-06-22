@@ -11,7 +11,7 @@
 **Yuuka** は Google **Gemini API** を使った **Discord 秘書ボット** と **Web 管理ダッシュボード** を 1 プロセスで統合運用するソフトウェアです。
 
 - 1 つの Node.js プロセスが「Discord Bot ランタイム」「LLM 対話エンジン」「HTTP 管理サーバ」「多数のバックグラウンド常駐ジョブ」を同時に動かす。
-- LLM は **Function Calling** で約 70 種のツール（ToDo・家計・予定・リマインド・ブラウザ操作・パスワードマネージャ・MCP 等）を呼び出して秘書業務を遂行する。
+- LLM は **Function Calling** で約 75 種のツール（ToDo・家計・予定・リマインド・ブラウザ操作・パスワードマネージャ・MCP・リッチ表示 等）を呼び出して秘書業務を遂行する。
 - 全ユーザーデータは **Discord ユーザー ID 単位で完全分離**。これは設計の最重要不変条件（§8 参照）。
 - Bot は 2 つの動作モードを持つ: **秘書モード（secretary）**＝個人 DM 中心・ユーザー自身の Gemini 鍵、**汎用モード（MCP アシスタント）**＝ギルド常駐・Bot 専用 Gemini 鍵。
 
@@ -34,6 +34,7 @@
 | 暗号 | `@node-rs/argon2`（PW マネージャ用）/ Node `crypto`（AES-256-GCM） |
 | 認証 | `bcryptjs`(cost 12) + Redis セッション |
 | スケジューラ | `node-cron`（ジョブ登録）+ `cron-parser`（次回時刻計算） |
+| Lint / Format / 型 | **Biome**（`@biomejs/biome`、`pnpm lint`/`format`）+ **tsgo**（`@typescript/native-preview`、`pnpm typecheck`） |
 
 ---
 
@@ -42,8 +43,12 @@
 ```bash
 pnpm install            # 依存導入（Puppeteer が Chromium も取得）
 pnpm dev                # 開発: tsx watch src/index.ts（ホットリロード）
-pnpm build              # 本番ビルド: Rustクローラー(cargo) → アセットコピー → tsc
+pnpm build              # 本番ビルド: Rustクローラー(cargo) → アセットコピー → tsgo
 pnpm start              # 本番起動: node dist/index.js
+pnpm typecheck          # 型チェックのみ（tsgo --noEmit）
+pnpm lint / lint:fix    # Biome lint（--write で自動修正）
+pnpm format             # Biome でコード整形
+pnpm check              # typecheck + lint をまとめて実行
 ```
 
 - **Rust ツールチェイン（stable / `cargo`）が `pnpm build` に必須**（`src/rust_crawler` をビルド）。
@@ -128,11 +133,11 @@ pnpm start              # 本番起動: node dist/index.js
 
 ### 5.3 `src/db/` — リポジトリ層（SQLite, ユーザー単位分離）
 
-スキーマの**唯一の定義元は** [src/db/migrations.ts](../src/db/migrations.ts)（**schema v3** / 各 Repo はテーブルを再定義しない）。各 Repo は `xxxRepo.ts` + 型 `xxxRecord`。
+スキーマの**唯一の定義元は** [src/db/migrations.ts](../src/db/migrations.ts)（**schema v9** / 各 Repo はテーブルを再定義しない）。各 Repo は `xxxRepo.ts` + 型 `xxxRecord`。
 
 | ファイル | 役割 |
 |---|---|
-| [migrations.ts](../src/db/migrations.ts) | スキーマ v3 全定義。レガシー DROP・`bot_id` スコープ化移行・暗号化列レジストリ（鍵ローテ用）。⚠️ **変更は統合フェーズのみ** |
+| [migrations.ts](../src/db/migrations.ts) | スキーマ v9 全定義。冪等な `migrate*` 段階移行（v3 bot_id 化 → v4 MCP bot 化 → v5 owner リソース許可/Google複数 → v8 ペルソナ bot 化 → v9 手動停止）・暗号化列レジストリ（鍵ローテ用）。⚠️ **変更は統合フェーズのみ** |
 | [database.ts](../src/db/database.ts) | `better-sqlite3` 初期化、WAL / `foreign_keys=ON`、`getDb()` / `closeDb()` |
 | [redis.ts](../src/db/redis.ts) | Redis クライアント・再接続バックオフ。未接続時は `null` を返しフォールバック誘導 |
 | [userRepo.ts](../src/db/userRepo.ts) | ユーザー CRUD、bcrypt(cost12)、role(RBAC)、Gemini 鍵/Google OAuth(暗号化)、salt、通知先・各種設定 |
@@ -140,9 +145,10 @@ pnpm start              # 本番起動: node dist/index.js
 | [todoRepo.ts](../src/db/todoRepo.ts) / [expenseRepo.ts](../src/db/expenseRepo.ts) / [plannedPaymentRepo.ts](../src/db/plannedPaymentRepo.ts) | ToDo / 収支台帳・月次集計・予算 / 繰り返し支払い・消込リンク |
 | [reminderRepo.ts](../src/db/reminderRepo.ts) / [scheduleRepo.ts](../src/db/scheduleRepo.ts) | リマインド（cron・複数 source）/ Google カレンダー同期予定 |
 | [contactRepo.ts](../src/db/contactRepo.ts) / [contextNoteRepo.ts](../src/db/contextNoteRepo.ts) / [clipboardRepo.ts](../src/db/clipboardRepo.ts) | 連絡先 / コンテキストノート(≤10k) / 揮発クリップボード(TTL) |
-| [credentialRepo.ts](../src/db/credentialRepo.ts) | PW マネージャ永続化（Argon2id+AES-256-GCM、一覧は暗号列を SELECT しない） |
-| [botRepo.ts](../src/db/botRepo.ts) | Bot インスタンス CRUD、トークン暗号化、Bot 共有（pending/active/revoked）、`hasBotAccess` |
+| [credentialRepo.ts](../src/db/credentialRepo.ts) / [credentialAccessRepo.ts](../src/db/credentialAccessRepo.ts) | PW マネージャ永続化（Argon2id+AES-256-GCM、一覧は暗号列を SELECT しない）/ Bot ごとの認証情報利用許可（`bot_credential_access`） |
+| [botRepo.ts](../src/db/botRepo.ts) | Bot インスタンス CRUD、トークン暗号化、Bot 共有（pending/active/revoked）、`hasBotAccess`、手動停止フラグ `stopped`（v9）、Bot 専用 Gemini 鍵・Bot 単位ペルソナ |
 | [botAttributesRepo.ts](../src/db/botAttributesRepo.ts) / [botNoteRepo.ts](../src/db/botNoteRepo.ts) | Bot 能力プリセット・ギルド許可/メンバー / Bot スコープのノート（個人・ギルド共有） |
+| [googleAccountRepo.ts](../src/db/googleAccountRepo.ts) | Google 複数アカウント連携（`user_google_accounts` 〔owner 単位・primary フラグ〕、Bot ごとのアカウント割り当て `bot_google_account`。v5） |
 | [personaRepo.ts](../src/db/personaRepo.ts) | ペルソナ（≤20k、公開フラグ、マーケットプレイス） |
 | [webhookRepo.ts](../src/db/webhookRepo.ts) / [mcpRepo.ts](../src/db/mcpRepo.ts) | 受信 Webhook エンドポイント・配信監査 / MCP サーバ（system/user スコープ・tools キャッシュ） |
 | [briefingConfigRepo.ts](../src/db/briefingConfigRepo.ts) / [reportConfigRepo.ts](../src/db/reportConfigRepo.ts) | 朝報設定 / 日報・週報設定 |
@@ -158,6 +164,7 @@ pnpm start              # 本番起動: node dist/index.js
 | [sessionService.ts](../src/services/sessionService.ts) | Redis セッション（SHA256 鍵・7 日スライディング・PW 変更で全失効） |
 | [secretService.ts](../src/services/secretService.ts) | PW マネージャ高レベル API（登録/復号＋監査フック） |
 | [passwordPolicy.ts](../src/services/passwordPolicy.ts) | パスワードポリシー（8 字以上・2 種以上・1 万件ブラックリスト） |
+| [pendingRegistration.ts](../src/services/pendingRegistration.ts) | ユーザー登録の DM チャレンジ（Discord ID 所有確認）。ワンタイムコードを DM 送信し、検証成功時のみ実ユーザーを作成 |
 | [browserService.ts](../src/services/browserService.ts) | **ブラウザ自動操作の中核**（1054 行）。Rust デーモン IPC / Puppeteer フォールバック / `data-yuuka-id` 注釈 / 永続セッション。⚠️ §8 不変層 |
 | [botCapabilities.ts](../src/services/botCapabilities.ts) / [botRateLimit.ts](../src/services/botRateLimit.ts) | Bot 能力プリセット解決（secretary / mcp_assistant）/ 3 段レート制限 |
 | [actionRecorder.ts](../src/services/actionRecorder.ts) | マクロ学習用に直近 Function Call 履歴を記録（認証系・記録系は除外） |
@@ -180,7 +187,7 @@ pnpm start              # 本番起動: node dist/index.js
 
 [src/server/routeRegistry.ts](../src/server/routeRegistry.ts) が `RouteDef[]` を集約しパス照合・ボディ解析・認可・`ctx` 構築。[src/server/httpHelpers.ts](../src/server/httpHelpers.ts) がセッション Cookie 解決。各機能のルートは `src/server/routes/*.ts`:
 
-`authRoutes`（ログイン/登録）, `settingsRoutes`（個人設定・最大）, `botRoutes`, `botAttributeRoutes`, `adminRoutes`（管理・監査ログ）, `todoRoutes`, `scheduleRoutes`, `financeRoutes`, `reminderRoutes`, `personalRoutes`（ノート/クリップボード/連絡先）, `personaRoutes`, `playbookRoutes`, `credentialRoutes`, `deliveryRoutes`（朝報/日報）, `webhookRoutes`（`POST /hook/:token` のみ `auth:"none"`）, `mcpRoutes`。
+`authRoutes`（ログイン/登録・DM チャレンジ）, `settingsRoutes`（個人設定・アカウント管理〔表示名/テーマ/パスワード/本人によるアカウント削除〕・最大）, `botRoutes`（Bot 管理・招待リンク導出）, `botAttributeRoutes`, `integratedRoutes`（統合管理: Bot 起動/停止/再起動・会話履歴クリア・MCP/認証情報/Google アカウントの Bot 別利用許可）, `adminRoutes`（管理・監査ログ）, `todoRoutes`, `scheduleRoutes`, `financeRoutes`, `reminderRoutes`, `personalRoutes`（ノート/クリップボード/連絡先）, `personaRoutes`, `playbookRoutes`, `credentialRoutes`, `deliveryRoutes`（朝報/日報）, `webhookRoutes`（`POST /hook/:token` のみ `auth:"none"`）, `mcpRoutes`。
 
 認可は `RouteAuth`: `"none"` / `"user"`（セッション必須）/ `"admin"`（role 確認）。`auth:"user"` のリソースは必ず `ctx.user.discordId` でスコープする。
 
@@ -225,11 +232,11 @@ pnpm start              # 本番起動: node dist/index.js
 
 ## 7. データモデルの要点
 
-- **正規の定義元は [src/db/migrations.ts](../src/db/migrations.ts)（schema v3）**。Repo はテーブルを再定義しない。テーブル一覧と列の概要は [docs/architecture/architecture_v2.md](../docs/architecture/architecture_v2.md) §2 にも表がある。
+- **正規の定義元は [src/db/migrations.ts](../src/db/migrations.ts)（schema v9）**。Repo はテーブルを再定義しない。テーブル一覧と列の概要は [docs/architecture/architecture_v2.md](../docs/architecture/architecture_v2.md) §2 にも表がある。
 - 日時は一貫して **`'YYYY-MM-DD HH:MM:SS'`（ローカル時刻テキスト、`datetime('now','localtime')`）**。
 - 暗号化列は `[encrypted, iv, auth_tag]` の 3 つ組。種類により鍵が異なる（§8）。
 - `message_logs` / `bot_context_notes` / `bot_members` は **`users` への FK を持たない**（Web 未登録の Discord ユーザーも記録するため）。これは意図的（汎用モードの分離キー仕様）。
-- スキーマ進化: ドキュメント [architecture_v2.md](../docs/architecture/architecture_v2.md) は v2 基盤を記述、**コードは Bot スコープ拡張で v3**（`(user_id)` 制約を `(user_id, bot_id)` へ再構築、既定 `bot_id='system_default'`）。差異に注意。
+- スキーマ進化: 初版 v2 を基盤に、Bot スコープ拡張で `(user_id)` 制約を `(user_id, bot_id)` へ再構築（既定 `bot_id='system_default'`）。以降 v4=MCP bot 化 / v5=owner リソース許可・Google 複数アカウント / v8=ペルソナ bot 化 / v9=手動停止フラグ と段階移行し、**現在 v9**（履歴は [architecture_v2.md](../docs/architecture/architecture_v2.md) §2 末尾）。
 
 ---
 
@@ -254,7 +261,7 @@ pnpm start              # 本番起動: node dist/index.js
 ## 9. コーディング規約
 
 - **ESM**: 相対 import は **`.js` 拡張子付き**（例 `import { x } from "./foo.js"`）。型は明示。
-- **新規 npm 依存の追加は禁止**（導入済みのみ使用: `bcryptjs`, `@node-rs/argon2`, `rss-parser`, `@napi-rs/canvas`, `chart.js`, `cron-parser` 等）。
+- **新規 npm 依存の追加は原則禁止**（導入済みのみ使用: `bcryptjs`, `@node-rs/argon2`, `rss-parser`, `@napi-rs/canvas`, `chart.js`, `cron-parser` 等。lint/format は `@biomejs/biome`、型チェックは `tsgo`）。`pnpm check` で型 + lint を通すこと。
 - **コメント・ログは日本語**。セクション区切り `// ─── ... ───`、絵文字ログ（`🔔🌅📋💳🎂🧹💾✅❌` 等）の既存スタイルを踏襲。
 - **Function 命名**: 既存名は維持（UX 互換）、新規は lowerCamelCase。`declarations` の `description` は **日本語で具体的に**（LLM が使い分けられるよう）。名前衝突禁止。
 - **新規 HTTP ルート**: `src/server/routes/*.ts` に `RouteDef[]` を export → `server.ts` の `registerRoutes()` に登録。
@@ -283,7 +290,7 @@ pnpm start              # 本番起動: node dist/index.js
 
 1. [docs/architecture/architecture_v2.md](../docs/architecture/architecture_v2.md) — **実装規範・不変条件**（§0 do-not-change、§2 スキーマ、§10 ファイル所有マップ）。仕様と矛盾したら**こちらが優先**。
 2. [docs/spec/bot_attributes_requirements.md](../docs/spec/bot_attributes_requirements.md) — Bot 動作モード拡張（capability、2 層メモリ、汎用モードのスコープ）。
-3. [docs/spec/discordbot_spec.md](../docs/spec/discordbot_spec.md) — **マスター機能仕様 v0.6.1**（§3 機能、§5 ユーザー/Bot、§6 PW マネージャ、§7 会話履歴、§8 バックアップ、§9 外部連携）。
+3. [docs/spec/discordbot_spec.md](../docs/spec/discordbot_spec.md) — **マスター機能仕様 v0.6.2**（§3 機能、§5 ユーザー/Bot、§6 PW マネージャ、§7 会話履歴、§8 バックアップ、§9 外部連携）。
 4. [docs/skills/search_skills.md](../docs/skills/search_skills.md) — 検索クロール時の LLM 指示（システムプロンプトへ注入。天気=気象庁優先 等）。
 5. [README.md](../README.md) — 人間向け概要・セットアップ（非規範）。
 
@@ -294,7 +301,7 @@ pnpm start              # 本番起動: node dist/index.js
 ## 12. 落とし穴（抜粋）
 
 - **起動失敗**: `YUUKA_ENCRYPTION_SECRET` 未設定で即終了。鍵を変えると既存の暗号化データは復号不能（ローテは `_NEW` 経由）。
-- **データ消失**: v1 レガシースキーマ検出時、`migrations.ts` は旧テーブルを **DROP**（不可逆）。
+- **データ消失**: v1 レガシースキーマ検出時、`migrations.ts` は旧テーブルを **DROP**（不可逆）。v3 以降は冪等な ALTER 中心で破壊的再構築は行わない。
 - **discord.js v14**: destroy 済みクライアントは再ログイン不可。`restartDefaultBot` は**新インスタンスを生成**して live binding を差し替える。
 - **会話の正は SQLite**: Redis はキャッシュ。`message_logs` は自動削除されない（`clearContext` は Redis 境界マークのみ）。
 - **MCP 実行前確認**: `requires_confirmation` は DB のフラグのみ。実際の確認はエージェント/ツール呼出層の責務。
@@ -303,4 +310,4 @@ pnpm start              # 本番起動: node dist/index.js
 
 ---
 
-_最終更新: 2026-06-15 / このファイルはリポジトリ解析に基づく AI 向け索引です。実装が動けば、まず該当ファイルの実コードを正とし、本書とズレがあれば本書を更新してください。_
+_最終更新: 2026-06-22 / このファイルはリポジトリ解析に基づく AI 向け索引です。実装が動けば、まず該当ファイルの実コードを正とし、本書とズレがあれば本書を更新してください。_
