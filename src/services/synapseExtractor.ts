@@ -1,9 +1,7 @@
-import { config } from "../config.js";
 import { insertSynapse, updateSynapseEmbedding } from "../db/synapseRepo.js";
 import { containsSecretValue } from "../utils/secretGuard.js";
-import { generateAuxText } from "./llmClient.js";
 import type { SynapseScope } from "./synapseEngine.js";
-import { indexSynapse, isSynapseEngineEnabled } from "./synapseEngine.js";
+import { indexSynapse } from "./synapseEngine.js";
 
 // シナプス content の最大長（トークン肥大を避ける）
 const MAX_CONTENT_LEN = 300;
@@ -57,43 +55,9 @@ function deriveTopicId(text: string): string | null {
 }
 
 /**
- * LLM 抽出モード。1 文の記憶断片と短いトピック語、または "NONE" を返させる。
- * 失敗・NONE・空・秘匿一致時は null。
- */
-async function extractViaLlm(
-	scope: SynapseScope,
-	userText: string,
-): Promise<{ content: string; topicId: string | null } | null> {
-	const systemInstruction =
-		"あなたは会話から長期記憶すべき情報を1件だけ抽出するアシスタントです。" +
-		"ユーザーの恒久的な嗜好・事実・制約（好み、習慣、所属、期限、目標など）を1文で簡潔に要約してください。" +
-		"認証情報・パスワード・トークン・暗証番号など秘匿情報は絶対に含めないでください。" +
-		"記憶に値する情報が無ければ、必ず NONE とだけ出力してください。" +
-		"出力形式は1行目に記憶断片、2行目に短いトピック語（任意、無ければ空行）。";
-	const prompt =
-		`次の会話ターンから、長期記憶すべき情報を抽出してください。\n` +
-		`ユーザー発話: ${userText}\n` +
-		`記憶に値しなければ NONE と出力してください。`;
-
-	const raw = await generateAuxText(scope.userId, prompt, systemInstruction);
-	if (!raw) return null;
-	const trimmed = raw.trim();
-	if (!trimmed || /^NONE\b/i.test(trimmed)) return null;
-
-	const lines = trimmed
-		.split(/\r?\n/)
-		.map((l) => l.trim())
-		.filter(Boolean);
-	if (lines.length === 0) return null;
-	const content = capContent(lines[0]);
-	if (!content || SECRET_GUARD_RE.test(content)) return null;
-	const topicId = lines[1] ? lines[1].slice(0, 32) : null;
-	return { content, topicId };
-}
-
-/**
  * 会話ターンからシナプス（記憶の断片）を抽出し、SQLite へ永続化 + Rust 索引へ登録する。
- * バックグラウンド実行（呼び出し側は await しない / 投げない）。機能フラグ config.synapseExtractionEnabled で OFF 可。
+ * 抽出はヒューリスティック（LLM コストゼロ）。
+ * バックグラウンド実行（呼び出し側は await しない / 投げない）。
  */
 export async function maybeExtractSynapse(args: {
 	scope: SynapseScope;
@@ -102,11 +66,6 @@ export async function maybeExtractSynapse(args: {
 	sourceMsgId?: number | null;
 }): Promise<void> {
 	try {
-		// 既定 OFF。機能フラグで無効時は即時 return。
-		if (config.synapseExtractionEnabled !== true) return;
-		// 索引先のエンジンが無ければ抽出しても意味がない。
-		if (!isSynapseEngineEnabled()) return;
-
 		const userText = args.userText ?? "";
 		const trimmed = userText.trim();
 
@@ -119,22 +78,11 @@ export async function maybeExtractSynapse(args: {
 		if (trimmed.length < MIN_USER_TEXT_LEN) return;
 		if (looksLikeCommand(trimmed)) return;
 
-		let content: string | null = null;
-		let topicId: string | null = null;
-
-		if (config.synapseExtractLlm === true) {
-			// LLM モード
-			const extracted = await extractViaLlm(args.scope, userText);
-			if (!extracted) return;
-			content = extracted.content;
-			topicId = extracted.topicId;
-		} else {
-			// 既定ヒューリスティック（LLM コストゼロ）
-			const isMemorable = MEMORABLE_RE.test(trimmed) || trimmed.length > 30;
-			if (!isMemorable) return;
-			content = capContent(userText);
-			topicId = deriveTopicId(trimmed);
-		}
+		// ヒューリスティック抽出（LLM コストゼロ）: マーカー語を含むか十分に長い発話を memorable とみなす。
+		const isMemorable = MEMORABLE_RE.test(trimmed) || trimmed.length > 30;
+		if (!isMemorable) return;
+		const content = capContent(userText);
+		const topicId = deriveTopicId(trimmed);
 
 		if (!content) return;
 		// 念のため content 側もキーワード・値形状の双方で秘匿ガードを通す。
@@ -142,7 +90,7 @@ export async function maybeExtractSynapse(args: {
 		if (containsSecretValue(content)) return;
 
 		// 形成時の時刻文脈（再ランキング専用）。現地時刻の時間帯・曜日を記録する。
-		// 意味埋め込みには混ぜない。SYNAPSE_TIME_BIAS_WEIGHT=0 のとき想起では未使用。
+		// 意味埋め込みには混ぜない。想起時に重み SYNAPSE_TIME_BIAS_WEIGHT で再ランキングに使われる。
 		const now = new Date();
 		const ctxTod = now.getHours(); // 0-23
 		const ctxDow = now.getDay(); // 0=日〜6=土

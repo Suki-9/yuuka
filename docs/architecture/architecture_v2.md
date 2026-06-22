@@ -234,15 +234,12 @@ v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`mi
 3. **スキーマ前方移行**: v10 は新規テーブルのみの冪等追加（破壊的変更なし）。
 4. **障害分離＝デグレード**: エンジン無効・未起動・crash・タイムアウト時、`assembleRecall`/`indexSynapse` 等は **null を返し現行挙動（直近15件の生履歴注入）へフォールバック**。RAM 索引は SQLite の embedding BLOB から再構築可能なキャッシュであり、喪失は性能劣化であって data loss ではない。Rust デーモンは不正入力・DB 不在でも panic せず応答を継続する。
 
-### 13.4 機能フラグ（`config.ts`。**すべて既定 OFF**＝現行挙動）
-| フラグ（環境変数） | 役割 |
+### 13.4 構成（`config.ts`。R0/R1 コンポーネントは**常時有効**）
+R0/R1 のコンポーネント（ツール実績記録・Rust エンジン起動＋L2 想起注入＋シナプス索引・会話ターンからのシナプス抽出・§10 メトリクス）は**常時有効**。エンジンはバイナリ（`dist/bin/yuuka-synapse` 等）があれば起動し、不在・未起動・タイムアウト時のみ現行挙動（直近15件の生履歴注入）へ自動デグレードする（§13.3-4）。シナプス抽出は**ヒューリスティック**（LLM コストゼロ）。時刻文脈の再ランキング重みは **0.1 固定**（`gemini.ts` 内定数 `SYNAPSE_TIME_BIAS_WEIGHT`、意味埋め込みには混ぜず KNN 後のスコア補正のみ）。設定可能なチューニング値は以下のみ（有効/無効の切替は持たない）。
+
+| 設定（環境変数） | 役割 |
 |---|---|
-| `TOOL_OUTCOMES_ENABLED` | R0: ツール実行実績を SQLite へ永続化（経験統計の素地） |
-| `SYNAPSE_ENGINE_ENABLED` | R1: Rust エンジン起動＋L2 想起注入＋シナプス索引 |
-| `SYNAPSE_EXTRACTION_ENABLED` | R1: 会話ターンからシナプス抽出（背景・非同期） |
-| `SYNAPSE_EXTRACT_LLM` | 抽出に Gemini 補助生成を使う（OFF=ヒューリスティック、LLM コストゼロ） |
 | `SYNAPSE_RECALL_K` | 1st Hop KNN の取得件数（既定 5） |
-| `METRICS_ENABLED` | §10 ベースライン指標の定期ログ |
 
 ### 13.5 統合点（`gemini.ts` 秘書モード）
 1. ツール dispatch ごとに `recordToolOutcome`（status/latency、秘匿マスク済 digest）。

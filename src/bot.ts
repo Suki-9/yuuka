@@ -590,7 +590,7 @@ async function handleAssistantMessage(
 			setBotStatus(botClient, status);
 		};
 
-		// 重い処理の非同期化ハンドル（Goal 2。ASYNC_HEAVY_ENABLED が OFF なら gemini 側で未使用）。
+		// 重い処理の非同期化ハンドル（Goal 2）。
 		const asyncDelivery: TurnAsyncDelivery = {
 			onInterim: async (interimText: string) => {
 				if (typingInterval) {
@@ -863,7 +863,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
 				setBotStatus(botClient, status);
 			};
 
-			// 重い処理の非同期化ハンドル（Goal 2。ASYNC_HEAVY_ENABLED が OFF なら gemini 側で未使用）。
+			// 重い処理の非同期化ハンドル（Goal 2）。
 			// - onInterim: 実行時に重いと判明した際の一時応答。「入力中…」を止めてから即返信する。
 			// - deliverFinal: 事前予測で非同期化したターンの最終結果を、完了後に同チャンネルへ送る。
 			const asyncDelivery: TurnAsyncDelivery = {

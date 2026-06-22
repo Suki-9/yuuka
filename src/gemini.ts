@@ -253,6 +253,13 @@ ${calendarInfo}`,
 // ─── L2 連想想起（シナプス）: systemInstruction へ追記する極小コンテキスト ──────────
 
 /**
+ * 時刻文脈の再ランキング重み。意味KNN後に「現在の時間帯・曜日」とシナプス形成時の
+ * 時間帯・曜日の環状近接でコサインスコアへ補正をかける（意味埋め込みには一切混ぜない）。
+ * 0.1=軽い時刻バイアス。NULL文脈=affinity0.5=補正ゼロで中立。
+ */
+const SYNAPSE_TIME_BIAS_WEIGHT = 0.1;
+
+/**
  * シナプスエンジンへ問い合わせ、入力に意味的に近い過去の記憶（1st Hop）を
  * 「思考のカンペ（極小コンテキスト）」として整形して返す。
  * エンジン無効・未起動・タイムアウト時は "" を返し、現行挙動（直近履歴のみ）へデグレードする。
@@ -265,12 +272,12 @@ async function buildRecallSection(
 	const q = query.trim();
 	if (!q) return "";
 	const t0 = Date.now();
-	// 時刻バイアスが有効（重み>0）なら現在の時間帯・曜日を渡して再ランキングさせる。
+	// 現在の時間帯・曜日を渡し、時刻文脈で再ランキングさせる（重み SYNAPSE_TIME_BIAS_WEIGHT）。
 	const now = new Date();
 	const recall = await assembleRecall(scope, q, config.synapseRecallK, {
 		nowTod: now.getHours(),
 		nowDow: now.getDay(),
-		timeWeight: config.synapseTimeBiasWeight,
+		timeWeight: SYNAPSE_TIME_BIAS_WEIGHT,
 	});
 	recordLatency("assemble", Date.now() - t0);
 	if (!recall || recall.synapses.length === 0) {
@@ -627,32 +634,30 @@ async function runFunctionCallingLoop(
 			// R0/R2: ツール実行実績を SQLite へ永続化（経験統計＝topic_tool_stats の素地）。
 			// 引数ダイジェストは buildOutcomeArgsDigest で秘匿マスク済み（§6.3.2 / §9.3 の除外規約を継承）。
 			// topic_id は R1 では未付与（2nd Hop によるトピック紐付けは R2 課題）。
-			if (config.toolOutcomesEnabled) {
+			try {
+				let outcomeStatus: "success" | "error" = "success";
 				try {
-					let outcomeStatus: "success" | "error" = "success";
-					try {
-						const parsed = JSON.parse(functionResult);
-						if (parsed && parsed.success === false) outcomeStatus = "error";
-					} catch {
-						/* JSON でない結果（説明文等）は success 扱い */
-					}
-					incrMetric("tool_calls");
-					recordToolOutcome({
-						userId: ctx.userId,
-						botId: ctx.botId,
-						guildId: ctx.guildId ?? null,
-						topicId: null,
-						toolName: name,
-						argsDigest: buildOutcomeArgsDigest(
-							name,
-							(args ?? {}) as Record<string, unknown>,
-						),
-						status: outcomeStatus,
-						latencyMs: dispatchLatencyMs,
-					});
-				} catch (err) {
-					console.warn("[ToolOutcome] 記録に失敗しました（無視）:", err);
+					const parsed = JSON.parse(functionResult);
+					if (parsed && parsed.success === false) outcomeStatus = "error";
+				} catch {
+					/* JSON でない結果（説明文等）は success 扱い */
 				}
+				incrMetric("tool_calls");
+				recordToolOutcome({
+					userId: ctx.userId,
+					botId: ctx.botId,
+					guildId: ctx.guildId ?? null,
+					topicId: null,
+					toolName: name,
+					argsDigest: buildOutcomeArgsDigest(
+						name,
+						(args ?? {}) as Record<string, unknown>,
+					),
+					status: outcomeStatus,
+					latencyMs: dispatchLatencyMs,
+				});
+			} catch (err) {
+				console.warn("[ToolOutcome] 記録に失敗しました（無視）:", err);
 			}
 
 			// マクロ登録用に操作履歴を記録（§3.6 実行ベース登録。秘匿系は記録側で除外される）
@@ -772,9 +777,9 @@ function buildPlanSection(plan: TurnPlan | null): string {
  * ターンプラン立案 → プラン注入 → 本ループ実行 → 最終文面確定 → ログ保存 を一括で行う共通処理。
  * 秘書(processMessage)・汎用モード(processGuildMessage / processBotDmMessage)の3経路で共有する。
  *
- * - config.planGateEnabled が ON のとき軽量LLMで処理プランを立て systemInstruction へ注入（Goal 1）。
- * - config.asyncHeavyEnabled が ON かつ deliverFinal 提供時、重い予測ターンは一時応答を即返して
- *   背景で実行し完了後に deliverFinal で配信する（Goal 2 / 予測）。実行時エスカレーションは onInterim。
+ * - 軽量LLMで処理プランを立て systemInstruction へ注入する（Goal 1）。
+ * - deliverFinal 提供時、重い予測ターンは一時応答を即返して背景で実行し、
+ *   完了後に deliverFinal で配信する（Goal 2 / 予測）。実行時エスカレーションは onInterim。
  * 例外（ループ失敗等）は呼び出し側の try/catch へ伝播させる（予測非同期の背景処理は内部で握り潰す）。
  */
 async function runPlannedTurn(params: {
@@ -810,19 +815,17 @@ async function runPlannedTurn(params: {
 
 	incrMetric("messages");
 
-	// ─── ターン処理プランナー（Goal 1/2。PLAN_GATE_ENABLED が OFF なら現行挙動） ─────────
-	let plan: TurnPlan | null = null;
-	if (config.planGateEnabled) {
-		plan = await planTurn(ai, {
-			text: planInput.text,
-			imageCount: planInput.imageCount,
-			hasAudio: planInput.hasAudio,
-			toolIndex: buildToolIndex(registry.declarations),
-			threshold: config.heavyWeightThresholdMs,
-			modelOverride: config.planModel || undefined,
-		});
-		if (plan) incrMetric("plan_attempts");
-	}
+	// ─── ターン処理プランナー（Goal 1/2） ─────────
+	// 軽量LLMで処理プランを立てる。失敗時は planTurn が null を返し、プラン注入なしの現行挙動へデグレード。
+	const plan: TurnPlan | null = await planTurn(ai, {
+		text: planInput.text,
+		imageCount: planInput.imageCount,
+		hasAudio: planInput.hasAudio,
+		toolIndex: buildToolIndex(registry.declarations),
+		threshold: config.heavyWeightThresholdMs,
+		modelOverride: config.planModel || undefined,
+	});
+	if (plan) incrMetric("plan_attempts");
 	const finalSystemInstruction =
 		params.baseSystemInstruction + buildPlanSection(plan);
 
@@ -832,8 +835,7 @@ async function runPlannedTurn(params: {
 		: undefined;
 
 	// 事前予測による非同期化判定（Goal 2）。閾値はプラン推定ウェイト（ヒューリスティック下限込み）。
-	const predictedAsync =
-		config.asyncHeavyEnabled && !!asyncDelivery?.deliverFinal && !!plan?.heavy;
+	const predictedAsync = !!asyncDelivery?.deliverFinal && !!plan?.heavy;
 
 	// 本ループ実行 → 最終文面の確定 → ログ保存 を一括で行うクロージャ（同期/背景で共通利用）。
 	const finalize = async (): Promise<{
@@ -852,11 +854,9 @@ async function runPlannedTurn(params: {
 				onStatusChange,
 				{
 					recordActions: params.recordActions ?? false,
-					// 実行時エスカレーション（フラグON時のみ）。予測非同期は既に一時応答済みなので付けない。
+					// 実行時エスカレーション。予測非同期は既に一時応答済みなので付けない。
 					onHeavyDetected:
-						config.asyncHeavyEnabled &&
-						!predictedAsync &&
-						asyncDelivery?.onInterim
+						!predictedAsync && asyncDelivery?.onInterim
 							? () => void asyncDelivery.onInterim?.(RUNTIME_INTERIM_TEXT)
 							: undefined,
 					heavyRuntimeMs: config.heavyRuntimeMs,

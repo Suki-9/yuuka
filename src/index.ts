@@ -111,9 +111,9 @@ async function main() {
 	startBriefingService(); // 朝報: 天気・ニュース（§3.9）
 	startBackupScheduler(); // ユーザー単位Google Driveバックアップ（§8）
 
-	// シナプス認知アーキテクチャ（v3 / schema v10）。いずれも機能フラグ既定 OFF。
-	await startSynapseEngine(); // Rust シナプスエンジンのウォームスタート（OFF時は no-op）
-	startMetricsLogging(); // §10 ベースライン計測の定期ログ（OFF時は no-op）
+	// シナプス認知アーキテクチャ（v3 / schema v10）。常時有効。
+	await startSynapseEngine(); // Rust シナプスエンジンのウォームスタート（バイナリ不在時は現行挙動へデグレード）
+	startMetricsLogging(); // §10 ベースライン計測の定期ログ
 
 	console.log("✨ Yuuka が起動しました！");
 }

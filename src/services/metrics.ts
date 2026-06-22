@@ -1,5 +1,3 @@
-import { config } from "../config.js";
-
 // ─── 軽量ベースラインメトリクス（architecture §10） ──────────────────────────────
 // 依存ゼロ・インメモリのみ。プロセス再起動でリセットされる（恒久ストアは目的外）。
 
@@ -72,9 +70,8 @@ export function metricsSnapshot(): Record<string, unknown> {
 	return { counters: counterSnap, latency: latencySnap };
 }
 
-/** 定期ログ出力を開始（index.ts ライフサイクル用）。config.metricsEnabled が false なら no-op。 */
+/** 定期ログ出力を開始（index.ts ライフサイクル用）。 */
 export function startMetricsLogging(): void {
-	if (config.metricsEnabled !== true) return;
 	if (logTimer) return;
 	logTimer = setInterval(() => {
 		console.log(`📊 [Metrics] ${JSON.stringify(metricsSnapshot())}`);

@@ -211,18 +211,23 @@ process.on("exit", () => {
 	_synapseDaemon?.shutdown();
 });
 
+// バイナリ不在の警告は一度だけ出す（getDaemon は毎リクエスト呼ばれるためログ氾濫を避ける）。
+let warnedNoBinary = false;
+
 /**
  * デーモンを取得（必要なら遅延生成）。
- * 機能フラグ OFF・バイナリ不在時は null（呼び出し側はデグレード）。
+ * バイナリ不在時は null（呼び出し側は現行挙動へデグレード）。
  */
 function getDaemon(): SynapseDaemon | null {
-	if (!isSynapseEngineEnabled()) return null;
 	if (_synapseDaemon) return _synapseDaemon;
 	const binPath = getSynapseBinPath();
 	if (!binPath) {
-		console.warn(
-			"⚠️ [Synapse] yuuka-synapse バイナリが見つかりません。エンジンを無効化します。",
-		);
+		if (!warnedNoBinary) {
+			warnedNoBinary = true;
+			console.warn(
+				"⚠️ [Synapse] yuuka-synapse バイナリが見つかりません。現行挙動（直近履歴のみ）へデグレードします。",
+			);
+		}
 		return null;
 	}
 	_synapseDaemon = new SynapseDaemon(binPath, config.dbPath);
@@ -230,11 +235,6 @@ function getDaemon(): SynapseDaemon | null {
 }
 
 // ─── 公開 API（FROZEN）。すべて呼び出し側へ throw しない ─────────────────────────
-
-/** 機能フラグ（config.synapseEngineEnabled）。OFF のとき全 API は no-op で null を返す。 */
-export function isSynapseEngineEnabled(): boolean {
-	return config.synapseEngineEnabled === true;
-}
 
 /** 起動時のウォームスタート（任意）。index.ts のライフサイクルから呼ぶ。失敗しても投げない。 */
 export async function startSynapseEngine(): Promise<void> {
