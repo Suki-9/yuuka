@@ -536,6 +536,31 @@ async function handleAssistantMessage(
   }
 }
 
+// ─── 二重応答防止: メッセージ単位の冪等ガード（防御的措置） ──────────────────
+// startCustomBot の直列化（startInFlight）で Client のリークは防いでいるが、
+// それでも何らかの理由で同一 Discord identity（= 同一 bot user id）の Client が
+// プロセス内に複数存在した場合に備え、1つの Discord メッセージへの処理を1回に保つ。
+// キーは「bot user id : message id」。別Botを同時メンションした場合は user id が
+// 異なるため、それぞれが正しく応答する（取りこぼさない）。
+const recentlyHandledMessages = new Map<string, number>();
+const HANDLED_MESSAGE_TTL_MS = 60_000;
+
+/** 同一メッセージの初回処理なら true。既に処理済みなら false（= 応答をスキップすべき）。 */
+function claimMessageOnce(botUserId: string, messageId: string): boolean {
+  const now = Date.now();
+  // 期限切れエントリの遅延掃除（メモリ肥大防止。低頻度で十分）
+  if (recentlyHandledMessages.size > 2000) {
+    for (const [k, exp] of recentlyHandledMessages) {
+      if (exp <= now) recentlyHandledMessages.delete(k);
+    }
+  }
+  const key = `${botUserId}:${messageId}`;
+  const exp = recentlyHandledMessages.get(key);
+  if (exp && exp > now) return false; // 既に同一identityで処理済み
+  recentlyHandledMessages.set(key, now + HANDLED_MESSAGE_TTL_MS);
+  return true;
+}
+
 export function setupMessageListener(botClient: Client, botId?: string) {
   botClient.on("messageCreate", async (message: Message) => {
     // Bot自身のメッセージは無視
@@ -544,6 +569,10 @@ export function setupMessageListener(botClient: Client, botId?: string) {
     // クライアントが利用可能でない（destroy直後・再起動中など）場合は処理しない。
     // この状態でREST送信すると "Expected token to be set" で失敗する
     if (!botClient.isReady() || !botClient.token) return;
+
+    // 同一メッセージへの二重処理を防ぐ（同一identityのClientが複数存在しても応答は1回）。
+    // 秘書フロー・汎用モードフローの分岐より前に行い、両経路を一括でガードする。
+    if (botClient.user && !claimMessageOnce(botClient.user.id, message.id)) return;
 
     // 汎用モード（MCPアシスタント）のBotはギルド常駐の専用フローで処理する（要件 §4.3）。
     // 秘書系の登録ユーザー・共有チェックは適用しない（利用メンバー制 §4.3.3）
@@ -791,9 +820,34 @@ function getDecryptedDiscordToken(botId: string): string | null {
 }
 
 /**
- * Bot IDに紐づく独自のDiscord Botクライアントを起動する
+ * Bot ID 単位で進行中の起動処理を保持し、同時起動を直列化するためのガード。
+ * startCustomBot は内部で `await login` を挟むため、起動連打や restart との競合で
+ * 複数の呼び出しがいずれも「既存クライアント無し」と誤判定し、destroy されない
+ * Client が Gateway に接続したまま生き残る（= 同一メッセージへ二重応答する）ことがあった。
+ */
+const startInFlight = new Map<string, Promise<boolean>>();
+
+/**
+ * Bot IDに紐づく独自のDiscord Botクライアントを起動する。
+ * 同一Botの起動が進行中の場合は、新しいClientを作らずその起動に合流する（冪等・リーク防止）。
  */
 export async function startCustomBot(botId: string): Promise<boolean> {
+  const inFlight = startInFlight.get(botId);
+  if (inFlight) return inFlight;
+
+  // startCustomBotInner() は最初の await まで同期実行されるため、
+  // 制御が一旦イベントループへ戻る前に in-flight 登録が完了する（後続の同時呼び出しが必ず合流できる）。
+  const promise = startCustomBotInner(botId);
+  startInFlight.set(botId, promise);
+  try {
+    return await promise;
+  } finally {
+    // 自分が登録したエントリのみ削除する（不要だが将来の安全のためのガード）。
+    if (startInFlight.get(botId) === promise) startInFlight.delete(botId);
+  }
+}
+
+async function startCustomBotInner(botId: string): Promise<boolean> {
   // 停止処分中のBotは起動しない（Admin管理 §5.3.2）
   if (isBotSuspended(botId)) {
     console.log(`⛔ Bot ${botId} は停止処分中のため起動しません。`);
