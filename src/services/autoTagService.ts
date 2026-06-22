@@ -18,7 +18,7 @@ const MAX_TAG_LENGTH = 20;
 const MAX_VOCAB_IN_PROMPT = 30;
 
 const SYSTEM_INSTRUCTION =
-  "あなたはToDo管理システムのタグ付けエンジンです。指示されたToDoに最適なタグをJSON配列のみで出力します。説明文・前置き・コードフェンスは一切出力しません。";
+	"あなたはToDo管理システムのタグ付けエンジンです。指示されたToDoに最適なタグをJSON配列のみで出力します。説明文・前置き・コードフェンスは一切出力しません。";
 
 /**
  * LLM応答からタグのJSON配列を堅牢に抽出する。
@@ -26,45 +26,48 @@ const SYSTEM_INSTRUCTION =
  * 最初の '[' から最後の ']' までを切り出してパースを試みる。
  */
 export function parseTagArray(text: string): string[] {
-  let cleaned = text.trim();
-  // コードフェンス除去（```json / ``` のいずれにも対応）
-  cleaned = cleaned.replace(/^```[a-zA-Z]*\s*/m, "").replace(/```\s*$/m, "").trim();
+	let cleaned = text.trim();
+	// コードフェンス除去（```json / ``` のいずれにも対応）
+	cleaned = cleaned
+		.replace(/^```[a-zA-Z]*\s*/m, "")
+		.replace(/```\s*$/m, "")
+		.trim();
 
-  const start = cleaned.indexOf("[");
-  const end = cleaned.lastIndexOf("]");
-  if (start === -1 || end === -1 || end <= start) return [];
+	const start = cleaned.indexOf("[");
+	const end = cleaned.lastIndexOf("]");
+	if (start === -1 || end === -1 || end <= start) return [];
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned.slice(start, end + 1));
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(cleaned.slice(start, end + 1));
+	} catch {
+		return [];
+	}
+	if (!Array.isArray(parsed)) return [];
 
-  const tags = parsed
-    .filter((t): t is string => typeof t === "string")
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0 && t.length <= MAX_TAG_LENGTH);
+	const tags = parsed
+		.filter((t): t is string => typeof t === "string")
+		.map((t) => t.trim())
+		.filter((t) => t.length > 0 && t.length <= MAX_TAG_LENGTH);
 
-  // 重複除去のうえ最大数に制限
-  return [...new Set(tags)].slice(0, MAX_TAGS);
+	// 重複除去のうえ最大数に制限
+	return [...new Set(tags)].slice(0, MAX_TAGS);
 }
 
 /** タグ生成プロンプトを組み立てる */
 function buildPrompt(
-  todo: { title: string; description: string | null; due_date: string | null },
-  vocab: { tag: string; count: number }[]
+	todo: { title: string; description: string | null; due_date: string | null },
+	vocab: { tag: string; count: number }[],
 ): string {
-  const vocabSection =
-    vocab.length > 0
-      ? vocab
-          .slice(0, MAX_VOCAB_IN_PROMPT)
-          .map((v) => `- ${v.tag} (${v.count}件)`)
-          .join("\n")
-      : "（まだタグはありません。タスク内容から適切な新しいタグを作成してください）";
+	const vocabSection =
+		vocab.length > 0
+			? vocab
+					.slice(0, MAX_VOCAB_IN_PROMPT)
+					.map((v) => `- ${v.tag} (${v.count}件)`)
+					.join("\n")
+			: "（まだタグはありません。タスク内容から適切な新しいタグを作成してください）";
 
-  return `以下のToDoタスクに付与するタグを1〜${MAX_TAGS}個生成してください。
+	return `以下のToDoタスクに付与するタグを1〜${MAX_TAGS}個生成してください。
 
 ## ルール
 - タグは日本語の短い単語（例: 業務, 開発, 買い物, 支払い, 学習, 日常, 締め切り間近）
@@ -82,43 +85,58 @@ ${vocabSection}
 }
 
 /** タグ自動付与の本体処理（scheduleAutoTagging から非同期に呼ばれる） */
-async function runAutoTagging(userId: string, botId: string, todoId: number): Promise<void> {
-  // APIキー未設定なら静かにスキップ（§3.2.4: タグ付与は補助機能でありエラー扱いしない）
-  if (!getUserGenAI(userId)) return;
+async function runAutoTagging(
+	userId: string,
+	botId: string,
+	todoId: number,
+): Promise<void> {
+	// APIキー未設定なら静かにスキップ（§3.2.4: タグ付与は補助機能でありエラー扱いしない）
+	if (!getUserGenAI(userId)) return;
 
-  // 対象取得（処理開始までに削除されている可能性があるため再取得する）
-  const todo = getTodoById(userId, botId, todoId);
-  if (!todo) return;
+	// 対象取得（処理開始までに削除されている可能性があるため再取得する）
+	const todo = getTodoById(userId, botId, todoId);
+	if (!todo) return;
 
-  // 既存タグ語彙を学習素材としてプロンプトに含める（§3.2.4: 既存語彙を優先）
-  const vocab = listAllTags(userId, botId);
-  const prompt = buildPrompt(todo, vocab);
+	// 既存タグ語彙を学習素材としてプロンプトに含める（§3.2.4: 既存語彙を優先）
+	const vocab = listAllTags(userId, botId);
+	const prompt = buildPrompt(todo, vocab);
 
-  const response = await generateAuxText(userId, prompt, SYSTEM_INSTRUCTION);
-  if (!response) {
-    console.warn(`⚠️ タグ自動付与: LLM応答を取得できませんでした (user: ${userId}, todo: #${todoId})`);
-    return;
-  }
+	const response = await generateAuxText(userId, prompt, SYSTEM_INSTRUCTION);
+	if (!response) {
+		console.warn(
+			`⚠️ タグ自動付与: LLM応答を取得できませんでした (user: ${userId}, todo: #${todoId})`,
+		);
+		return;
+	}
 
-  const tags = parseTagArray(response);
-  if (tags.length === 0) {
-    console.warn(`⚠️ タグ自動付与: LLM応答からタグを抽出できませんでした (todo: #${todoId}): ${response.slice(0, 100)}`);
-    return;
-  }
+	const tags = parseTagArray(response);
+	if (tags.length === 0) {
+		console.warn(
+			`⚠️ タグ自動付与: LLM応答からタグを抽出できませんでした (todo: #${todoId}): ${response.slice(0, 100)}`,
+		);
+		return;
+	}
 
-  // 生成中にユーザーが手動でタグを変えていた場合も、最新のLLM判断で上書き保存する（§3.2.4: 追加・更新のたびに付与）
-  updateTodoTags(userId, botId, todoId, tags);
-  console.log(`🏷️ タグ自動付与完了 (todo: #${todoId}): ${tags.join(", ")}`);
+	// 生成中にユーザーが手動でタグを変えていた場合も、最新のLLM判断で上書き保存する（§3.2.4: 追加・更新のたびに付与）
+	updateTodoTags(userId, botId, todoId, tags);
+	console.log(`🏷️ タグ自動付与完了 (todo: #${todoId}): ${tags.join(", ")}`);
 }
 
 /**
  * タグ自動付与をバックグラウンドで起動する（§3.2.4: ユーザーへの応答をブロックしない）。
  * 呼び出し側（todoFunctions）は await せずに呼ぶこと。エラーは全てここで握りつぶしログのみ残す。
  */
-export function scheduleAutoTagging(userId: string, botId: string, todoId: number): void {
-  setImmediate(() => {
-    runAutoTagging(userId, botId, todoId).catch((err) => {
-      console.error(`⚠️ タグ自動付与に失敗しました (user: ${userId}, todo: #${todoId}):`, err);
-    });
-  });
+export function scheduleAutoTagging(
+	userId: string,
+	botId: string,
+	todoId: number,
+): void {
+	setImmediate(() => {
+		runAutoTagging(userId, botId, todoId).catch((err) => {
+			console.error(
+				`⚠️ タグ自動付与に失敗しました (user: ${userId}, todo: #${todoId}):`,
+				err,
+			);
+		});
+	});
 }
