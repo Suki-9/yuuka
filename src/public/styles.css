@@ -68,7 +68,9 @@
 /* ==============================================================================
    LIGHT THEME TOKENS (Material Design 2 Light)
    ============================================================================== */
-[data-theme="light"] {
+/* :root に限定: テーマ切替ボタン自身も data-theme を持つため、
+   非限定セレクタだとボタン内のテキストトークンが上書きされ文字が黒くなる */
+:root[data-theme="light"] {
   --bg-primary: #FAFAFA;
   --bg-secondary: #FAFAFA;
   --bg-sidebar: #F5F5F5;
@@ -3730,7 +3732,8 @@ summary.column-header.badge-right > h3 {
    Sources: Blue Archive Wiki (#02D3FB), MomoTalk Discord theme
             (#F2F7F8 sidebar / #E7F0F7 header / #DDE6ED border)
    ============================================================================== */
-[data-theme="blue-archive"] {
+/* :root に限定: テーマ切替ボタン自身の data-theme への漏れを防ぐ (light テーマ同様) */
+:root[data-theme="blue-archive"] {
   /* BA公式シアン (#02D3FB は wiki confirmed, #00AED8 は hover用) */
   --ba-cyan:       #02D3FB;
   --ba-cyan-hover: #00AED8;
