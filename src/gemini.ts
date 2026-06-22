@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Content, FunctionCall, Part } from "@google/generative-ai";
+import {
+	type Content,
+	type FunctionCall,
+	FunctionCallingMode,
+	type Part,
+	type ToolConfig,
+} from "@google/generative-ai";
 import type { EmbedBuilder } from "discord.js";
 import { config } from "./config.js";
 import { getBotGuildNote, getBotUserNote } from "./db/botNoteRepo.js";
@@ -40,7 +46,19 @@ import { getBotGenAI, getUserGenAI } from "./services/llmClient.js";
 import { incrMetric, recordLatency } from "./services/metrics.js";
 import { assembleRecall, type SynapseScope } from "./services/synapseEngine.js";
 import { maybeExtractSynapse } from "./services/synapseExtractor.js";
-import type { FunctionModule, ToolContext } from "./types/contracts.js";
+import {
+	buildToolIndex,
+	DEFAULT_INTERIM_TEXT,
+	isHeavyTool,
+	planTurn,
+	RUNTIME_INTERIM_TEXT,
+	type TurnPlan,
+} from "./services/turnPlanner.js";
+import type {
+	FunctionModule,
+	ToolContext,
+	TurnAsyncDelivery,
+} from "./types/contracts.js";
 import { redactSecretsInText } from "./utils/secretGuard.js";
 
 // ─── 検索クロールスキル（docs/skills/search_skills.md のインライン読み込み） ──────────
@@ -374,6 +392,7 @@ async function generateWithRetry(
 	declarations: import("@google/generative-ai").FunctionDeclaration[],
 	contents: Content[],
 	maxRetries: number = 3,
+	toolConfig?: ToolConfig,
 ): Promise<import("@google/generative-ai").GenerateContentResult> {
 	const model = ai.genAI.getGenerativeModel(
 		{
@@ -382,6 +401,9 @@ async function generateWithRetry(
 			...(declarations.length > 0
 				? { tools: [{ functionDeclarations: declarations }] }
 				: {}),
+			// 是正リトライ等で functionCallingConfig.mode=ANY を指定すると、
+			// モデルは必ずいずれかの関数呼び出しを出力する（未実行の完了報告を構造的に防ぐ）。
+			...(toolConfig ? { toolConfig } : {}),
 		},
 		// タイムアウト無しだと応答が返らない場合に await が永遠に解決せず、
 		// 「入力中...」タイマーと共にリクエストが滞留し続ける
@@ -473,10 +495,20 @@ async function runFunctionCallingLoop(
 	contents: Content[],
 	ctx: ToolContext,
 	onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
-	options: { recordActions?: boolean } = {},
+	options: {
+		recordActions?: boolean;
+		/** 実行時に重い処理を検知したら一度だけ呼ぶ（一時応答のトリガー）。 */
+		onHeavyDetected?: () => void;
+		/** ループ経過時間がこの ms 以上になったら重いと見なす（実行時エスカレーション）。 */
+		heavyRuntimeMs?: number;
+		/** 完了是正(mode=ANY)時に許可するツール名。プランの候補に限定して「適切な」呼び出しへ誘導する。 */
+		allowedToolNames?: string[];
+	} = {},
 ): Promise<LoopResult> {
 	let browserToolCalled = false;
 	let browserToolFailed = false;
+	const loopStart = Date.now();
+	let heavyEscalated = false;
 
 	onStatusChange?.("thinking");
 	let result = await generateWithRetry(
@@ -491,7 +523,8 @@ async function runFunctionCallingLoop(
 	let iterations = 0;
 	const maxIterations = 10;
 	let totalFunctionCalls = 0;
-	let correctionAttempted = false;
+	let correctionAttempts = 0;
+	const maxCorrectionAttempts = 2;
 
 	while (iterations < maxIterations) {
 		const candidate = response.candidates?.[0];
@@ -504,28 +537,44 @@ async function runFunctionCallingLoop(
 		if (functionCalls.length === 0) {
 			// 完了ハルシネーション検知: このターンで一度も関数を呼ばずに操作完了を主張している場合、
 			// 実際には何も実行されていないため、1度だけ是正を促して再生成する（無限ループ防止のため1回限り）。
-			if (totalFunctionCalls === 0 && !correctionAttempted) {
+			if (
+				totalFunctionCalls === 0 &&
+				correctionAttempts < maxCorrectionAttempts &&
+				registry.declarations.length > 0
+			) {
 				let currentText = "";
 				try {
 					currentText = response.text();
 				} catch {}
 				if (claimsActionCompleted(currentText)) {
 					console.log(
-						"⚠️ 未実行の完了報告を検知。是正プロンプトを注入して再生成します。",
+						`⚠️ 未実行の完了報告を検知。関数呼び出しを強制して再生成します (${correctionAttempts + 1}/${maxCorrectionAttempts})。`,
 					);
-					correctionAttempted = true;
+					correctionAttempts++;
 					contents.push(candidate.content);
 					contents.push({
 						role: "user",
 						parts: [{ text: COMPLETION_CORRECTION_PROMPT }],
 					});
 					onStatusChange?.("thinking");
+					// mode=ANY でモデルに関数呼び出しを構造的に強制する。AUTO のままだと
+					// 弱いモデルは是正後も呼び出さずに完了報告を繰り返し得るため、これが要点。
 					result = await generateWithRetry(
 						ai,
 						systemInstruction,
 						registry.declarations,
 						contents,
 						3,
+						{
+							functionCallingConfig: {
+								mode: FunctionCallingMode.ANY,
+								// プランの候補ツールに限定して「適切な」呼び出しへ誘導する（候補が無ければ全許可）。
+								...(options.allowedToolNames &&
+								options.allowedToolNames.length > 0
+									? { allowedFunctionNames: options.allowedToolNames }
+									: {}),
+							},
+						},
 					);
 					response = result.response;
 					iterations++;
@@ -546,6 +595,23 @@ async function runFunctionCallingLoop(
 				`🔧 Function Call: ${name}`,
 				sanitizeArgsForLog(name, (args ?? {}) as Record<string, unknown>),
 			);
+
+			// 実行時エスカレーション（Goal 2）: 重いツールに着手する、あるいはループが規定時間を
+			// 超えた時点で一度だけ一時応答を出す。事前プラン予測が外れた重いターンの安全網。
+			if (!heavyEscalated && options.onHeavyDetected) {
+				const elapsed = Date.now() - loopStart;
+				if (
+					isHeavyTool(name) ||
+					(options.heavyRuntimeMs && elapsed >= options.heavyRuntimeMs)
+				) {
+					heavyEscalated = true;
+					try {
+						options.onHeavyDetected();
+					} catch (err) {
+						console.warn("[Loop] onHeavyDetected 呼び出しに失敗（無視）:", err);
+					}
+				}
+			}
 
 			const dispatchStart = Date.now();
 			const functionResult = await registry.dispatch(
@@ -677,6 +743,29 @@ export interface ProcessResult {
 	text: string;
 	embeds: EmbedBuilder[];
 	files: { attachment: Buffer; name: string }[];
+	/** 重い処理を非同期化したため、text は一時応答であり最終結果は別途配信される。 */
+	deferred?: boolean;
+}
+
+/** 処理プランを「内部の思考メモ」として systemInstruction へ注入する文面を組み立てる。 */
+function buildPlanSection(plan: TurnPlan | null): string {
+	if (!plan) return "";
+	const hasSteps = plan.steps.length > 0;
+	const hasTools = plan.tools.length > 0;
+	if (!hasSteps && !hasTools) return "";
+	const stepsText = hasSteps
+		? plan.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")
+		: "（手順は状況に応じて判断）";
+	const toolsText = hasTools ? plan.tools.join(", ") : "（特になし）";
+	return (
+		"\n# 今回の処理プラン（内部の思考メモ・ユーザーには開示しない）\n" +
+		"この要求に対し、あなたは事前に以下の手順を計画しました。実際にその操作を行うなら、" +
+		"計画で挙げたツール（関数）を必ずこのターンで呼び出して実行してください。" +
+		"計画しただけで実行したつもりになり完了報告をしてはいけません。" +
+		"ツールが不要な要求（雑談・単純な質問への回答など）なら、無理にツールを呼ばず自然に応答してください。\n" +
+		`手順:\n${stepsText}\n` +
+		`利用予定ツール: ${toolsText}`
+	);
 }
 
 /**
@@ -690,6 +779,7 @@ export async function processMessage(
 	userId: string,
 	message: ChatMessage,
 	onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+	asyncDelivery?: TurnAsyncDelivery,
 ): Promise<ProcessResult> {
 	// リッチ返信のユーザー設定（§3.0.5）
 	let richReplyEnabled = true;
@@ -837,10 +927,6 @@ export async function processMessage(
 		{ userId, botId },
 		message.text ?? "",
 	);
-	const effectiveSystemInstruction = recallSection
-		? systemInstruction + recallSection
-		: systemInstruction;
-
 	try {
 		const ai = getUserGenAI(userId);
 		if (!ai) {
@@ -850,44 +936,129 @@ export async function processMessage(
 		}
 
 		incrMetric("messages");
-		const responseStart = Date.now();
-		const { text, browserToolCalled, browserToolFailed } =
-			await runFunctionCallingLoop(
-				ai,
-				effectiveSystemInstruction,
-				registry,
-				contents,
-				ctx,
-				onStatusChange,
-				{ recordActions: true },
-			);
-		recordLatency("response", Date.now() - responseStart);
 
-		// 最終テキスト応答を決定し、実際に返す文面を必ず会話ログへ保存する。
-		// 重要: 空応答時のフォールバック定型文も保存すること。これを怠ると当該ターンに
-		// assistant の記録が一切残らず、次ターンのコンテキストではユーザーの元の要求が
-		// 「未応答」のまま見えてしまう。するとモデルがその要求を満たそうとして直前の
-		// ブラウザ操作（ページ取得・Web検索）を勝手に再実行し、daemon が暖まった2回目は
-		// 成功するため「前回のブラウザ操作の結果」を次の命令で返す回帰が起きる。
-		const replyText =
-			text && text.trim()
-				? text
-				: browserToolCalled || browserToolFailed
-					? "ブラウザ操作に失敗しました。求めた結果が得られませんでした。"
-					: "処理が完了しました。";
-		await addMessageLog(userId, botId, "assistant", replyText);
-
-		// R1: 会話ターンからシナプス（記憶の断片）を抽出して長期記憶へ蓄積する。
-		// バックグラウンド実行（await しない・投げない）。機能フラグ OFF 時は即時 return。
-		if (logText) {
-			void maybeExtractSynapse({
-				scope: { userId, botId },
-				userText: logText,
-				assistantText: replyText,
+		// ─── ターン処理プランナー（Goal 1/2。PLAN_GATE_ENABLED が OFF なら現行挙動） ─────────
+		let plan: TurnPlan | null = null;
+		if (config.planGateEnabled) {
+			plan = await planTurn(ai, {
+				text: message.text ?? "",
+				imageCount: message.imageData ? 1 : 0,
+				hasAudio: !!message.audioData,
+				toolIndex: buildToolIndex(registry.declarations),
+				threshold: config.heavyWeightThresholdMs,
+				modelOverride: config.planModel || undefined,
 			});
+			if (plan) incrMetric("plan_attempts");
+		}
+		// プランを「内部の思考メモ」として注入し、ツール呼び出しの打率を上げる（強制はしない）。
+		const planSection = buildPlanSection(plan);
+		const finalSystemInstruction =
+			(recallSection ? systemInstruction + recallSection : systemInstruction) +
+			planSection;
+
+		// プランの候補ツールを実在ツールへ絞る（完了是正時の allowedFunctionNames に使う）。
+		const allowedToolNames = plan?.tools?.length
+			? plan.tools.filter((t) =>
+					registry.declarations.some((d) => d.name === t),
+				)
+			: undefined;
+
+		// 事前予測による非同期化判定（Goal 2）。閾値はプラン推定ウェイト（ヒューリスティック下限込み）。
+		const predictedAsync =
+			config.asyncHeavyEnabled &&
+			!!asyncDelivery?.deliverFinal &&
+			!!plan?.heavy;
+
+		// 本ループ実行 → 最終文面の確定 → ログ保存 → シナプス抽出 までを一括で行うクロージャ。
+		// 同期パスとバックグラウンド（非同期）パスで共通利用する。
+		const finalize = async (): Promise<{
+			replyText: string;
+			embeds: EmbedBuilder[];
+			files: { attachment: Buffer; name: string }[];
+		}> => {
+			const responseStart = Date.now();
+			const { text, browserToolCalled, browserToolFailed } =
+				await runFunctionCallingLoop(
+					ai,
+					finalSystemInstruction,
+					registry,
+					contents,
+					ctx,
+					onStatusChange,
+					{
+						recordActions: true,
+						// 実行時エスカレーション（フラグON時のみ）。予測非同期は既に一時応答済みなので付けない。
+						onHeavyDetected:
+							config.asyncHeavyEnabled &&
+							!predictedAsync &&
+							asyncDelivery?.onInterim
+								? () => void asyncDelivery.onInterim?.(RUNTIME_INTERIM_TEXT)
+								: undefined,
+						heavyRuntimeMs: config.heavyRuntimeMs,
+						allowedToolNames,
+					},
+				);
+			recordLatency("response", Date.now() - responseStart);
+
+			// 最終テキスト応答を決定し、実際に返す文面を必ず会話ログへ保存する。
+			// 重要: 空応答時のフォールバック定型文も保存すること。これを怠ると当該ターンに
+			// assistant の記録が一切残らず、次ターンのコンテキストではユーザーの元の要求が
+			// 「未応答」のまま見えてしまう。するとモデルがその要求を満たそうとして直前の
+			// ブラウザ操作（ページ取得・Web検索）を勝手に再実行し、daemon が暖まった2回目は
+			// 成功するため「前回のブラウザ操作の結果」を次の命令で返す回帰が起きる。
+			const replyText =
+				text && text.trim()
+					? text
+					: browserToolCalled || browserToolFailed
+						? "ブラウザ操作に失敗しました。求めた結果が得られませんでした。"
+						: "処理が完了しました。";
+			await addMessageLog(userId, botId, "assistant", replyText);
+
+			// R1: 会話ターンからシナプス（記憶の断片）を抽出して長期記憶へ蓄積する。
+			// バックグラウンド実行（await しない・投げない）。機能フラグ OFF 時は即時 return。
+			if (logText) {
+				void maybeExtractSynapse({
+					scope: { userId, botId },
+					userText: logText,
+					assistantText: replyText,
+				});
+			}
+
+			return { replyText, embeds: ctx.embeds, files: ctx.files };
+		};
+
+		// 事前予測で重いと判断したターン: 一時応答を即返し、本処理は背後で進めて
+		// 完了後に同チャンネルへフォローアップ送信する（ずっと「入力中…」にしない）。
+		if (predictedAsync && asyncDelivery?.deliverFinal) {
+			incrMetric("async_predicted");
+			const interim = plan?.interim?.trim() || DEFAULT_INTERIM_TEXT;
+			// 一時応答も会話ログへ残す（次ターンで「未応答」扱いとなり再実行されるのを防ぐ）。
+			await addMessageLog(userId, botId, "assistant", interim);
+			void (async () => {
+				try {
+					const { replyText, embeds, files } = await finalize();
+					await asyncDelivery.deliverFinal?.({
+						content: replyText,
+						embeds,
+						files,
+					});
+				} catch (err) {
+					console.error("非同期処理（最終結果配信）に失敗しました:", err);
+					try {
+						await asyncDelivery.deliverFinal?.({
+							content:
+								"申し訳ございません、処理中にエラーが発生しました。もう一度お試しください。",
+							embeds: [],
+							files: [],
+						});
+					} catch {}
+				}
+			})();
+			return { text: interim, embeds: [], files: [], deferred: true };
 		}
 
-		return { text: replyText, embeds: ctx.embeds, files: ctx.files };
+		const { replyText, embeds, files } = await finalize();
+		return { text: replyText, embeds, files };
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("API Key")) {
 			return { text: `⚠️ ${error.message}`, embeds: [], files: [] };

@@ -162,4 +162,30 @@ export const config = {
 
 	/** 計測: §10 ベースライン指標の定期ログ出力を有効化する。 */
 	metricsEnabled: getSetting("METRICS_ENABLED", "false") === "true",
+
+	// ─── ターン処理プランナー / 重い処理の非同期化（既定 OFF・OFFで現行挙動） ──────────────
+
+	/**
+	 * Goal 1: 各ターンの冒頭で軽量LLMにツール索引を渡して処理プランを立てさせ、
+	 * 本ループの systemInstruction へ注入してツール呼び出しの打率を上げる（強制はしない）。
+	 */
+	planGateEnabled: getSetting("PLAN_GATE_ENABLED", "false") === "true",
+
+	/** プランナー用モデル（未指定なら本体と同じモデルを使う）。 */
+	planModel: getSetting("PLAN_MODEL", ""),
+
+	/**
+	 * Goal 2: 処理ウェイトが規定値以上のターンで一時応答（中間レスポンス）を返し、
+	 * 完了後に結果を同チャンネルへフォローアップ送信する（ずっと「入力中…」にしない）。
+	 */
+	asyncHeavyEnabled: getSetting("ASYNC_HEAVY_ENABLED", "false") === "true",
+
+	/** 非同期化の閾値（ms）。プラン推定ウェイトがこれ以上なら一時応答→非同期実行へ。 */
+	heavyWeightThresholdMs: parseInt(
+		getSetting("HEAVY_WEIGHT_THRESHOLD_MS", "8000"),
+		10,
+	),
+
+	/** 実行時エスカレーション: ループ経過時間がこれ以上なら実行中でも一時応答を出す（ms）。 */
+	heavyRuntimeMs: parseInt(getSetting("HEAVY_RUNTIME_MS", "12000"), 10),
 };

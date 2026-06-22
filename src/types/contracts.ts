@@ -1,6 +1,6 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FunctionDeclaration } from "@google/generative-ai";
 import type { EmbedBuilder } from "discord.js";
-import type { IncomingMessage, ServerResponse } from "node:http";
 
 // ─── Function Call 実行コンテキスト ──────────────────────────────────────────
 
@@ -24,6 +24,21 @@ export interface ToolContext {
 	files: { attachment: Buffer; name: string }[];
 	/** ユーザー設定: リッチ返信の有効/無効（falseの場合 embeds/files への push 禁止） */
 	richReplyEnabled: boolean;
+}
+
+/**
+ * 重い処理ターンの非同期配信ハンドル（bot.ts → gemini.ts へ注入）。
+ * 一時応答（中間レスポンス）と、完了後の最終結果フォローアップ送信を担う。
+ */
+export interface TurnAsyncDelivery {
+	/** 実行時に重い処理を検知した際、一時応答を即時送信する（「入力中…」を止める用途も兼ねる）。 */
+	onInterim?: (text: string) => void | Promise<void>;
+	/** 事前予測で重いと判断したターンの最終結果を、完了後に同チャンネルへ送信する。 */
+	deliverFinal?: (payload: {
+		content: string;
+		embeds: EmbedBuilder[];
+		files: { attachment: Buffer; name: string }[];
+	}) => Promise<void>;
 }
 
 /** 各機能モジュールが export する Function Call の束 */

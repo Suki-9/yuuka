@@ -1,39 +1,41 @@
 import {
-	Client,
-	GatewayIntentBits,
-	Partials,
-	ActivityType,
-	Events,
 	ActionRowBuilder,
+	ActivityType,
 	ButtonBuilder,
 	ButtonStyle,
+	Client,
+	Events,
+	GatewayIntentBits,
 	type Interaction,
 	type Message,
+	Partials,
 } from "discord.js";
+import { isBotMember, isGuildAllowed } from "./db/botAttributesRepo.js";
 import {
-	processMessage,
-	processGuildMessage,
-	processBotDmMessage,
-	type ChatMessage,
-} from "./gemini.js";
-import { parseReceipt } from "./services/receiptParser.js";
-import { isRegisteredUser } from "./db/userRepo.js";
-import {
+	acceptShareInvite,
 	getBotById,
 	getBotDiscordConfig,
+	getShareById,
+	isBotSuspended,
 	listAllBots,
 	listBotsForUser,
-	updateBotDiscordProfile,
-	isBotSuspended,
-	acceptShareInvite,
 	revokeShare,
-	getShareById,
+	updateBotDiscordProfile,
 } from "./db/botRepo.js";
-import { isGuildAllowed, isBotMember } from "./db/botAttributesRepo.js";
+import { getPersonaById, importPersona } from "./db/personaRepo.js";
+import { isRegisteredUser } from "./db/userRepo.js";
+import {
+	type ChatMessage,
+	processBotDmMessage,
+	processGuildMessage,
+	processMessage,
+} from "./gemini.js";
 import { isGuildAssistantBot } from "./services/botCapabilities.js";
-import { getBotGenAI } from "./services/llmClient.js";
 import { consumeRateLimit, rateLimitMessage } from "./services/botRateLimit.js";
-import { importPersona, getPersonaById } from "./db/personaRepo.js";
+import { getBotGenAI } from "./services/llmClient.js";
+import { sendToUser } from "./services/notifier.js";
+import { parseReceipt } from "./services/receiptParser.js";
+import type { TurnAsyncDelivery } from "./types/contracts.js";
 import { decryptText } from "./utils/crypto.js";
 import { toDiscordMarkdown } from "./utils/discordMarkdown.js";
 
@@ -773,7 +775,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
 			}
 
 			// メンションテキストを除去してクリーンなメッセージを取得
-			let text = message.content.replace(/<@!?\d+>/g, "").trim();
+			const text = message.content.replace(/<@!?\d+>/g, "").trim();
 
 			// 返信先メッセージのテキストをコンテキストプレフィックスとして構築
 			// （DBに記録がないメッセージへの返信もカバーする。記録がある場合の完全なチェーン解決は
@@ -815,6 +817,49 @@ export function setupMessageListener(botClient: Client, botId?: string) {
 				setBotStatus(botClient, status);
 			};
 
+			// 重い処理の非同期化ハンドル（Goal 2。ASYNC_HEAVY_ENABLED が OFF なら gemini 側で未使用）。
+			// - onInterim: 実行時に重いと判明した際の一時応答。「入力中…」を止めてから即返信する。
+			// - deliverFinal: 事前予測で非同期化したターンの最終結果を、完了後に同チャンネルへ送る。
+			const asyncDelivery: TurnAsyncDelivery = {
+				onInterim: async (interimText: string) => {
+					if (typingInterval) {
+						clearInterval(typingInterval);
+						typingInterval = null;
+					}
+					await safeReply(message, {
+						content: toDiscordMarkdown(interimText),
+					});
+				},
+				deliverFinal: async (payload) => {
+					const target = isDM
+						? ({ type: "dm" } as const)
+						: ({ type: "channel", id: message.channelId } as const);
+					const ok = await sendToUser(
+						userId,
+						{
+							content: payload.content,
+							embeds: payload.embeds,
+							files: payload.files,
+						},
+						target,
+						resolvedBotId,
+					);
+					// 同チャンネル送信に失敗した場合は DM へフォールバックして取りこぼしを防ぐ。
+					if (!ok && !isDM) {
+						await sendToUser(
+							userId,
+							{
+								content: payload.content,
+								embeds: payload.embeds,
+								files: payload.files,
+							},
+							{ type: "dm" },
+							resolvedBotId,
+						);
+					}
+				},
+			};
+
 			let responseText: string;
 			let responseEmbeds: import("discord.js").EmbedBuilder[] = [];
 			let responseFiles: { attachment: Buffer; name: string }[] = [];
@@ -846,6 +891,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
 					userId,
 					chatMessage,
 					statusCallback,
+					asyncDelivery,
 				);
 				responseText = result.text;
 				responseEmbeds = result.embeds;
@@ -882,6 +928,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
 					userId,
 					chatMessage,
 					statusCallback,
+					asyncDelivery,
 				);
 				responseText = result.text;
 				responseEmbeds = result.embeds;
