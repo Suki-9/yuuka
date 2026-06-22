@@ -85,9 +85,25 @@ function contextFloorKey(userId: string, botId: string): string {
   return `context_floor:${botId}:${userId}`;
 }
 
+/**
+ * 汎用モード owner DM のリセット境界キー。
+ * 秘書コンテキスト（context_floor:{botId}:{userId}）とは別軸で管理し、
+ * getBotDmContext の SQLite 再構築でも過去メッセージを復元しないようにする。
+ */
+function botDmContextFloorKey(botId: string, ownerId: string): string {
+  return `context_floor:${botId}:dm:${ownerId}`;
+}
+
 /** コンテキストリセット境界（これより小さい id はコンテキスト再構築に使わない） */
 function getContextFloor(userId: string, botId: string): number {
   const value = getSystemSetting(contextFloorKey(userId, botId), "0");
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** 汎用モード owner DM のリセット境界（これより小さい id は再構築に使わない） */
+function getBotDmContextFloor(ownerId: string, botId: string): number {
+  const value = getSystemSetting(botDmContextFloorKey(botId, ownerId), "0");
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -352,16 +368,17 @@ export async function getBotDmContext(
   }
 
   const db = getDb();
+  const floor = getBotDmContextFloor(ownerId, botId);
   const rows = db
     .prepare(
       `SELECT role, content FROM (
          SELECT id, role, content FROM message_logs
-         WHERE bot_id = ? AND user_id = ? AND guild_id IS NULL
+         WHERE bot_id = ? AND user_id = ? AND id > ? AND guild_id IS NULL
          ORDER BY id DESC
          LIMIT ?
        ) ORDER BY id ASC`
     )
-    .all(botId, ownerId, limit) as { role: string; content: string }[];
+    .all(botId, ownerId, floor, limit) as { role: string; content: string }[];
 
   const history: ContextEntry[] = rows.map((row) => ({
     role: row.role as "user" | "assistant",
@@ -380,6 +397,36 @@ export async function getBotDmContext(
   }
 
   return history;
+}
+
+/**
+ * 汎用モード Bot の owner DM 会話コンテキストをリセットする。
+ * 秘書の clearContext と同様に、Redis キャッシュを削除しリセット境界（現在の最大id）を
+ * 記録することで、以降の SQLite 再構築でも過去メッセージを復元しないようにする。
+ * 永続ログ (message_logs) 自体は削除しない（§7.1）。
+ * 汎用モードの DM は owner 限定のため、対象は (ownerId, botId) の DM 会話（guild_id IS NULL）のみ。
+ */
+export async function clearBotDmContext(ownerId: string, botId: string): Promise<void> {
+  // 1. リセット境界を記録（SQLite からの再構築を防ぐ）
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT MAX(id) AS max_id FROM message_logs WHERE user_id = ? AND bot_id = ? AND guild_id IS NULL"
+    )
+    .get(ownerId, botId) as { max_id: number | null };
+  if (row.max_id !== null) {
+    setSystemSetting(botDmContextFloorKey(botId, ownerId), String(row.max_id));
+  }
+
+  // 2. Redis キャッシュを削除
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      await redis.del(botDmContextKey(botId, ownerId));
+    } catch (err) {
+      console.error("⚠️ Redis owner DMコンテキストキャッシュの削除に失敗しました:", err);
+    }
+  }
 }
 
 // ─── 返信チェーン解決（§7.3） ────────────────────────────────────────────────

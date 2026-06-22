@@ -1,9 +1,9 @@
 import type { RouteDef } from "../../types/contracts.js";
 import { sendJson } from "../../types/contracts.js";
 import { listBotsOwnedBy, getBotById, isBotSuspended, setBotStopped, hasBotAccess, type BotRecord } from "../../db/botRepo.js";
-import { clearContext } from "../../db/messageLogRepo.js";
+import { clearContext, clearBotDmContext } from "../../db/messageLogRepo.js";
 import { client, customClients, startCustomBot, stopCustomBot } from "../../bot.js";
-import { parseCapabilities, presetIdForCapabilities } from "../../services/botCapabilities.js";
+import { parseCapabilities, presetIdForCapabilities, isGuildAssistantBot } from "../../services/botCapabilities.js";
 import {
   listServersForOwner,
   getServerById,
@@ -209,7 +209,10 @@ export const integratedRoutes: RouteDef[] = [
   // ── 会話履歴クリア ──
   // Redis のコンテキストキャッシュを削除し、context_floor（リセット境界）を記録する。
   // 永続ログ message_logs は削除しない（検索・監査用に保持。§7.1）。
-  // スコープは (ログインユーザー, botId) の秘書会話のみ＝自分の会話だけに作用する。
+  // スコープは (ログインユーザー, botId) の自分の会話のみ＝自分の会話だけに作用する。
+  // ・秘書系Bot（system_default / secretary プリセット）: 秘書コンテキストをクリア。
+  // ・汎用モードBot（secretary なし）: owner DM コンテキストをクリア（DMは owner 限定 §4.3.2）。
+  //   ギルド会話は利用メンバー間で共有されるため「自分の会話」ではなく、ここでは対象外。
   {
     method: "POST",
     path: "/api/integrated/bots/clear-history",
@@ -218,11 +221,16 @@ export const integratedRoutes: RouteDef[] = [
       const userId = ctx.user!.discordId;
       const botId = typeof ctx.body.botId === "string" ? ctx.body.botId : "";
       const bot = getBotById(botId);
-      // 自分が会話できるBotのみ（system_default は共有秘書）。clearContext は (userId,botId) 自分の会話のみ操作。
+      // 自分が会話できるBotのみ（system_default は共有秘書）。クリアは (userId,botId) 自分の会話のみ操作。
       if (!bot || (botId !== "system_default" && !hasBotAccess(userId, botId))) {
         return sendJson(ctx.res, 403, { success: false, message: "このBotへのアクセス権がありません。" });
       }
-      await clearContext(userId, botId);
+      // 汎用モードBotは会話が owner DM コンテキスト（別キー）に保存されるため、そちらをクリアする。
+      if (isGuildAssistantBot(botId)) {
+        await clearBotDmContext(userId, botId);
+      } else {
+        await clearContext(userId, botId);
+      }
       addAuditLog(userId, "conversation.clear", botId);
       return sendJson(ctx.res, 200, {
         success: true,
