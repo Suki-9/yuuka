@@ -522,13 +522,16 @@ async function handleAssistantMessage(
       await safeReply(message, { content: replyText, ...attachOptions });
     }
   } catch (error) {
+    console.error(`[汎用モード] Bot ${botId} のメッセージ処理エラー:`, error);
+    await safeReply(message, "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。");
+  } finally {
+    // どの経路（早期return・正常終了・例外）で抜けても「入力中...」維持タイマーを必ず止める。
+    // 特に本文なしメンション（!fullText.trim()）の early return でタイマーが残り続け、
+    // 「ずっと入力中」になる不具合を防ぐ。
     if (typingInterval) {
       clearInterval(typingInterval);
       typingInterval = null;
     }
-    console.error(`[汎用モード] Bot ${botId} のメッセージ処理エラー:`, error);
-    await safeReply(message, "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。");
-  } finally {
     setBotStatus(botClient, "idle");
   }
 }
@@ -729,10 +732,6 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         await safeReply(message, { content: replyText, ...attachOptions });
       }
     } catch (error) {
-      if (typingInterval) {
-        clearInterval(typingInterval);
-        typingInterval = null;
-      }
       console.error("メッセージ処理エラー:", error);
       // 返信自体が失敗してもプロセスを巻き込まない（safeReply内でcatch）
       await safeReply(
@@ -740,6 +739,11 @@ export function setupMessageListener(botClient: Client, botId?: string) {
         "申し訳ございません、処理中にエラーが発生しました 😢\nしばらくしてからもう一度お試しください。"
       );
     } finally {
+      // どの経路で抜けても「入力中...」維持タイマーを必ず止める（タイマー残留＝ずっと入力中を防ぐ）。
+      if (typingInterval) {
+        clearInterval(typingInterval);
+        typingInterval = null;
+      }
       setBotStatus(botClient, "idle");
     }
   });
