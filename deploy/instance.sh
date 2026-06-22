@@ -86,8 +86,8 @@ case "$CMD" in
     if docker image inspect yuuka:latest >/dev/null 2>&1; then
       docker tag yuuka:latest "yuuka:prev-$INST" && echo "🏷  現行イメージを退避: yuuka:prev-$INST"
     fi
-    echo "🔨 ビルド（rust crawler + tsgo）..."
-    dc build
+    echo "🔨 ビルド（rust + tsgo / キャッシュ無効 --no-cache）..."
+    dc build --no-cache
     echo "♻️  コンテナ再作成..."
     dc up -d
     health_check
