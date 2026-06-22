@@ -590,15 +590,61 @@ async function handleAssistantMessage(
 			setBotStatus(botClient, status);
 		};
 
+		// 重い処理の非同期化ハンドル（Goal 2。ASYNC_HEAVY_ENABLED が OFF なら gemini 側で未使用）。
+		const asyncDelivery: TurnAsyncDelivery = {
+			onInterim: async (interimText: string) => {
+				if (typingInterval) {
+					clearInterval(typingInterval);
+					typingInterval = null;
+				}
+				await safeReply(message, { content: toDiscordMarkdown(interimText) });
+			},
+			deliverFinal: async (payload) => {
+				const target = isDM
+					? ({ type: "dm" } as const)
+					: ({ type: "channel", id: message.channelId } as const);
+				const ok = await sendToUser(
+					userId,
+					{
+						content: payload.content,
+						embeds: payload.embeds,
+						files: payload.files,
+					},
+					target,
+					botId,
+				);
+				// 同チャンネル送信に失敗した場合は DM へフォールバックして取りこぼしを防ぐ。
+				if (!ok && !isDM) {
+					await sendToUser(
+						userId,
+						{
+							content: payload.content,
+							embeds: payload.embeds,
+							files: payload.files,
+						},
+						{ type: "dm" },
+						botId,
+					);
+				}
+			},
+		};
+
 		const speaker = { userId, displayName: resolveDisplayName(message) };
 		const result = isDM
-			? await processBotDmMessage(botId, speaker, chatMessage, statusCallback)
+			? await processBotDmMessage(
+					botId,
+					speaker,
+					chatMessage,
+					statusCallback,
+					asyncDelivery,
+				)
 			: await processGuildMessage(
 					botId,
 					guildId!,
 					speaker,
 					chatMessage,
 					statusCallback,
+					asyncDelivery,
 				);
 
 		if (typingInterval) {
@@ -913,6 +959,7 @@ export function setupMessageListener(botClient: Client, botId?: string) {
 					mimeType,
 					text || undefined,
 					statusCallback,
+					asyncDelivery,
 				);
 				responseText = result.text;
 				responseEmbeds = result.embeds;

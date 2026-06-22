@@ -1,5 +1,6 @@
-import { processMessage } from "../gemini.js";
 import type { ChatMessage, ProcessResult } from "../gemini.js";
+import { processMessage } from "../gemini.js";
+import type { TurnAsyncDelivery } from "../types/contracts.js";
 
 /**
  * レシート画像を解析して支出を記録する（§3.4.2）。
@@ -19,6 +20,7 @@ export async function parseReceipt(
 	mimeType: string,
 	additionalText?: string,
 	onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+	asyncDelivery?: TurnAsyncDelivery,
 ): Promise<ProcessResult> {
 	const message: ChatMessage = {
 		text:
@@ -30,5 +32,5 @@ export async function parseReceipt(
 		},
 	};
 
-	return processMessage(botId, userId, message, onStatusChange);
+	return processMessage(botId, userId, message, onStatusChange, asyncDelivery);
 }

@@ -769,6 +769,155 @@ function buildPlanSection(plan: TurnPlan | null): string {
 }
 
 /**
+ * ターンプラン立案 → プラン注入 → 本ループ実行 → 最終文面確定 → ログ保存 を一括で行う共通処理。
+ * 秘書(processMessage)・汎用モード(processGuildMessage / processBotDmMessage)の3経路で共有する。
+ *
+ * - config.planGateEnabled が ON のとき軽量LLMで処理プランを立て systemInstruction へ注入（Goal 1）。
+ * - config.asyncHeavyEnabled が ON かつ deliverFinal 提供時、重い予測ターンは一時応答を即返して
+ *   背景で実行し完了後に deliverFinal で配信する（Goal 2 / 予測）。実行時エスカレーションは onInterim。
+ * 例外（ループ失敗等）は呼び出し側の try/catch へ伝播させる（予測非同期の背景処理は内部で握り潰す）。
+ */
+async function runPlannedTurn(params: {
+	ai: GenAiHandle;
+	/** recall セクション等を結合済みのベース systemInstruction。 */
+	baseSystemInstruction: string;
+	registry: ReturnType<typeof buildFunctionRegistry>;
+	contents: Content[];
+	ctx: ToolContext;
+	onStatusChange?: (status: "thinking" | "writing" | "idle") => void;
+	asyncDelivery?: TurnAsyncDelivery;
+	planInput: { text: string; imageCount: number; hasAudio: boolean };
+	recordActions?: boolean;
+	/** 確定した最終文面（または一時応答）を所定のストアへ保存する。 */
+	saveAssistant: (text: string) => Promise<void>;
+	/** 空応答時のフォールバック定型文（ブラウザ失敗を区別する経路もある）。 */
+	fallbackText: (
+		browserToolCalled: boolean,
+		browserToolFailed: boolean,
+	) => string;
+	/** 最終文面確定後の追加処理（秘書のシナプス抽出など）。 */
+	onFinal?: (replyText: string) => void;
+}): Promise<ProcessResult> {
+	const {
+		ai,
+		registry,
+		contents,
+		ctx,
+		onStatusChange,
+		asyncDelivery,
+		planInput,
+	} = params;
+
+	incrMetric("messages");
+
+	// ─── ターン処理プランナー（Goal 1/2。PLAN_GATE_ENABLED が OFF なら現行挙動） ─────────
+	let plan: TurnPlan | null = null;
+	if (config.planGateEnabled) {
+		plan = await planTurn(ai, {
+			text: planInput.text,
+			imageCount: planInput.imageCount,
+			hasAudio: planInput.hasAudio,
+			toolIndex: buildToolIndex(registry.declarations),
+			threshold: config.heavyWeightThresholdMs,
+			modelOverride: config.planModel || undefined,
+		});
+		if (plan) incrMetric("plan_attempts");
+	}
+	const finalSystemInstruction =
+		params.baseSystemInstruction + buildPlanSection(plan);
+
+	// プランの候補ツールを実在ツールへ絞る（完了是正時の allowedFunctionNames に使う）。
+	const allowedToolNames = plan?.tools?.length
+		? plan.tools.filter((t) => registry.declarations.some((d) => d.name === t))
+		: undefined;
+
+	// 事前予測による非同期化判定（Goal 2）。閾値はプラン推定ウェイト（ヒューリスティック下限込み）。
+	const predictedAsync =
+		config.asyncHeavyEnabled && !!asyncDelivery?.deliverFinal && !!plan?.heavy;
+
+	// 本ループ実行 → 最終文面の確定 → ログ保存 を一括で行うクロージャ（同期/背景で共通利用）。
+	const finalize = async (): Promise<{
+		replyText: string;
+		embeds: EmbedBuilder[];
+		files: { attachment: Buffer; name: string }[];
+	}> => {
+		const responseStart = Date.now();
+		const { text, browserToolCalled, browserToolFailed } =
+			await runFunctionCallingLoop(
+				ai,
+				finalSystemInstruction,
+				registry,
+				contents,
+				ctx,
+				onStatusChange,
+				{
+					recordActions: params.recordActions ?? false,
+					// 実行時エスカレーション（フラグON時のみ）。予測非同期は既に一時応答済みなので付けない。
+					onHeavyDetected:
+						config.asyncHeavyEnabled &&
+						!predictedAsync &&
+						asyncDelivery?.onInterim
+							? () => void asyncDelivery.onInterim?.(RUNTIME_INTERIM_TEXT)
+							: undefined,
+					heavyRuntimeMs: config.heavyRuntimeMs,
+					allowedToolNames,
+				},
+			);
+		recordLatency("response", Date.now() - responseStart);
+
+		// 最終テキスト応答を決定し、実際に返す文面を必ず会話ログへ保存する（空応答時の定型文も保存）。
+		// これを怠ると当該ターンに assistant の記録が残らず、次ターンで要求が「未応答」扱いとなり
+		// 直前のブラウザ操作等が勝手に再実行される回帰が起きる。
+		const replyText =
+			text && text.trim()
+				? text
+				: params.fallbackText(browserToolCalled, browserToolFailed);
+		await params.saveAssistant(replyText);
+		params.onFinal?.(replyText);
+		return { replyText, embeds: ctx.embeds, files: ctx.files };
+	};
+
+	// 事前予測で重いと判断したターン: 一時応答を即返し、本処理は背後で進めて
+	// 完了後に同チャンネルへフォローアップ送信する（ずっと「入力中…」にしない）。
+	if (predictedAsync && asyncDelivery?.deliverFinal) {
+		incrMetric("async_predicted");
+		const interim = plan?.interim?.trim() || DEFAULT_INTERIM_TEXT;
+		// 一時応答も会話ログへ残す（次ターンで「未応答」扱いとなり再実行されるのを防ぐ）。
+		await params.saveAssistant(interim);
+		void (async () => {
+			try {
+				const { replyText, embeds, files } = await finalize();
+				await asyncDelivery.deliverFinal?.({
+					content: replyText,
+					embeds,
+					files,
+				});
+			} catch (err) {
+				console.error("非同期処理（最終結果配信）に失敗しました:", err);
+				try {
+					await asyncDelivery.deliverFinal?.({
+						content:
+							"申し訳ございません、処理中にエラーが発生しました。もう一度お試しください。",
+						embeds: [],
+						files: [],
+					});
+				} catch {}
+			} finally {
+				// 背景処理はフォアグラウンドの finally より後に走るため、最後に presence を idle へ戻す
+				// （ループが "writing" のまま残すと「書き込み中…」が残留する）。
+				try {
+					onStatusChange?.("idle");
+				} catch {}
+			}
+		})();
+		return { text: interim, embeds: [], files: [], deferred: true };
+	}
+
+	const { replyText, embeds, files } = await finalize();
+	return { text: replyText, embeds, files };
+}
+
+/**
  * メッセージを処理し、Function Callingループを含む完全な応答を返す（§3.1.2）
  *
  * @param botId 実行中のBotインスタンスID（通知クライアント解決用）
@@ -935,130 +1084,38 @@ export async function processMessage(
 			);
 		}
 
-		incrMetric("messages");
-
-		// ─── ターン処理プランナー（Goal 1/2。PLAN_GATE_ENABLED が OFF なら現行挙動） ─────────
-		let plan: TurnPlan | null = null;
-		if (config.planGateEnabled) {
-			plan = await planTurn(ai, {
+		return await runPlannedTurn({
+			ai,
+			baseSystemInstruction: recallSection
+				? systemInstruction + recallSection
+				: systemInstruction,
+			registry,
+			contents,
+			ctx,
+			onStatusChange,
+			asyncDelivery,
+			planInput: {
 				text: message.text ?? "",
 				imageCount: message.imageData ? 1 : 0,
 				hasAudio: !!message.audioData,
-				toolIndex: buildToolIndex(registry.declarations),
-				threshold: config.heavyWeightThresholdMs,
-				modelOverride: config.planModel || undefined,
-			});
-			if (plan) incrMetric("plan_attempts");
-		}
-		// プランを「内部の思考メモ」として注入し、ツール呼び出しの打率を上げる（強制はしない）。
-		const planSection = buildPlanSection(plan);
-		const finalSystemInstruction =
-			(recallSection ? systemInstruction + recallSection : systemInstruction) +
-			planSection;
-
-		// プランの候補ツールを実在ツールへ絞る（完了是正時の allowedFunctionNames に使う）。
-		const allowedToolNames = plan?.tools?.length
-			? plan.tools.filter((t) =>
-					registry.declarations.some((d) => d.name === t),
-				)
-			: undefined;
-
-		// 事前予測による非同期化判定（Goal 2）。閾値はプラン推定ウェイト（ヒューリスティック下限込み）。
-		const predictedAsync =
-			config.asyncHeavyEnabled &&
-			!!asyncDelivery?.deliverFinal &&
-			!!plan?.heavy;
-
-		// 本ループ実行 → 最終文面の確定 → ログ保存 → シナプス抽出 までを一括で行うクロージャ。
-		// 同期パスとバックグラウンド（非同期）パスで共通利用する。
-		const finalize = async (): Promise<{
-			replyText: string;
-			embeds: EmbedBuilder[];
-			files: { attachment: Buffer; name: string }[];
-		}> => {
-			const responseStart = Date.now();
-			const { text, browserToolCalled, browserToolFailed } =
-				await runFunctionCallingLoop(
-					ai,
-					finalSystemInstruction,
-					registry,
-					contents,
-					ctx,
-					onStatusChange,
-					{
-						recordActions: true,
-						// 実行時エスカレーション（フラグON時のみ）。予測非同期は既に一時応答済みなので付けない。
-						onHeavyDetected:
-							config.asyncHeavyEnabled &&
-							!predictedAsync &&
-							asyncDelivery?.onInterim
-								? () => void asyncDelivery.onInterim?.(RUNTIME_INTERIM_TEXT)
-								: undefined,
-						heavyRuntimeMs: config.heavyRuntimeMs,
-						allowedToolNames,
-					},
-				);
-			recordLatency("response", Date.now() - responseStart);
-
-			// 最終テキスト応答を決定し、実際に返す文面を必ず会話ログへ保存する。
-			// 重要: 空応答時のフォールバック定型文も保存すること。これを怠ると当該ターンに
-			// assistant の記録が一切残らず、次ターンのコンテキストではユーザーの元の要求が
-			// 「未応答」のまま見えてしまう。するとモデルがその要求を満たそうとして直前の
-			// ブラウザ操作（ページ取得・Web検索）を勝手に再実行し、daemon が暖まった2回目は
-			// 成功するため「前回のブラウザ操作の結果」を次の命令で返す回帰が起きる。
-			const replyText =
-				text && text.trim()
-					? text
-					: browserToolCalled || browserToolFailed
-						? "ブラウザ操作に失敗しました。求めた結果が得られませんでした。"
-						: "処理が完了しました。";
-			await addMessageLog(userId, botId, "assistant", replyText);
-
-			// R1: 会話ターンからシナプス（記憶の断片）を抽出して長期記憶へ蓄積する。
-			// バックグラウンド実行（await しない・投げない）。機能フラグ OFF 時は即時 return。
-			if (logText) {
-				void maybeExtractSynapse({
-					scope: { userId, botId },
-					userText: logText,
-					assistantText: replyText,
-				});
-			}
-
-			return { replyText, embeds: ctx.embeds, files: ctx.files };
-		};
-
-		// 事前予測で重いと判断したターン: 一時応答を即返し、本処理は背後で進めて
-		// 完了後に同チャンネルへフォローアップ送信する（ずっと「入力中…」にしない）。
-		if (predictedAsync && asyncDelivery?.deliverFinal) {
-			incrMetric("async_predicted");
-			const interim = plan?.interim?.trim() || DEFAULT_INTERIM_TEXT;
-			// 一時応答も会話ログへ残す（次ターンで「未応答」扱いとなり再実行されるのを防ぐ）。
-			await addMessageLog(userId, botId, "assistant", interim);
-			void (async () => {
-				try {
-					const { replyText, embeds, files } = await finalize();
-					await asyncDelivery.deliverFinal?.({
-						content: replyText,
-						embeds,
-						files,
-					});
-				} catch (err) {
-					console.error("非同期処理（最終結果配信）に失敗しました:", err);
-					try {
-						await asyncDelivery.deliverFinal?.({
-							content:
-								"申し訳ございません、処理中にエラーが発生しました。もう一度お試しください。",
-							embeds: [],
-							files: [],
-						});
-					} catch {}
-				}
-			})();
-			return { text: interim, embeds: [], files: [], deferred: true };
-		}
-
-		const { replyText, embeds, files } = await finalize();
-		return { text: replyText, embeds, files };
+			},
+			recordActions: true,
+			saveAssistant: (replyText) =>
+				addMessageLog(userId, botId, "assistant", replyText),
+			fallbackText: (browserToolCalled, browserToolFailed) =>
+				browserToolCalled || browserToolFailed
+					? "ブラウザ操作に失敗しました。求めた結果が得られませんでした。"
+					: "処理が完了しました。",
+			// R1: 確定した最終文面からシナプス（記憶の断片）を抽出して長期記憶へ蓄積する。
+			onFinal: logText
+				? (replyText) =>
+						void maybeExtractSynapse({
+							scope: { userId, botId },
+							userText: logText,
+							assistantText: replyText,
+						})
+				: undefined,
+		});
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("API Key")) {
 			return { text: `⚠️ ${error.message}`, embeds: [], files: [] };
@@ -1319,6 +1376,7 @@ export async function processGuildMessage(
 	speaker: GuildSpeaker,
 	message: ChatMessage,
 	onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+	asyncDelivery?: TurnAsyncDelivery,
 ): Promise<ProcessResult> {
 	const bot = getBotById(botId);
 	if (!bot) {
@@ -1414,26 +1472,30 @@ export async function processGuildMessage(
 			return { text: "", embeds: [], files: [] };
 		}
 
-		const { text } = await runFunctionCallingLoop(
+		return await runPlannedTurn({
 			ai,
-			systemInstruction,
+			baseSystemInstruction: systemInstruction,
 			registry,
 			contents,
 			ctx,
 			onStatusChange,
-		);
-
-		// 空応答時のフォールバック定型文も必ずログへ保存する（assistant の記録欠落により
-		// ユーザー要求が次ターンで「未応答」扱いとなり、直前操作が再実行されるのを防ぐ）。
-		const replyText = text && text.trim() ? text : "処理が完了しました。";
-		await addGuildMessageLog(
-			botId,
-			guildId,
-			speaker.userId,
-			"assistant",
-			replyText,
-		);
-		return { text: replyText, embeds: ctx.embeds, files: ctx.files };
+			asyncDelivery,
+			planInput: {
+				text: message.text ?? "",
+				imageCount: message.imageData ? 1 : 0,
+				hasAudio: !!message.audioData,
+			},
+			recordActions: false,
+			saveAssistant: (replyText) =>
+				addGuildMessageLog(
+					botId,
+					guildId,
+					speaker.userId,
+					"assistant",
+					replyText,
+				),
+			fallbackText: () => "処理が完了しました。",
+		});
 	} catch (error) {
 		return guildErrorResult(error);
 	}
@@ -1447,6 +1509,7 @@ export async function processBotDmMessage(
 	owner: GuildSpeaker,
 	message: ChatMessage,
 	onStatusChange?: (status: "thinking" | "writing" | "idle") => void,
+	asyncDelivery?: TurnAsyncDelivery,
 ): Promise<ProcessResult> {
 	const bot = getBotById(botId);
 	if (!bot) {
@@ -1534,20 +1597,24 @@ export async function processBotDmMessage(
 			};
 		}
 
-		const { text } = await runFunctionCallingLoop(
+		return await runPlannedTurn({
 			ai,
-			systemInstruction,
+			baseSystemInstruction: systemInstruction,
 			registry,
 			contents,
 			ctx,
 			onStatusChange,
-		);
-
-		// 空応答時のフォールバック定型文も必ずログへ保存する（assistant の記録欠落により
-		// ユーザー要求が次ターンで「未応答」扱いとなり、直前操作が再実行されるのを防ぐ）。
-		const replyText = text && text.trim() ? text : "処理が完了しました。";
-		await addBotDmMessageLog(botId, owner.userId, "assistant", replyText);
-		return { text: replyText, embeds: ctx.embeds, files: ctx.files };
+			asyncDelivery,
+			planInput: {
+				text: message.text ?? "",
+				imageCount: message.imageData ? 1 : 0,
+				hasAudio: !!message.audioData,
+			},
+			recordActions: false,
+			saveAssistant: (replyText) =>
+				addBotDmMessageLog(botId, owner.userId, "assistant", replyText),
+			fallbackText: () => "処理が完了しました。",
+		});
 	} catch (error) {
 		return guildErrorResult(error);
 	}
