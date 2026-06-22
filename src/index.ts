@@ -43,9 +43,13 @@ import {
 	stopSynapseEngine,
 } from "./services/synapseEngine.js";
 import { rotateSecretKey } from "./utils/crypto.js";
+import { applyGoogleHttpFix } from "./utils/googleHttpFix.js";
 
 async function main() {
 	console.log("🚀 Yuuka 起動中...");
+
+	// Google API（gaxios/node-fetch）の "Premature close" 回避パッチ。Google 呼び出し前に適用する。
+	applyGoogleHttpFix();
 
 	// 保存時暗号化シークレットの必須チェック（§6.2）
 	// YUUKA_ENCRYPTION_SECRET_NEW のみが設定されている場合は旧鍵からのローテーションとして起動を許可する
