@@ -1613,9 +1613,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const items = [
-      { label: "ユーザー / 分", value: rl.userPerMinute },
-      { label: "ユーザー / 日", value: rl.userPerDay },
-      { label: "サーバー / 日", value: rl.guildPerDay },
+      { label: "ユーザー1人 / 分", value: rl.userPerMinute },
+      { label: "ユーザー1人 / 日", value: rl.userPerDay },
+      { label: "サーバー1つ / 日", value: rl.guildPerDay },
     ];
     items.forEach(it => {
       const card = document.createElement("div");

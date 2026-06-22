@@ -4286,6 +4286,18 @@ summary.column-header.badge-right > h3 {
   padding: 8px 2px;
 }
 
+.usage-ratelimit-note {
+  margin-top: 14px;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--text-medium);
+}
+
+.usage-ratelimit-note strong {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
 @media (max-width: 1024px) {
   .usage-stats-grid {
     grid-template-columns: repeat(2, 1fr);
