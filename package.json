@@ -17,7 +17,16 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "typecheck": "tsgo --noEmit",
-    "check": "pnpm typecheck && pnpm lint"
+    "check": "pnpm typecheck && pnpm lint",
+    "deploy": "deploy/instance.sh prod update",
+    "deploy:dev": "deploy/instance.sh dev update",
+    "deploy:rollback": "deploy/instance.sh prod rollback",
+    "deploy:rollback:dev": "deploy/instance.sh dev rollback",
+    "deploy:verify": "deploy/instance.sh prod verify",
+    "deploy:logs": "deploy/instance.sh prod logs -f",
+    "deploy:logs:dev": "deploy/instance.sh dev logs -f",
+    "deploy:down": "deploy/instance.sh prod down",
+    "deploy:ps": "deploy/instance.sh prod ps"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -1,36 +1,41 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Yuuka インスタンス操作ヘルパー
-#   使い方: deploy/instance.sh <インスタンス名> <docker compose のサブコマンド...>
+#   使い方: deploy/instance.sh <インスタンス名> <コマンド...>
+#
+#   独自コマンド:
+#     update    退避(yuuka:prev-<名>) → ビルド → 再作成 → ヘルスチェック（推奨デプロイ手順）
+#     rollback  退避イメージへ戻して再作成
+#     verify    ヘルスチェックのみ（HTTP/Botログイン/エラー件数）
+#   それ以外は docker compose のサブコマンドへそのまま委譲:
+#     up -d / down / logs -f / ps / build / restart ...
+#
 #   例:
-#     deploy/instance.sh prod up -d        # 本番を起動
-#     deploy/instance.sh dev  up -d         # 開発を起動
-#     deploy/instance.sh prod logs -f       # ログ追従
-#     deploy/instance.sh dev  down          # 停止・撤去
-#     deploy/instance.sh prod build         # イメージビルド
-#     deploy/instance.sh prod ps            # 状態確認
+#     deploy/instance.sh prod update      # 本番をビルドして反映
+#     deploy/instance.sh dev  update      # 開発を反映
+#     deploy/instance.sh prod rollback    # 直前イメージへ戻す
+#     deploy/instance.sh prod logs -f
 #
 # 動作:
-#   - deploy/<name>/instance.env を読み込み（COMPOSE_PROJECT_NAME, ポート, パス等）
-#   - deploy/<name>/secret.key を YUUKA_ENCRYPTION_SECRET として literal で export
-#   - 必要なら deploy/<name>/secret.key.new を YUUKA_ENCRYPTION_SECRET_NEW として export
-#     （暗号化シークレットのローテーション時のみ。完了後は new を削除して再起動）
+#   - deploy/<名>/instance.env を読み込み（COMPOSE_PROJECT_NAME, ポート, パス等）
+#   - deploy/<名>/secret.key を YUUKA_ENCRYPTION_SECRET として literal で export
+#     （ファイル内の $ を再展開しない。compose の env_file/変数展開は $ を壊すため使わない）
+#   - deploy/<名>/secret.key.new があれば YUUKA_ENCRYPTION_SECRET_NEW として export（鍵ローテーション）
 # ==============================================================================
 set -euo pipefail
 
 INST="${1:-}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -z "$INST" ]; then
-  echo "usage: $0 <instance> <docker compose subcommand...>" >&2
-  echo "  instances: $(cd "$(dirname "${BASH_SOURCE[0]}")" && ls -d */ 2>/dev/null | tr -d / | tr '\n' ' ')" >&2
+  echo "usage: $0 <instance> <update|rollback|verify|docker-compose-subcommand...>" >&2
+  echo "  instances: $(cd "$ROOT/deploy" && ls -d */ 2>/dev/null | tr -d / | tr '\n' ' ')" >&2
   exit 1
 fi
 shift
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INST_DIR="$ROOT/deploy/$INST"
 ENV_FILE="$INST_DIR/instance.env"
 SECRET_FILE="$INST_DIR/secret.key"
-
 [ -f "$ENV_FILE" ]    || { echo "❌ インスタンス設定が見つかりません: $ENV_FILE" >&2; exit 1; }
 [ -f "$SECRET_FILE" ] || { echo "❌ シークレットが見つかりません: $SECRET_FILE" >&2; exit 1; }
 
@@ -43,15 +48,66 @@ set +a
 # 暗号化シークレットは $(cat) で literal 取得（ファイル内の $ は再展開されない）
 YUUKA_ENCRYPTION_SECRET="$(cat "$SECRET_FILE")"
 export YUUKA_ENCRYPTION_SECRET
-
-# ローテーション用の新キー（存在すれば）
 if [ -f "$INST_DIR/secret.key.new" ]; then
   YUUKA_ENCRYPTION_SECRET_NEW="$(cat "$INST_DIR/secret.key.new")"
   export YUUKA_ENCRYPTION_SECRET_NEW
 fi
 
-exec docker compose \
-  -p "$COMPOSE_PROJECT_NAME" \
-  --env-file "$ENV_FILE" \
-  -f "$ROOT/docker-compose.yml" \
-  "$@"
+# docker compose ラッパ
+dc() { docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" -f "$ROOT/docker-compose.yml" "$@"; }
+
+health_check() {
+  local port="${HOST_PORT:-7854}" code=""
+  echo "🔎 ヘルスチェック: http://127.0.0.1:$port/ （最大40秒待機）"
+  for _ in $(seq 1 20); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "http://127.0.0.1:$port/" || true)"
+    [ "$code" = "200" ] && break
+    sleep 2
+  done
+  echo "── 直近ログ ──"
+  dc logs --tail 20 app 2>&1 | sed 's/^/   /' || true
+  local logins errs
+  logins="$(dc logs app 2>&1 | grep -c 'としてログインしました' || true)"
+  errs="$(dc logs app 2>&1 | grep -ciE '復号|decrypt|UnhandledPromiseRejection|FATAL' || true)"
+  echo "── 判定 ──"
+  echo "   HTTP: $code / Botログイン: ${logins}件 / エラー疑い: ${errs}件"
+  if [ "$code" = "200" ]; then
+    echo "✅ [$INST] デプロイ成功"
+  else
+    echo "❌ [$INST] ヘルスチェック失敗（HTTP $code）。'deploy/instance.sh $INST rollback' で直前イメージへ復旧できます。" >&2
+    return 1
+  fi
+}
+
+CMD="${1:-}"
+case "$CMD" in
+  update|deploy)
+    echo "🚀 [$INST] デプロイ開始..."
+    if docker image inspect yuuka:latest >/dev/null 2>&1; then
+      docker tag yuuka:latest "yuuka:prev-$INST" && echo "🏷  現行イメージを退避: yuuka:prev-$INST"
+    fi
+    echo "🔨 ビルド（rust crawler + tsgo）..."
+    dc build
+    echo "♻️  コンテナ再作成..."
+    dc up -d
+    health_check
+    ;;
+  rollback)
+    docker image inspect "yuuka:prev-$INST" >/dev/null 2>&1 \
+      || { echo "❌ 退避イメージ yuuka:prev-$INST がありません（まだ update していない可能性）" >&2; exit 1; }
+    echo "⏪ [$INST] ロールバック: yuuka:prev-$INST → yuuka:latest"
+    docker tag "yuuka:prev-$INST" yuuka:latest
+    dc up -d
+    health_check
+    ;;
+  verify)
+    health_check
+    ;;
+  "")
+    echo "usage: $0 $INST <update|rollback|verify|docker-compose-subcommand...>" >&2
+    exit 1
+    ;;
+  *)
+    dc "$@"
+    ;;
+esac

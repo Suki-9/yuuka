@@ -26,19 +26,37 @@ deploy/
 - **ポート**: `HOST_PORT` をホスト側 `127.0.0.1` に公開（外部公開はリバースプロキシ/トンネル経由）
 - **シークレット**: `secret.key` をシェル経由で literal に渡す（`$` 等を含むため compose 変数展開を回避）
 
-## 使い方
+## 更新・デプロイ（推奨）
+
+コードを変更したら **`pnpm run deploy`** だけでOK。内部で「現行イメージ退避 → ビルド
+（rust crawler + tsgo）→ コンテナ再作成 → ヘルスチェック（HTTP/Botログイン/エラー件数）」を実行する。
+DB マイグレーションは起動時に自動適用される。
 
 ```bash
-# ビルド（初回・コード更新時）
-deploy/instance.sh prod build          # = docker compose ... build
+pnpm run deploy            # 本番(prod)をビルドして反映（= deploy/instance.sh prod update）
+pnpm run deploy:dev        # 開発(dev)を反映
+pnpm run deploy:rollback   # 直前イメージ(yuuka:prev-prod)へ戻す
+pnpm run deploy:verify     # ヘルスチェックのみ
+pnpm run deploy:logs       # 本番ログ追従
+pnpm run deploy:ps         # 状態確認
+pnpm run deploy:down       # 本番停止・撤去
+```
+> 注: `pnpm deploy`（`run` 無し）は pnpm 組込みコマンドと衝突するため、必ず `pnpm run deploy` を使う。
 
-# 起動 / 停止 / ログ / 状態
+## 使い方（個別コマンド）
+
+```bash
+deploy/instance.sh prod update         # = pnpm run deploy（推奨デプロイ）
+deploy/instance.sh prod rollback       # 直前イメージへ戻す
+deploy/instance.sh prod verify         # ヘルスチェックのみ
+
+# 素の docker compose サブコマンドにも委譲できる
+deploy/instance.sh prod build
 deploy/instance.sh prod up -d
 deploy/instance.sh prod logs -f
 deploy/instance.sh prod ps
 deploy/instance.sh prod down
-
-deploy/instance.sh dev up -d           # 開発インスタンス（ホスト :7855）
+deploy/instance.sh dev  up -d          # 開発インスタンス（ホスト :7855）
 ```
 
 ## 新しいインスタンスを追加する
