@@ -301,7 +301,11 @@ export const botPersonalNoteFunctions: FunctionModule = {
 	handlers: myNoteHandlers,
 };
 
-// ─── 共有ノート + ギルド会話検索（bot × ギルド単位。要件 §4.6） ───────────────
+// ─── 共有ノート + ギルド会話要約（bot × ギルド単位。要件 §4.6） ───────────────
+//
+// キーワードによる受動的なギルド会話検索（旧 searchConversationLogs）は、シナプスの
+// L2 連想想起へ統合・置換されたため廃止。時系列の文脈が本質的に重要で連想想起では
+// 代替できない summarizeConversationTopic（要約用ログの時系列取得）のみ維持する。
 
 /** 本文を最大文字数で切り詰める */
 function truncateContent(content: string, maxLength: number): string {
@@ -362,37 +366,6 @@ const guildMemoryDeclarations: FunctionDeclaration[] = [
 				},
 			},
 			required: ["content"],
-		},
-	},
-	{
-		name: "searchConversationLogs",
-		description:
-			"このサーバーでの過去の会話履歴をキーワードや期間で全文検索します。「前に話してた〇〇どうなった？」「先週の議論を探して」など、" +
-			"過去の会話内容を思い出す必要がある場合に呼び出してください。「先週」「今月」などの自然言語の期間は、現在日時を基準に from / to の" +
-			"ISO日付（YYYY-MM-DD）へ変換して指定します。検索対象はこのサーバーでの会話のみで、他のサーバーやDMの会話は含まれません。" +
-			"結果は新しい順で、各メッセージ本文は200文字までに切り詰められます。",
-		parameters: {
-			type: SchemaType.OBJECT,
-			properties: {
-				keyword: {
-					type: SchemaType.STRING,
-					description:
-						"検索キーワード（例: 'イベント', '役職 申請'）。省略すると期間のみで検索します。",
-				},
-				from: {
-					type: SchemaType.STRING,
-					description: "検索期間の開始日 (YYYY-MM-DD形式)（任意）",
-				},
-				to: {
-					type: SchemaType.STRING,
-					description:
-						"検索期間の終了日 (YYYY-MM-DD形式。その日の終わりまで含む)（任意）",
-				},
-				limit: {
-					type: SchemaType.NUMBER,
-					description: "最大取得件数 (デフォルト10件、最大50件)",
-				},
-			},
 		},
 	},
 	{
@@ -481,46 +454,6 @@ const guildMemoryHandlers: FunctionModule["handlers"] = {
 		}
 	},
 
-	async searchConversationLogs(
-		ctx: ToolContext,
-		args: Record<string, unknown>,
-	): Promise<string> {
-		const guildError = requireGuild(ctx);
-		if (guildError) return guildError;
-
-		const keyword = asOptionalString(args.keyword);
-		const from = asOptionalString(args.from);
-		const to = asOptionalString(args.to);
-		let limit =
-			typeof args.limit === "number" && Number.isFinite(args.limit)
-				? Math.floor(args.limit)
-				: 10;
-		limit = Math.min(Math.max(limit, 1), 50);
-
-		// スコープ（要件 §4.6.1）: bot_id × guild_id のこのギルドでの会話のみ検索する
-		const records = searchGuildMessages(ctx.botId, ctx.guildId!, {
-			keyword,
-			from,
-			to,
-			limit,
-		});
-
-		if (records.length === 0) {
-			return JSON.stringify({
-				success: true,
-				message:
-					"条件に一致する過去の会話は見つかりませんでした。キーワードや期間を変えて再検索できます。",
-				results: [],
-			});
-		}
-
-		return JSON.stringify({
-			success: true,
-			message: `過去の会話が${records.length}件見つかりました（新しい順、本文は200文字まで）。必要に応じてこの内容を踏まえて返答してください。`,
-			results: records.map((r) => toResultEntry(r, 200)),
-		});
-	},
-
 	async summarizeConversationTopic(
 		ctx: ToolContext,
 		args: Record<string, unknown>,
@@ -568,7 +501,7 @@ const guildMemoryHandlers: FunctionModule["handlers"] = {
 	},
 };
 
-/** 共有ノート + ギルド会話検索 FunctionModule（汎用モードの memory。ギルド会話でのみマージする） */
+/** 共有ノート + ギルド会話要約 FunctionModule（汎用モードの memory。ギルド会話でのみマージする） */
 export const botGuildMemoryFunctions: FunctionModule = {
 	declarations: guildMemoryDeclarations,
 	handlers: guildMemoryHandlers,

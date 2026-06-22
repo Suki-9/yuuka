@@ -124,10 +124,10 @@ pnpm check              # typecheck + lint をまとめて実行
 | [browserFunctions.ts](../src/functions/browserFunctions.ts) | `fetchDynamicPage` / `takePageScreenshot` / `searchWeb` / `browserInteractive*`（open/click/type/wait/status/close） |
 | [credentialFunctions.ts](../src/functions/credentialFunctions.ts) | PW マネージャ `listCredentialServices` / `addCredential` / `browserFillCredential`（**復号値は LLM に返さずブラウザへ直接注入**） |
 | [playbookFunctions.ts](../src/functions/playbookFunctions.ts) | マクロ `savePlaybook` / `findPlaybooks` / `runPlaybook` / `getRecentActionHistory` |
-| [conversationFunctions.ts](../src/functions/conversationFunctions.ts) | 会話ログ `searchConversationLogs`（FTS5）/ `summarizeConversationTopic` |
+| [conversationFunctions.ts](../src/functions/conversationFunctions.ts) | 会話ログ `summarizeConversationTopic`（トピック要約・時系列順・FTS5）。受動的キーワード検索 `searchConversationLogs` はシナプス L2 連想想起へ統合し廃止 |
 | [chartFunctions.ts](../src/functions/chartFunctions.ts) | `sendChart`（PNG を `ctx.files` へ push、最大 30 データ点） |
 | [briefingFunctions.ts](../src/functions/briefingFunctions.ts) | 朝報・日報・週報の設定 `configureBriefing` / `configureReport` / `runBriefingNow` |
-| [botAssistantFunctions.ts](../src/functions/botAssistantFunctions.ts) | 汎用モード専用。ギルドメンバー管理 / 個人ノート / ギルド共有ノート / ギルド内会話検索（`requireGuild` ガード） |
+| [botAssistantFunctions.ts](../src/functions/botAssistantFunctions.ts) | 汎用モード専用。ギルドメンバー管理 / 個人ノート / ギルド共有ノート / ギルド内会話要約（`requireGuild` ガード） |
 | [mcpDynamic.ts](../src/functions/mcpDynamic.ts) | 登録済み MCP サーバの Tool を動的に `FunctionDeclaration` 化（JSON Schema→Gemini 変換、実行前確認フラグ、呼出時の可用性再チェック） |
 | [registry.ts](../src/functions/registry.ts) / [index.ts](../src/functions/index.ts) | レジストリ構築・宣言の重複排除・能力別フィルタ・`dispatch` ループ |
 

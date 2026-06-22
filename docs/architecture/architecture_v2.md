@@ -250,3 +250,6 @@ v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`mi
 3. 応答確定後 `maybeExtractSynapse` を fire-and-forget で起動（永続化＋索引登録）。
 
 > 埋め込みは現状 R1 ではローカルの**ハッシュ n-gram（`model_version="hash-ngram-v1"`、語彙的フォールバック）**。`Embedder` trait と cargo feature `onnx` を差し替え点として用意済み（将来 bge-micro INT8 等の ONNX モデルへ換装）。汎用モード（ギルド常駐）への想起/抽出の配線は R1 では秘書モードのみ実装で、tool_outcomes 記録のみ共通 dispatch 経由で両モードに効く。
+
+### 13.6 会話ログ機能との整合（重複の解消）
+L2 連想想起は「過去の知見を能動的・連想的に思い出す」役割を担い、LLM が明示的に呼んだ時だけ動く受動的な全文検索 `searchConversationLogs` を置き換える（設計 [`synapse_cognitive_architecture.md`](../design/synapse_cognitive_architecture.md) §1.2 の「想起が受動的」という限界の解消）。このため **`searchConversationLogs`（秘書・ギルド両モード）はコードから廃止**した。一方、時系列順の文脈が本質的に重要で連想想起では代替できない **`summarizeConversationTopic`（トピック要約）は維持**する。会話の永続化（`message_logs` + `message_logs_fts` FTS5）はシナプス抽出の種・トピック要約・日報の会話サンプル（`reportService`）・返信チェーン・コスト可視化・監査に不可欠なため不変。

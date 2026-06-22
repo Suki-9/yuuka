@@ -3,11 +3,15 @@ import type { FunctionDeclaration } from "@google/generative-ai";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import { searchMessages, type MessageLogRecord } from "../db/messageLogRepo.js";
 
-// ─── 会話ログ検索・要約 Function 群（§3.12） ─────────────────────────────────
+// ─── 会話ログ要約 Function（§3.12） ─────────────────────────────────────────
 //
-// SQLiteに永続保存された全会話履歴（§7）を対象に、LLMが自然言語クエリ
-// （「先週の〇〇の話を教えて」等）をキーワード・期間に構造化して検索する。
-// プライバシー配慮（§3.12.3）: 検索対象は ctx.userId（本人）の会話のみ。
+// SQLiteに永続保存された全会話履歴（§7）を対象に、特定トピックの過去のやり取りを
+// 時系列順に取得して LLM に要約させる（summarizeConversationTopic）。時系列の文脈が
+// 本質的に重要なため、シナプスの連想想起では代替できない機能として維持する。
+// キーワードによる受動的な過去会話検索（旧 searchConversationLogs）は、シナプス
+// エンジンの L2 連想想起（自動・能動的な想起。docs/design/synapse_cognitive_architecture.md §1.2）
+// へ統合・置換されたため廃止した。
+// プライバシー配慮（§3.12.3）: 取得対象は ctx.userId（本人）の会話のみ。
 
 /** 本文を最大文字数で切り詰める（超過時は末尾に省略記号を付与） */
 function truncateContent(content: string, maxLength: number): string {
@@ -35,35 +39,6 @@ function toResultEntry(record: MessageLogRecord, maxContentLength: number) {
 // ─── Function Declarations ───────────────────────────────────────────────────
 
 const declarations: FunctionDeclaration[] = [
-	{
-		name: "searchConversationLogs",
-		description:
-			"過去の会話履歴（ユーザーとあなたの全てのやり取り）をキーワードや期間で全文検索します。「先週の〇〇の話どうだったっけ」「前に教えてもらったレシピを探して」など、過去の会話内容を思い出す必要がある場合に呼び出してください。「先週」「今月」などの自然言語の期間は、あなたが現在日時を基準に from / to のISO日付（YYYY-MM-DD）へ変換して指定します。キーワードと期間はどちらか一方だけでも検索できます（キーワード省略時は期間のみで検索）。結果は新しい順で、各メッセージ本文は200文字までに切り詰められます。見つかった過去の会話は現在の返答のコンテキストとして活用してください。検索対象は本人の会話のみです。",
-		parameters: {
-			type: SchemaType.OBJECT,
-			properties: {
-				keyword: {
-					type: SchemaType.STRING,
-					description:
-						"検索キーワード（例: 'ラーメン', '旅行 計画'）。省略すると期間のみで検索します。",
-				},
-				from: {
-					type: SchemaType.STRING,
-					description:
-						"検索期間の開始日 (YYYY-MM-DD形式。例: 先週なら先週月曜の日付)（任意）",
-				},
-				to: {
-					type: SchemaType.STRING,
-					description:
-						"検索期間の終了日 (YYYY-MM-DD形式。その日の終わりまで含む)（任意）",
-				},
-				limit: {
-					type: SchemaType.NUMBER,
-					description: "最大取得件数 (デフォルト10件、最大50件)",
-				},
-			},
-		},
-	},
 	{
 		name: "summarizeConversationTopic",
 		description:
@@ -93,45 +68,6 @@ const declarations: FunctionDeclaration[] = [
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 const handlers: FunctionModule["handlers"] = {
-	// 過去会話のキーワード・期間検索（§3.12.2: キーワード検索 / 期間指定検索 / コンテキスト注入）
-	async searchConversationLogs(
-		ctx: ToolContext,
-		args: Record<string, unknown>,
-	): Promise<string> {
-		const keyword = asOptionalString(args.keyword);
-		const from = asOptionalString(args.from);
-		const to = asOptionalString(args.to);
-
-		let limit =
-			typeof args.limit === "number" && Number.isFinite(args.limit)
-				? Math.floor(args.limit)
-				: 10;
-		limit = Math.min(Math.max(limit, 1), 50);
-
-		// プライバシー（§3.12.3）: ctx.userId を必須条件として本人の会話のみ検索する
-		const records = searchMessages(ctx.userId, ctx.botId, {
-			keyword,
-			from,
-			to,
-			limit,
-		});
-
-		if (records.length === 0) {
-			return JSON.stringify({
-				success: true,
-				message:
-					"条件に一致する過去の会話は見つかりませんでした。キーワードや期間を変えて再検索できます。",
-				results: [],
-			});
-		}
-
-		return JSON.stringify({
-			success: true,
-			message: `過去の会話が${records.length}件見つかりました（新しい順、本文は200文字まで）。必要に応じてこの内容を踏まえて返答してください。`,
-			results: records.map((r) => toResultEntry(r, 200)),
-		});
-	},
-
 	// 特定トピックの要約用ログ取得（§3.12.2: トピック要約）
 	async summarizeConversationTopic(
 		ctx: ToolContext,
@@ -182,7 +118,7 @@ const handlers: FunctionModule["handlers"] = {
 
 // ─── Module Export ───────────────────────────────────────────────────────────
 
-/** 会話ログ検索・要約 FunctionModule（functions/index.ts でレジストリへマージする） */
+/** 会話ログ要約 FunctionModule（functions/index.ts でレジストリへマージする） */
 export const conversationFunctions: FunctionModule = {
 	declarations,
 	handlers,

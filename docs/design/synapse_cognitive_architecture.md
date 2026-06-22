@@ -27,13 +27,15 @@
 
 設計の出発点として、現行実装を事実ベースで確認する（出典は実コード）。
 
-### 1.1 現状（schema v9）
+### 1.1 設計着手前のベースライン（schema v9）
 
-| 要素 | 現状の実装 | 出典 |
+> 本節の表は、本書の**改善対象であるシナプス層導入前（schema v9）のベースライン**を記述する（現行コードの逐一の状態ではない）。R0/R1 実装で「過去会話の参照」「ベクトル検索」「成功/失敗の学習」は既に変化している（§1.2 の注記・実装規範 [`architecture_v2.md`](../architecture/architecture_v2.md) §13）。
+
+| 要素 | ベースライン実装（改善対象） | 出典 |
 |---|---|---|
 | 文脈の与え方 | **直近 15 件**（ギルドは 30 件）の生の会話履歴をそのまま注入 | [`messageLogRepo.ts`](../../src/db/messageLogRepo.ts) `CONTEXT_LIMIT=15` / `getRecentContext(userId, botId, 15)`（[`gemini.ts:629`](../../src/gemini.ts#L629)） |
 | システムプロンプト | ペルソナ＋コンテキストノート＋検索スキル仕様＋ツール説明を**毎回ほぼ全文**組み立て | [`gemini.ts`](../../src/gemini.ts) `buildSystemInstruction` |
-| 過去会話の参照 | LLM が `searchConversationLogs` を**明示的に呼んだ時だけ** FTS5 全文検索 | `message_logs_fts`（FTS5） |
+| 過去会話の参照 | LLM が `searchConversationLogs` を**明示的に呼んだ時だけ** FTS5 全文検索（**R1 で廃止 → L2 連想想起へ置換**。時系列要約 `summarizeConversationTopic` は維持） | `message_logs_fts`（FTS5） |
 | 操作履歴 | `actionRecorder` が直近30件の Function 呼び出しを **Redis に TTL 2時間**で保持（秘匿系は除外） | [`actionRecorder.ts`](../../src/services/actionRecorder.ts) `MAX_ACTIONS=30 / TTL=2h` |
 | ベクトル検索 | **なし** | — |
 | 成功/失敗の学習 | **なし**（fc_history は揮発、統計化されない） | — |
@@ -41,7 +43,7 @@
 ### 1.2 限界
 
 1. **生履歴注入のスケール限界**：直近 N 件固定のため、N を増やすとトークンと遅延が線形に増え、N を絞ると古い前提（ユーザーの好み・制約）が窓から落ちる。「重要だが古い」事実を構造的に保持する仕組みがない。
-2. **想起が受動的**：過去の知見は LLM が `searchConversationLogs` を**思いつかない限り**使われない。連想的・能動的な想起がない。
+2. **想起が受動的**：過去の知見は LLM が `searchConversationLogs` を**思いつかない限り**使われない。連想的・能動的な想起がない。<br>**（R1 実装で解消）** 受動的全文検索 `searchConversationLogs` は廃止し、L2 連想想起（能動・自動）へ置換済み。時系列の文脈が本質的な `summarizeConversationTopic`（トピック要約）のみ維持する（実装規範 architecture_v2.md §13.6）。
 3. **経験が捨てられている**：どのツールがどの文脈で成功/失敗したかは `actionRecorder` に一瞬残るだけで、2時間で消え、将来の判断に還元されない。
 4. **ツール選択の肥大**：機能（ToDo・家計・ブラウザ・連絡先・会話検索…）＋ MCP 動的ツールが増えるほど、全ツール定義を毎回プロンプトに載せる方式は破綻に近づく（研究上、素朴な全載せは概ね **10〜15 ツール**が限界とされる、§7）。
 
