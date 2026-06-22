@@ -1,6 +1,6 @@
 # 全体アーキテクチャ一新案（v3 提案）— Rust シナプスエンジン × ハイブリッドLLM
 
-> **文書種別:** アーキテクチャ一新案（提案 / RFC）。**未実装**。
+> **文書種別:** アーキテクチャ一新案（提案 / RFC）。**R0/R1 実装済み** — Rust シナプスエンジン（`src/rust_synapse/`、統合方式A=Node 子プロセス）・stdio 改行 JSON プロトコル・read-only WAL 参照・RAM 索引・SQLite v10 を実装し、実装規範 [`architecture/architecture_v2.md`](../architecture/architecture_v2.md) §13 へ昇格済み（機能フラグ既定 OFF）。R2/R3/R4 は未実装。埋め込みは現状ハッシュ n-gram（`Embedder` trait＋cargo feature `onnx` を将来の ONNX 換装点として用意）。本書はシステム実装面の原典として維持する。
 > **位置づけ:** [`synapse_cognitive_architecture.md`](synapse_cognitive_architecture.md)（設計思想＝why/what）の**システム実装面（how/topology）**の対。現行の実装規範 [`architecture/architecture_v2.md`](../architecture/architecture_v2.md)（schema v9）の**将来後継（v3）案**であり、着手時に本書を architecture_v2 へ昇格する。現時点の権威は architecture_v2 が上。
 > **本書の主眼:** シナプス関連（埋め込み・ベクトル索引・2-Hop連想・統計）を **Rust の独立プロセス**として切り出し、Node(V8) ヒープのメモリトラブル（ヒープ肥大・GC停止・~4GB上限）を構造的に回避する。
 

@@ -1,4 +1,4 @@
-# Yuuka v2 アーキテクチャ規範（仕様書 docs/spec/discordbot_spec.md v0.6.2 準拠 / DB schema v9）
+# Yuuka v2 アーキテクチャ規範（仕様書 docs/spec/discordbot_spec.md v0.6.2 準拠 / DB schema v10）
 
 本書は仕様書（docs/spec/discordbot_spec.md）を既存コードベースへ落とし込むための**実装規範**である。
 実装エージェント・開発者は必ず本書のコントラクトに従うこと。仕様書と本書が矛盾する場合は本書を優先する（本書は仕様書を既存実装と調和させた結果である）。
@@ -11,9 +11,9 @@
    **例外パターン（Bot属性 docs/spec/bot_attributes_requirements.md §6）**: 汎用モード（MCPアシスタント）のデータは `bot_id × user_id`（bot_context_notes）/ `bot_id × guild_id`（bot_guild_notes, bot_guilds, message_logs のギルド会話）の複合スコープを正式な分離キーとする。この user_id にはWebアカウント未登録のDiscordユーザーIDも入るため、message_logs / bot_context_notes / bot_members は users へのFKを持たない。
 2. **ブラウザ操作層は不変**: `src/services/browserService.ts`・`src/rust_crawler/`・`src/functions/browserFunctions.ts` の既存アプローチ（Rustクローラーデーモン→Puppeteerフォールバック、ユーザー別永続セッション、`data-yuuka-id` 数値IDアノテーション）は変更しない。新機能はこの上に乗せる。
 3. **認証情報はLLMに渡さない**: パスワードマネージャの復号値は `browserService` へ直接渡す。Function Call の戻り値・ログ・プロンプトに含めてはならない。
-4. **スキーマは前方移行する**: 現在の `SCHEMA_VERSION` は **"9"**。初版（v2 全面再構築）以降は破壊的再構築は行わず、`migrations.ts` の各 `migrate*` 関数が冪等な ALTER / 追加テーブルで段階移行する（v3〜v9 の概要は §2 末尾参照）。
+4. **スキーマは前方移行する**: 現在の `SCHEMA_VERSION` は **"10"**。初版（v2 全面再構築）以降は破壊的再構築は行わず、`migrations.ts` の各 `migrate*` 関数が冪等な ALTER / 追加テーブルで段階移行する（v3〜v10 の概要は §2 末尾参照）。
 5. **コメント・ログは日本語**、既存コードのスタイル（セクション区切りコメント `// ─── ... ───`、絵文字ログ）を踏襲する。
-6. **TypeScript / ESM**: import は `.js` 拡張子付き相対パス。型は明示的に。新規依存の追加は原則禁止（導入済み: bcryptjs, @node-rs/argon2, rss-parser, @napi-rs/canvas, chart.js, cron-parser, archiver。lint/format は `@biomejs/biome`、型チェックは `tsgo`）。
+6. **TypeScript / ESM**: import は `.js` 拡張子付き相対パス。型は明示的に。新規依存の追加は原則禁止（導入済み: bcryptjs, @node-rs/argon2, rss-parser, @napi-rs/canvas, chart.js, cron-parser, archiver。lint/format は `@biomejs/biome`、型チェックは `tsgo`）。**シナプスエンジン（§13）は新規 npm 依存を追加せず**、ベクトル索引・埋め込みを独立した Rust crate（`src/rust_synapse/`、既存 crawler と同型）に閉じ込めることでこの原則を守る。
 
 ---
 
@@ -96,6 +96,14 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 | audit_logs | user_id | action, target, detail（PW本体は記録禁止） |
 | invite_codes / system_settings | 既存どおり |
 
+**シナプス認知アーキテクチャ（v10。設計: docs/design/synapse_cognitive_architecture.md・architecture_renewal_v3.md。詳細は §13）**。すべて `user_id`（汎用モードは `bot_id × guild_id` も）でスコープし、`message_logs` と同一 .db。**書き手は Node のみ**（Rust エンジンは read-only 参照）:
+
+| テーブル | キー/スコープ | 用途 |
+|---|---|---|
+| synapses (+ embedding BLOB) | user_id (+ bot_id, guild_id) | L2 連想記憶＝記憶の断片。content, topic_id, source_msg_id, embedding(float32 LE BLOB), embedding_model_version, last_used_at, use_count, decay_score。秘匿値は格納禁止（§0.3 継承） |
+| tool_outcomes | user_id (+ bot_id, guild_id) | ツール実行実績（経験）。tool_name, args_digest（秘匿マスク済）, status(success/error), latency_ms, topic_id。actionRecorder の揮発(Redis 2h)を SQLite へ永続化 |
+| topic_tool_stats | (user_id, bot_id, topic_id, tool_name) PK | トピック別ツール勝率（中間ビュー）。success/total/success_rate を tool_outcomes からインクリメンタル更新（2nd Hop 用） |
+
 **汎用モード（MCPアシスタント）／Bot属性のテーブル**（bot_attributes_requirements.md §5。複合スコープが正式な分離キー）:
 
 | テーブル | キー/スコープ | 用途 |
@@ -111,7 +119,7 @@ export interface SessionUser { discordId: string; username: string; role: "user"
 | bot_google_account | (bot_id) | v5: Bot ごとに割り当てる Google アカウント（NULL 許容 v7+） |
 
 **マイグレーション履歴**（各 `migrate*` 関数は冪等。新規DBは最終形を直接 CREATE）:
-v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`migrateToBotScopedData`）/ v4=MCP を (user_id, bot_id) 化（`migrateMcpToBotScope`）/ v5=owner リソース許可・Google複数アカウント（`migrateOwnerResourceGrants`）/ v6–v7=MCP/リソース許可へ owner_id 次元追加・bot_google_account を NULL 許容化（`migrateMcpAccessOwnerScope`・`migrateBotGoogleAccountNullable`）/ v8=ペルソナを Bot 単位化（`migratePersonaToBotScope`）/ v9=bots.stopped 追加。
+v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`migrateToBotScopedData`）/ v4=MCP を (user_id, bot_id) 化（`migrateMcpToBotScope`）/ v5=owner リソース許可・Google複数アカウント（`migrateOwnerResourceGrants`）/ v6–v7=MCP/リソース許可へ owner_id 次元追加・bot_google_account を NULL 許容化（`migrateMcpAccessOwnerScope`・`migrateBotGoogleAccountNullable`）/ v8=ペルソナを Bot 単位化（`migratePersonaToBotScope`）/ v9=bots.stopped 追加 / **v10=シナプス記憶層（synapses・tool_outcomes・topic_tool_stats）を新規テーブルとして冪等追加（`migrateToSynapseEngine`）。既存テーブルへの変更なし＝完全に後方互換**。
 
 日時は既存スタイル（`datetime('now','localtime')` の `YYYY-MM-DD HH:MM:SS` テキスト）に合わせる。
 
@@ -196,6 +204,7 @@ v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`mi
 | botattributes（Bot属性 docs/spec/bot_attributes_requirements.md） | services/botCapabilities.ts, services/botRateLimit.ts, db/botAttributesRepo.ts, db/botNoteRepo.ts, functions/botAssistantFunctions.ts, server/routes/botAttributeRoutes.ts |
 | charts | services/chartService.ts, functions/chartFunctions.ts |
 | calendar | services/googleCalendarService.ts, services/googleDriveService.ts, services/backupService.ts, db/scheduleRepo.ts, db/googleAccountRepo.ts, functions/scheduleFunctions.ts, server/routes/scheduleRoutes.ts |
+| synapse（§13。シナプス認知アーキ v3 / schema v10） | src/rust_synapse/*（独立 Rust crate）, services/synapseEngine.ts, services/synapseExtractor.ts, services/metrics.ts, db/synapseRepo.ts, db/toolOutcomeRepo.ts |
 | 統合 | gemini.ts, bot.ts, index.ts, server.ts, functions/index.ts, db/botRepo.ts, db/inviteRepo.ts, db/systemSettingsRepo.ts, db/database.ts, db/redis.ts, utils/embeds.ts, server/routes/botRoutes.ts（Bot管理）, server/routes/integratedRoutes.ts（統合管理: Bot起動/停止/再起動・リソース許可・Google複数アカウント）, server/routes/adminRoutes.ts, public/* |
 
 ## 11. Function 命名規約（最終レジストリ）
@@ -207,3 +216,37 @@ v2=初版全面再構築 / v3=ユーザーデータ各表へ bot_id 付与（`mi
 - 新機能のルートは `src/server/routes/*.ts` に `RouteDef[]` を export し、`server/routeRegistry.ts` の `registerRoutes()` で登録する。server.ts はリクエスト毎にまずレジストリを照合する（統合フェーズで接続）。
 - 認可: `auth:"user"` はセッション必須。リソースは必ず `ctx.user.discordId` でスコープする。`auth:"admin"` は role 確認。
 - Webhook受信 `POST /hook/:token` のみ `auth:"none"`。
+
+## 13. シナプス認知アーキテクチャ（schema v10 / R0・R1 実装済み）
+
+設計思想は [`docs/design/synapse_cognitive_architecture.md`](../design/synapse_cognitive_architecture.md)（why/what）、システム実装面は [`docs/design/architecture_renewal_v3.md`](../design/architecture_renewal_v3.md)（how/topology）。本節は**実装済み部分（R0/R1）**を実装規範へ昇格したもの。R2（2nd Hop 勝率提示）・R3（ローカル SLM ハイブリッド）・R4（投機/キャッシュ）は未実装の将来フェーズ。
+
+### 13.1 構成（プロセス分離）
+- **Node オーケストレータ（既存）**: Discord I/O・ツール dispatch・Gemini 本推論＋ペルソナ・**SQLite の唯一の書き手**。
+- **Rust シナプスエンジン `yuuka-synapse`（新規・常駐）**: 埋め込み生成・RAM ベクトル索引（per-scope ブルートフォース cosine KNN）・1st Hop 連想。記憶の重い処理を **V8 ヒープの外**へ。crawler と同じ「子プロセス＋改行区切り JSON（stdio）」流儀（`services/synapseEngine.ts` が `CrawlerDaemon` を踏襲）。SQLite は **read-only（WAL）**で起動時・reindex 時のみ参照。
+
+### 13.2 IPC プロトコル（凍結）
+改行区切り JSON。要求 `{"id":<u64>,"command":<string>,...fields}` / 応答 `{"id":<u64>,"ok":<bool>,"result":<obj|null>,"error":<string|null>}`。`id` は純粋な相関 ID。**シナプス ID は封筒 id と衝突させないため別キー `sid`** で運ぶ（index/forget）。コマンド: `health` / `assemble`（1st Hop KNN）/ `index`（埋め込み生成＋RAM 追加、永続化用 embedding を base64 で返す）/ `forget` / `reindex`。embedding BLOB は **float32 little-endian** 連結（Node が SQLite へ永続化、Rust が起動時に復元）。
+
+### 13.3 不変条件の保全（§0 を跨プロセスで維持）
+1. **データ分離**: Rust の全 API は scope `{user_id, bot_id, guild_id}` を伴い、KNN はスコープ完全一致のバケット内のみを探索（クロステナント遮断）。Node 側 repo も全クエリ user_id+bot_id スコープ。
+2. **認証情報非露出**: シナプス content・tool_outcomes.args_digest に秘匿値を入れない（§0.3 継承）。**多層防御**で担保する: (a) キー名ベース（`sanitizeArgsForLog`＝秘匿キー名/認証系 Function をマスク、`synapseExtractor` のキーワード正規表現）。(b) **値の形状ベース**（`utils/secretGuard.ts`＝JWT・APIキー・PEM・高エントロピートークンを検出。`browserInteractiveType` 等の自由入力ツールはタイプ値を構造的に伏せ、シナプス抽出はトークン形状でも該当発話を除外）。キー名マスクだけでは「非秘匿名キーにタイプされた認証情報」を取りこぼすため (b) を必須とする。
+3. **スキーマ前方移行**: v10 は新規テーブルのみの冪等追加（破壊的変更なし）。
+4. **障害分離＝デグレード**: エンジン無効・未起動・crash・タイムアウト時、`assembleRecall`/`indexSynapse` 等は **null を返し現行挙動（直近15件の生履歴注入）へフォールバック**。RAM 索引は SQLite の embedding BLOB から再構築可能なキャッシュであり、喪失は性能劣化であって data loss ではない。Rust デーモンは不正入力・DB 不在でも panic せず応答を継続する。
+
+### 13.4 機能フラグ（`config.ts`。**すべて既定 OFF**＝現行挙動）
+| フラグ（環境変数） | 役割 |
+|---|---|
+| `TOOL_OUTCOMES_ENABLED` | R0: ツール実行実績を SQLite へ永続化（経験統計の素地） |
+| `SYNAPSE_ENGINE_ENABLED` | R1: Rust エンジン起動＋L2 想起注入＋シナプス索引 |
+| `SYNAPSE_EXTRACTION_ENABLED` | R1: 会話ターンからシナプス抽出（背景・非同期） |
+| `SYNAPSE_EXTRACT_LLM` | 抽出に Gemini 補助生成を使う（OFF=ヒューリスティック、LLM コストゼロ） |
+| `SYNAPSE_RECALL_K` | 1st Hop KNN の取得件数（既定 5） |
+| `METRICS_ENABLED` | §10 ベースライン指標の定期ログ |
+
+### 13.5 統合点（`gemini.ts` 秘書モード）
+1. ツール dispatch ごとに `recordToolOutcome`（status/latency、秘匿マスク済 digest）。
+2. `buildRecallSection` が `assembleRecall` で 1st Hop 想起を取得し、`systemInstruction` 末尾へ「関連する過去の記憶」セクションとして追記（想起したシナプスは鮮度更新）。
+3. 応答確定後 `maybeExtractSynapse` を fire-and-forget で起動（永続化＋索引登録）。
+
+> 埋め込みは現状 R1 ではローカルの**ハッシュ n-gram（`model_version="hash-ngram-v1"`、語彙的フォールバック）**。`Embedder` trait と cargo feature `onnx` を差し替え点として用意済み（将来 bge-micro INT8 等の ONNX モデルへ換装）。汎用モード（ギルド常駐）への想起/抽出の配線は R1 では秘書モードのみ実装で、tool_outcomes 記録のみ共通 dispatch 経由で両モードに効く。
