@@ -22,11 +22,6 @@ function getDriveClient(userId: string): drive_v3.Drive | null {
 	}
 }
 
-/** Drive連携が有効か */
-export function isDriveEnabled(userId: string): boolean {
-	return getDriveClient(userId) !== null;
-}
-
 /**
  * バックアップ先フォルダ指定値を正規化し、フォルダIDを取り出す。
  * フォルダID単体・各種Google DriveフォルダURLのどちらでも受け付ける。
@@ -68,7 +63,7 @@ export async function uploadToGoogleDrive(
 	userId: string,
 	filePath: string,
 	fileName: string,
-	mimeType: string = "application/zip",
+	mimeType: string,
 	folderId?: string,
 ): Promise<{ fileId: string; url: string } | null> {
 	const drive = getDriveClient(userId);

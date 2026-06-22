@@ -23,6 +23,7 @@ import {
 // 世代管理: backup_generations 世代を超える古いファイルをDriveから削除する。
 
 const BACKUP_PREFIX = "yuuka_backup_";
+const BACKUP_MIME = "application/zip";
 
 /** user_id 列で分離されているユーザーデータテーブル（v2スキーマ） */
 const USER_SCOPED_TABLES = [
@@ -43,6 +44,8 @@ const USER_SCOPED_TABLES = [
 	"credentials",
 	"webhook_endpoints",
 	"webhook_deliveries",
+	"report_configs",
+	"mcp_servers",
 ];
 
 /** user_id が主キーの単一行テーブル */
@@ -112,9 +115,6 @@ export function exportUserData(userId: string, tempDbPath: string): void {
 			for (const table of [...USER_SCOPED_TABLES, ...USER_KEYED_TABLES]) {
 				copyRows(table, "user_id");
 			}
-			// report_configs / mcp_servers（user_id列）
-			copyRows("report_configs", "user_id");
-			copyRows("mcp_servers", "user_id");
 			// bots: 本人がオーナーのBot
 			copyRows("bots", "user_id");
 		})();
@@ -190,7 +190,7 @@ export async function runBackup(userId: string): Promise<string> {
 			userId,
 			zipPath,
 			fileName,
-			"application/zip",
+			BACKUP_MIME,
 			backupConfig.folderId || undefined,
 		);
 

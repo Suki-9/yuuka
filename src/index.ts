@@ -48,7 +48,7 @@ import { applyGoogleHttpFix } from "./utils/googleHttpFix.js";
 async function main() {
 	console.log("🚀 Yuuka 起動中...");
 
-	// Google API（gaxios/node-fetch）の "Premature close" 回避パッチ。Google 呼び出し前に適用する。
+	// 起動の最初に一度だけ。すべての Google 呼び出し前に適用する必要がある（詳細は googleHttpFix.ts）。
 	applyGoogleHttpFix();
 
 	// 保存時暗号化シークレットの必須チェック（§6.2）

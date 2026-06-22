@@ -28,7 +28,7 @@ import { getActivePersonaPrompt, getPersonaById } from "./db/personaRepo.js";
 import { touchSynapses } from "./db/synapseRepo.js";
 // ─── シナプス認知アーキテクチャ（v3 / schema v10）の統合点 ──────────────────────
 import { recordToolOutcome } from "./db/toolOutcomeRepo.js";
-import { getUserGoogleConfig, getUserRichReplyEnabled } from "./db/userRepo.js";
+import { getUserRichReplyEnabled } from "./db/userRepo.js";
 import {
 	getFunctionModulesForCapabilities,
 	getGuildAssistantFunctionModules,
