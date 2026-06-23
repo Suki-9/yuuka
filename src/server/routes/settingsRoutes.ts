@@ -126,14 +126,15 @@ export const settingsRoutes: RouteDef[] = [
 					: "system_default";
 
 			// v3: (user_id, bot_id) スコープの統計（読み取り専用の集計クエリ）
+			// v12: 件数は親タスクのみ集計する（サブタスクは parent_id IS NULL でない＝個別カウントしない）。
 			const todoCount = db
 				.prepare(
-					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ?",
+					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND parent_id IS NULL",
 				)
 				.get(userId, botId) as { count: number };
 			const openTodoCount = db
 				.prepare(
-					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'open'",
+					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'open' AND parent_id IS NULL",
 				)
 				.get(userId, botId) as { count: number };
 			const scheduleCount = db
@@ -152,7 +153,7 @@ export const settingsRoutes: RouteDef[] = [
 				.prepare(`
         SELECT priority, COUNT(*) as count
         FROM todos
-        WHERE user_id = ? AND bot_id = ? AND status = 'open'
+        WHERE user_id = ? AND bot_id = ? AND status = 'open' AND parent_id IS NULL
         GROUP BY priority
       `)
 				.all(userId, botId) as { priority: string | null; count: number }[];
