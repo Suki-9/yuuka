@@ -117,6 +117,9 @@ pub struct YuukaApp {
     ui_tx: mpsc::Sender<UiEvent>,
     /// Net → UI（フレーム・接続状態・エラー）。
     net_rx: mpsc::Receiver<NetEvent>,
+    /// 現在ウィンドウへ適用中のクリック透過状態（変化時のみ送信する）。
+    /// 起動時は main.rs の `with_mouse_passthrough(true)` に揃える。
+    passthrough_active: bool,
 }
 
 impl YuukaApp {
@@ -131,6 +134,7 @@ impl YuukaApp {
             state: AppState::new(settings),
             ui_tx,
             net_rx,
+            passthrough_active: true,
         }
     }
 
@@ -319,6 +323,17 @@ impl eframe::App for YuukaApp {
             self.state.history.clear();
             self.state.bot = None;
             self.state.bots.clear();
+        }
+
+        // --- クリック透過の切り替え ---
+        // Overlay（オーブのみ）は周囲を透過させ背面アプリを操作可能にするが、
+        // それ以外（Login/Chat/Settings）は不透過にしないとボタンを押せず、
+        // 透明背景と相まって「何も出ない / 触れない」状態になる。
+        // 変化時のみ ViewportCommand を送る（毎フレーム送出を避ける）。
+        let want_passthrough = matches!(self.state.view, View::Overlay);
+        if want_passthrough != self.passthrough_active {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(want_passthrough));
+            self.passthrough_active = want_passthrough;
         }
 
         // --- ビューのルーティング ---
