@@ -78,7 +78,13 @@ function loadSearchSkills(): string {
 				cachedSearchSkills = fs.readFileSync(p, "utf-8");
 				return cachedSearchSkills;
 			}
-		} catch {}
+		} catch (err) {
+			// 破損・権限エラー等で読めない場合はスキル無しで継続するが、無言にはしない
+			console.warn(
+				`[gemini] 検索スキル仕様書の読み込みに失敗しました (${p}):`,
+				err,
+			);
+		}
 	}
 	cachedSearchSkills = "";
 	return cachedSearchSkills;
