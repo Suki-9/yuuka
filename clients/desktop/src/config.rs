@@ -67,6 +67,18 @@ fn urlencode(s: &str) -> String {
     out
 }
 
+/// 端末一覧（`GET /api/devices`）に表示する端末名を推測する。
+///
+/// 機微情報を避けつつ識別しやすい名前を選ぶ。`COMPUTERNAME`(Windows) /
+/// `HOSTNAME`(Unix) を順に見て、空なら `None`（サーバ側で既定名にフォールバック）。
+pub fn device_name() -> Option<String> {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 // ===========================================================================
 // 起動引数（client_design.md §4.4）
 // ===========================================================================

@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 
 use crate::config::Settings;
 use crate::model::{BotInfo, ServerFrame, StatusState};
-use crate::net::{ConnectionState, NetEvent, UiEvent};
+use crate::net::{ConnectionState, LoginEvent, NetEvent, UiEvent};
 use crate::ui::{self, ChatEntry};
 
 /// ログイン UI のステート（ui/login.rs と共有）。
@@ -150,9 +150,34 @@ impl YuukaApp {
                 NetEvent::NetError(msg) => {
                     log::warn!("net error: {msg}");
                 }
+                NetEvent::Login(ev) => self.apply_login_event(ev),
             }
         }
         any
+    }
+
+    /// デバイスフロー進捗（[`LoginEvent`]）を [`LoginUiState`] へ反映する。
+    fn apply_login_event(&mut self, ev: LoginEvent) {
+        match ev {
+            LoginEvent::Code {
+                user_code,
+                verification_uri,
+            } => {
+                self.state.login = LoginUiState::AwaitingApproval {
+                    user_code,
+                    verification_uri,
+                };
+                self.state.view = View::Login;
+            }
+            // 承認待ち。AwaitingApproval のスピナー表示を継続するだけ。
+            LoginEvent::Pending => {}
+            // 承認完了。WS 接続 → `ready` 受領でオーバーレイへ遷移する（apply_frame）。
+            LoginEvent::Succeeded => {}
+            LoginEvent::Failed(msg) => {
+                self.state.login = LoginUiState::Error(msg);
+                self.state.view = View::Login;
+            }
+        }
     }
 
     /// サーバフレームを UI 状態へ適用する。
@@ -168,7 +193,8 @@ impl YuukaApp {
                 self.state.bots = bots;
                 self.state.max_upload_mb = max_upload_mb;
                 self.state.status = None;
-                // ログイン済み → オーバーレイへ。
+                // 接続確立 → ログイン UI を初期状態へ戻し、オーバーレイへ。
+                self.state.login = LoginUiState::LoggedOut;
                 if matches!(self.state.view, View::Login) {
                     self.state.view = View::Overlay;
                 }
@@ -273,15 +299,26 @@ impl eframe::App for YuukaApp {
 
         // --- ワンショットフラグの処理（ログイン開始/ログアウト要求）---
         if std::mem::take(&mut self.state.request_login_start) {
-            // 実配線: Net スレッドへデバイスフロー開始を依頼する経路を main 側で用意。
-            // ここでは骨格として状態のみ進める（UI のスピナーを出す）。
-            log::info!("login start requested (wire to net::auth in Phase 2)");
+            // Net スレッドへデバイスフロー開始を依頼する（端末名を添える）。
+            // 進捗は NetEvent::Login で返り、apply_login_event が UI を更新する。
+            if let Err(e) = self.ui_tx.try_send(UiEvent::StartLogin {
+                device_name: crate::config::device_name(),
+            }) {
+                log::warn!("failed to enqueue login start: {e}");
+                self.state.login = LoginUiState::Error(
+                    "ログインを開始できませんでした。もう一度お試しください。".into(),
+                );
+            }
         }
         if std::mem::take(&mut self.state.request_logout) {
-            let _ = self.ui_tx.try_send(UiEvent::Shutdown);
-            // トークン破棄/再ログインは main 側でハンドリング。
+            // トークン破棄 → 未ログインへ。Net スレッドは生かしたまま再ログインを待つ。
+            let _ = self.ui_tx.try_send(UiEvent::Logout);
             self.state.view = View::Login;
             self.state.login = LoginUiState::LoggedOut;
+            // 直近の会話/Bot 表示はクリアして再ログイン後の混線を防ぐ。
+            self.state.history.clear();
+            self.state.bot = None;
+            self.state.bots.clear();
         }
 
         // --- ビューのルーティング ---
