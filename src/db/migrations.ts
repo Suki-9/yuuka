@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "12";
+const SCHEMA_VERSION = "13";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -662,11 +662,11 @@ function migrateToSynapseEngine(db: ReturnType<typeof getDb>): void {
     CREATE INDEX IF NOT EXISTS idx_synapses_topic ON synapses(user_id, bot_id, topic_id);
   `);
 
-  // 既存DB（v10 以前で synapses 作成済み）向けに不足列を追加（冪等）。
-  ensureColumns(db, "synapses", [
-    { name: "ctx_tod", ddl: "ctx_tod INTEGER" },
-    { name: "ctx_dow", ddl: "ctx_dow INTEGER" },
-  ]);
+	// 既存DB（v10 以前で synapses 作成済み）向けに不足列を追加（冪等）。
+	ensureColumns(db, "synapses", [
+		{ name: "ctx_tod", ddl: "ctx_tod INTEGER" },
+		{ name: "ctx_dow", ddl: "ctx_dow INTEGER" },
+	]);
 }
 
 /**
@@ -700,6 +700,30 @@ function migrateToTaskProgress(db: ReturnType<typeof getDb>): void {
     );
     CREATE INDEX IF NOT EXISTS idx_task_progress_logs_todo
       ON task_progress_logs(todo_id, created_at);
+  `);
+}
+
+/**
+ * v13: デスクトップクライアント用の長命トークン表（desktop_client 設計 backend_api.md §5）。
+ * - OAuth デバイスフローで発行した Bearer トークンを sha256 で保存（生トークンは保持しない）。
+ * - user_id（Discord ユーザーID）でスコープ。Web 登録済みユーザーのみ（ログイン必須）のため users への FK は妥当。
+ * - 端末単位失効（revoked=1 / 行削除）。パスワード変更時は当該ユーザー全失効（呼び出し側で実施）。
+ * - デバイスコードの一時状態は Redis（揮発）に持つ。永続化するのは発行済みトークンのみ。
+ * 新規テーブルの冪等追加（破壊的再構築なし・後方互換）。
+ */
+function migrateToDesktopTokens(db: ReturnType<typeof getDb>): void {
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS desktop_tokens (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      TEXT NOT NULL,                 -- Discord ユーザーID（データ分離キー）
+      token_hash   TEXT NOT NULL UNIQUE,          -- sha256(生トークン)
+      device_name  TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      last_used_at TEXT,
+      revoked      INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_desktop_tokens_user ON desktop_tokens(user_id);
   `);
 }
 
@@ -1401,6 +1425,10 @@ export async function runMigrations(): Promise<void> {
 	// ─── v12: タスク進捗管理（todos へ start_date/progress/parent_id 追加 + task_progress_logs） ──
 	// 列追加・新規テーブルのみの冪等追加（破壊的再構築なし）。既存タスクは保持される。
 	migrateToTaskProgress(db);
+
+	// ─── v13: デスクトップクライアント用トークン表（desktop_tokens） ──
+	// 新規テーブルのみの冪等追加（破壊的再構築なし）。既存テーブル不変。
+	migrateToDesktopTokens(db);
 
 	// スキーマバージョンを記録
 	db.prepare(
