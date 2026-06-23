@@ -336,6 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			playbooks: "Playbook 設定",
 			discord: "Discord 連携設定",
 			config: "システム設定情報",
+			devices: "接続端末",
 		};
 		currentTabTitle.textContent = titles[tabId] || "ダッシュボード";
 
@@ -366,6 +367,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (adminOverlay) adminOverlay.classList.remove("active");
 		const accountOverlay = document.getElementById("account-overlay");
 		if (accountOverlay) accountOverlay.classList.remove("active");
+		const deviceOverlay = document.getElementById("device-overlay");
+		if (deviceOverlay) deviceOverlay.classList.remove("active");
 
 		// 全体管理（owner/システム）・アカウント管理の独立オーバーレイ。
 		// Bot個別画面（#app-container）の外で表示する。
@@ -445,6 +448,41 @@ document.addEventListener("DOMContentLoaded", () => {
 			return;
 		}
 
+		// デバイスフロー認可ページ = "/device?code=XXXX-XXXX"。
+		// デスクトップアプリがブラウザで開く。認可エンドポイントは auth:user のため、
+		// 未ログインなら ?code= を sessionStorage に退避してからログインへ誘導し、ログイン後に戻る。
+		if (cleanPath === "/device") {
+			// クエリの code を退避（initAppSession 後の再ルートで window.location.pathname しか使われず
+			// クエリが失われるため、sessionStorage で確実に引き継ぐ）。
+			try {
+				const codeFromUrl = new URLSearchParams(
+					window.location.search,
+				).get("code");
+				if (codeFromUrl) {
+					sessionStorage.setItem("pendingDeviceCode", codeFromUrl);
+				}
+			} catch (e) {
+				/* no-op */
+			}
+			if (!activeUserId) {
+				// 許可にはログインが必要。ログイン後に /device へ戻れるよう pendingDeviceRoute を保存。
+				sessionStorage.setItem("pendingDeviceRoute", "1");
+				initAppSession();
+				return;
+			}
+			appContainer.classList.add("hidden");
+			botSelectionOverlay.classList.remove("active");
+			loginOverlay.classList.remove("active");
+			const botSetupTabContent = document.getElementById(
+				"bot-setup-tab-content",
+			);
+			if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+			sessionStorage.removeItem("pendingDeviceRoute");
+			if (deviceOverlay) deviceOverlay.classList.add("active");
+			showDeviceApprovalView();
+			return;
+		}
+
 		// Bot選択画面 = ルート "/"（旧 "/bots" はエイリアスとして維持）
 		if (
 			cleanPath === "/" ||
@@ -488,6 +526,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				"playbooks",
 				"discord",
 				"config",
+				"devices",
 			];
 			let tabId = cleanPath === "/bot" ? "config" : cleanPath.slice(5); // "/bot/".length === 5
 			if (!BOT_TABS.includes(tabId)) tabId = "config";
@@ -685,6 +724,8 @@ document.addEventListener("DOMContentLoaded", () => {
 			fetchPlaybookRunsList();
 		} else if (activeTab === "config") {
 			fetchConfigSettings();
+		} else if (activeTab === "devices") {
+			fetchDevices();
 		}
 		// 統合管理 / 管理者用設定 は独立オーバーレイ（applyRoute で直接 fetch する）ため、ここでは扱わない。
 	}
@@ -1281,9 +1322,24 @@ document.addEventListener("DOMContentLoaded", () => {
 					}
 				}
 
+				// デバイスフロー認可待ち（未ログインで /device に来てログインした場合）は /device へ戻す。
+				// ?code= は sessionStorage(pendingDeviceCode) に退避済みのため、ここで復元する。
+				if (sessionStorage.getItem("pendingDeviceRoute")) {
+					sessionStorage.removeItem("pendingDeviceRoute");
+					const savedCode = sessionStorage.getItem("pendingDeviceCode");
+					const deviceUrl = savedCode
+						? `/device?code=${encodeURIComponent(savedCode)}`
+						: "/device";
+					navigateTo(deviceUrl);
+					return;
+				}
+
 				// If already on a specific deep-link path, navigate there directly
 				const currentPath = window.location.pathname;
-				if (
+				if (currentPath === "/device") {
+					// クエリ保持のため pathname ではなく現在のURL全体で再ルートする。
+					applyRoute(window.location.pathname + window.location.search);
+				} else if (
 					currentPath !== "/" &&
 					currentPath !== "/index.html" &&
 					currentPath !== "/login"
@@ -2998,6 +3054,257 @@ document.addEventListener("DOMContentLoaded", () => {
 		} catch (e) {
 			console.error(e);
 		}
+	}
+
+	// ==========================================
+	// F-2. 接続端末（デバイスフロー）ロジック
+	//  - 一覧/失効はダッシュボードの「接続端末」タブ
+	//  - 認可は /device?code= の独立オーバーレイ
+	//  デバイス系3エンドポイントは botId を注入しない originalFetch を使う
+	//  （ユーザー単位の認可情報のため、stale な botId を混ぜない）。
+	// ==========================================
+
+	// 接続端末カードを生成（schedules カードと同様の card-item/glass 構造）。
+	function buildDeviceCard(d) {
+		const card = document.createElement("div");
+		card.className = "card-item glass hover-lift";
+
+		const left = document.createElement("div");
+		left.className = "card-content-left";
+
+		const icon = document.createElement("span");
+		icon.className = "material-symbols-outlined list-card-icon";
+		icon.style.fontSize = "1.8rem";
+		icon.textContent = "devices";
+
+		const text = document.createElement("div");
+		text.className = "card-text";
+
+		const title = document.createElement("div");
+		title.className = "card-title";
+		title.textContent = d.device_name || "不明な端末";
+
+		// 現在の端末バッジ（このブラウザ/セッションと同一の端末）
+		if (d.current) {
+			const badge = document.createElement("span");
+			badge.className = "badge badge-accent";
+			badge.style.marginLeft = "8px";
+			badge.textContent = "現在の端末";
+			title.appendChild(badge);
+		}
+
+		const meta = document.createElement("div");
+		meta.className = "card-meta-row";
+
+		const created = document.createElement("span");
+		created.className = "meta-item";
+		const createdIcon = document.createElement("span");
+		createdIcon.className = "material-symbols-outlined meta-icon";
+		createdIcon.textContent = "schedule";
+		created.appendChild(createdIcon);
+		created.appendChild(
+			document.createTextNode(` 認可: ${(d.created_at || "").slice(0, 16)}`),
+		);
+		meta.appendChild(created);
+
+		const used = document.createElement("span");
+		used.className = "meta-item";
+		const usedIcon = document.createElement("span");
+		usedIcon.className = "material-symbols-outlined meta-icon";
+		usedIcon.textContent = "history";
+		used.appendChild(usedIcon);
+		used.appendChild(
+			document.createTextNode(
+				d.last_used_at
+					? ` 最終利用: ${d.last_used_at.slice(0, 16)}`
+					: " 最終利用: 未使用",
+			),
+		);
+		meta.appendChild(used);
+
+		text.appendChild(title);
+		text.appendChild(meta);
+
+		left.appendChild(icon);
+		left.appendChild(text);
+
+		const right = document.createElement("div");
+		right.className = "card-actions-right";
+
+		const btnTrash = document.createElement("button");
+		btnTrash.className = "btn-trash";
+		btnTrash.title = "この端末を失効する";
+		const trashIcon = document.createElement("span");
+		trashIcon.className = "material-symbols-outlined";
+		trashIcon.textContent = "delete";
+		btnTrash.appendChild(trashIcon);
+		btnTrash.addEventListener("click", () => handleRevokeDevice(d.id));
+		right.appendChild(btnTrash);
+
+		card.appendChild(left);
+		card.appendChild(right);
+		return card;
+	}
+
+	// 接続端末一覧を取得して描画。
+	async function fetchDevices() {
+		const list = document.getElementById("devices-list");
+		if (!list) return;
+		list.replaceChildren();
+
+		try {
+			const res = await originalFetch("/api/devices");
+			const data = await res.json();
+
+			if (data.success && Array.isArray(data.devices) && data.devices.length) {
+				data.devices.forEach((d) => list.appendChild(buildDeviceCard(d)));
+			} else {
+				const empty = document.createElement("div");
+				empty.className = "glass";
+				empty.textContent =
+					"接続中の端末はありません。デスクトップアプリからログインすると、ここに表示されます。";
+				list.appendChild(empty);
+			}
+		} catch (e) {
+			console.error(e);
+			const err = document.createElement("div");
+			err.className = "glass";
+			err.textContent = "端末一覧の取得に失敗しました。";
+			list.appendChild(err);
+		}
+	}
+
+	// 接続端末を失効する。
+	async function handleRevokeDevice(id) {
+		if (!confirm("この端末のアクセスを失効しますか？")) return;
+		try {
+			const res = await originalFetch("/api/devices/revoke", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id }),
+			});
+			const data = await res.json();
+			if (!data.success) {
+				alert(data.message || "端末の失効に失敗しました。");
+			}
+		} catch (e) {
+			console.error(e);
+			alert("端末の失効に失敗しました。");
+		}
+		fetchDevices();
+	}
+
+	// ── デバイスフロー認可ページ（/device）のロジック ──
+
+	// 入力されたコードを XXXX-XXXX 形式に整形（英数字のみ・大文字・8桁でハイフン挿入）。
+	function formatDeviceCode(raw) {
+		const cleaned = String(raw || "")
+			.toUpperCase()
+			.replace(/[^A-Z0-9]/g, "")
+			.slice(0, 8);
+		return cleaned.length > 4
+			? `${cleaned.slice(0, 4)}-${cleaned.slice(4)}`
+			: cleaned;
+	}
+
+	// 認可ビューを初期化（URL/退避済みコードのプリフィル・状態リセット）。
+	function showDeviceApprovalView() {
+		const formBox = document.getElementById("device-approve-form");
+		const successBox = document.getElementById("device-success");
+		const errorEl = document.getElementById("device-error");
+		const input = document.getElementById("device-code-input");
+		const userEl = document.getElementById("device-current-user");
+		if (!formBox || !input) return;
+
+		// 状態リセット（再表示時に前回の成功表示が残らないように）。
+		formBox.style.display = "";
+		if (successBox) successBox.style.display = "none";
+		if (errorEl) errorEl.textContent = "";
+
+		// ログイン中ユーザーの表示。
+		if (userEl) {
+			userEl.textContent =
+				document.getElementById("current-user-display")?.textContent ||
+				activeUserId ||
+				"—";
+		}
+
+		// URL の ?code= を優先し、なければ sessionStorage の退避値を使う。
+		let code = "";
+		try {
+			code =
+				new URLSearchParams(window.location.search).get("code") ||
+				sessionStorage.getItem("pendingDeviceCode") ||
+				"";
+		} catch (e) {
+			/* no-op */
+		}
+		input.value = formatDeviceCode(code);
+		sessionStorage.removeItem("pendingDeviceCode");
+	}
+
+	// 入力中のコードを自動整形。
+	const deviceCodeInput = document.getElementById("device-code-input");
+	if (deviceCodeInput) {
+		deviceCodeInput.addEventListener("input", () => {
+			const pos = deviceCodeInput.selectionStart;
+			deviceCodeInput.value = formatDeviceCode(deviceCodeInput.value);
+			// カーソルは末尾でよい（短い入力のため）。
+			void pos;
+		});
+	}
+
+	// 「この端末を許可」: デバイスフローを承認する。
+	const btnDeviceApprove = document.getElementById("btn-device-approve");
+	if (btnDeviceApprove) {
+		btnDeviceApprove.addEventListener("click", async () => {
+			const errorEl = document.getElementById("device-error");
+			const input = document.getElementById("device-code-input");
+			if (errorEl) errorEl.textContent = "";
+			const userCode = formatDeviceCode(input ? input.value : "");
+			if (userCode.length !== 9) {
+				if (errorEl)
+					errorEl.textContent = "コードは XXXX-XXXX 形式で入力してください。";
+				return;
+			}
+			btnDeviceApprove.disabled = true;
+			try {
+				const res = await originalFetch("/api/auth/device/approve", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ user_code: userCode }),
+				});
+				const data = await res.json();
+				if (data.success) {
+					const formBox = document.getElementById("device-approve-form");
+					const successBox = document.getElementById("device-success");
+					const successText = document.getElementById("device-success-text");
+					if (successText) {
+						successText.textContent = `${data.device_name || "端末"} を許可しました。アプリに戻ってください。`;
+					}
+					if (formBox) formBox.style.display = "none";
+					if (successBox) successBox.style.display = "";
+				} else if (errorEl) {
+					errorEl.textContent =
+						data.message || "コードが無効か、有効期限が切れています。";
+				}
+			} catch (e) {
+				console.error(e);
+				if (errorEl) errorEl.textContent = "サーバー接続に失敗しました。";
+			} finally {
+				btnDeviceApprove.disabled = false;
+			}
+		});
+	}
+
+	// 「キャンセル」/「ホームに戻る」: ルートへ。
+	const btnDeviceCancel = document.getElementById("btn-device-cancel");
+	if (btnDeviceCancel) {
+		btnDeviceCancel.addEventListener("click", () => navigateTo("/"));
+	}
+	const btnDeviceDone = document.getElementById("btn-device-done");
+	if (btnDeviceDone) {
+		btnDeviceDone.addEventListener("click", () => navigateTo("/"));
 	}
 
 	// G. EXPENSES VIEW LOGIC (Fetch & Receipt AI Scanning & Manual Add)
@@ -8712,7 +9019,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	// Handle popstate event (back/forward browser buttons)
 	window.addEventListener("popstate", () => {
-		applyRoute(window.location.pathname);
+		// /device はクエリ(?code=)に依存するため search も渡す。
+		applyRoute(window.location.pathname + window.location.search);
 	});
 
 	// On page load, try auto-login
