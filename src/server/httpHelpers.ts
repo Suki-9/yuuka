@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { config } from "../config.js";
+import { verifyToken } from "../services/desktopAuthService.js";
 import { getSession } from "../services/sessionService.js";
 import type { SessionUser } from "../types/contracts.js";
 
@@ -120,4 +121,39 @@ export async function getSessionUser(
 	} catch {
 		return null;
 	}
+}
+
+/** Authorization: Bearer <token> を取り出す（デスクトップトークン）。 */
+export function getBearerToken(req: IncomingMessage): string | null {
+	const auth = req.headers.authorization;
+	if (!auth) return null;
+	const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
+	return m ? m[1].trim() : null;
+}
+
+/**
+ * デスクトップトークン（Bearer）を検証して SessionUser を返す（desktop_client backend_api.md §1.5）。
+ * ネイティブクライアントの WS upgrade / REST 認証に使う。Cookie が無くても通る。
+ */
+export function getBearerUser(req: IncomingMessage): SessionUser | null {
+	const token = getBearerToken(req);
+	if (!token) return null;
+	try {
+		return verifyToken(token);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * リクエストのユーザーを Cookie セッション → Bearer トークンの順で解決する。
+ * routeRegistry.dispatchRoute へ注入し、REST も Bearer（デスクトップ）で利用可能にする。
+ * Bearer はアンビエント資格情報ではないため CSRF 非該当（Origin チェックは Cookie 経路のみ・既存実装が担保）。
+ */
+export async function resolveRequestUser(
+	req: IncomingMessage,
+): Promise<SessionUser | null> {
+	const sessionUser = await getSessionUser(req);
+	if (sessionUser) return sessionUser;
+	return getBearerUser(req);
 }

@@ -150,4 +150,18 @@ export const config = {
 
 	/** 実行時エスカレーション: ループ経過時間がこれ以上なら実行中でも一時応答を出す（ms）。 */
 	heavyRuntimeMs: parseInt(getSetting("HEAVY_RUNTIME_MS", "12000"), 10),
+
+	// ─── デスクトップクライアント（desktop_client 設計 backend_api.md §8。全て任意・既定値あり） ──
+
+	/** デスクトップトークンの TTL（日）。アクセス毎にスライディング延長。 */
+	desktopTokenTtlDays: parseInt(getSetting("DESKTOP_TOKEN_TTL_DAYS", "90"), 10),
+
+	/** 1 メッセージの添付上限（画像/音声 base64 込, MB）。ready で配布し超過は too_large。 */
+	desktopMaxUploadMb: parseInt(getSetting("DESKTOP_MAX_UPLOAD_MB", "20"), 10),
+
+	/** デバイスコードの有効期限（秒。OAuth デバイスフローの expires_in）。 */
+	desktopDeviceCodeTtlSec: parseInt(
+		getSetting("DESKTOP_DEVICE_CODE_TTL_SEC", "600"),
+		10,
+	),
 };
