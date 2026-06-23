@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	// Override native fetch to auto-inject currentBotId
 	const originalFetch = window.fetch;
-	window.fetch = async (resource, options) => {
+	window.fetch = async function (resource, options) {
 		if (
 			typeof resource === "string" &&
 			resource.startsWith("/api/") &&
@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							bodyObj.botId = window.currentBotId;
 							options.body = JSON.stringify(bodyObj);
 						}
-					} catch (_e) {
+					} catch (e) {
 						// Ignore parsing errors for non-JSON bodies
 					}
 				}
@@ -136,7 +136,7 @@ document.addEventListener("DOMContentLoaded", () => {
 	const btnBotLogout = document.getElementById("btn-bot-logout");
 	const modalCreateBot = document.getElementById("modal-create-bot");
 	const createBotForm = document.getElementById("create-bot-form");
-	const _btnCloseCreateBot = document.getElementById("btn-close-create-bot");
+	const btnCloseCreateBot = document.getElementById("btn-close-create-bot");
 	const btnSwitchBot = document.getElementById("btn-switch-bot");
 	const activeBotDisplay = document.getElementById("active-bot-display");
 
@@ -336,6 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			playbooks: "Playbook 設定",
 			discord: "Discord 連携設定",
 			config: "システム設定情報",
+			devices: "接続端末",
 		};
 		currentTabTitle.textContent = titles[tabId] || "ダッシュボード";
 
@@ -366,6 +367,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (adminOverlay) adminOverlay.classList.remove("active");
 		const accountOverlay = document.getElementById("account-overlay");
 		if (accountOverlay) accountOverlay.classList.remove("active");
+		const deviceOverlay = document.getElementById("device-overlay");
+		if (deviceOverlay) deviceOverlay.classList.remove("active");
 
 		// 全体管理（owner/システム）・アカウント管理の独立オーバーレイ。
 		// Bot個別画面（#app-container）の外で表示する。
@@ -445,6 +448,41 @@ document.addEventListener("DOMContentLoaded", () => {
 			return;
 		}
 
+		// デバイスフロー認可ページ = "/device?code=XXXX-XXXX"。
+		// デスクトップアプリがブラウザで開く。認可エンドポイントは auth:user のため、
+		// 未ログインなら ?code= を sessionStorage に退避してからログインへ誘導し、ログイン後に戻る。
+		if (cleanPath === "/device") {
+			// クエリの code を退避（initAppSession 後の再ルートで window.location.pathname しか使われず
+			// クエリが失われるため、sessionStorage で確実に引き継ぐ）。
+			try {
+				const codeFromUrl = new URLSearchParams(
+					window.location.search,
+				).get("code");
+				if (codeFromUrl) {
+					sessionStorage.setItem("pendingDeviceCode", codeFromUrl);
+				}
+			} catch (e) {
+				/* no-op */
+			}
+			if (!activeUserId) {
+				// 許可にはログインが必要。ログイン後に /device へ戻れるよう pendingDeviceRoute を保存。
+				sessionStorage.setItem("pendingDeviceRoute", "1");
+				initAppSession();
+				return;
+			}
+			appContainer.classList.add("hidden");
+			botSelectionOverlay.classList.remove("active");
+			loginOverlay.classList.remove("active");
+			const botSetupTabContent = document.getElementById(
+				"bot-setup-tab-content",
+			);
+			if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+			sessionStorage.removeItem("pendingDeviceRoute");
+			if (deviceOverlay) deviceOverlay.classList.add("active");
+			showDeviceApprovalView();
+			return;
+		}
+
 		// Bot選択画面 = ルート "/"（旧 "/bots" はエイリアスとして維持）
 		if (
 			cleanPath === "/" ||
@@ -488,6 +526,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				"playbooks",
 				"discord",
 				"config",
+				"devices",
 			];
 			let tabId = cleanPath === "/bot" ? "config" : cleanPath.slice(5); // "/bot/".length === 5
 			if (!BOT_TABS.includes(tabId)) tabId = "config";
@@ -619,6 +658,8 @@ document.addEventListener("DOMContentLoaded", () => {
 				"modal-audit",
 				"modal-mcp-dashboard",
 				"modal-int-calendars",
+				"modal-subtask",
+				"modal-task-progress",
 			].forEach((id) => {
 				const m = document.getElementById(id);
 				if (m) closeModal(m);
@@ -630,9 +671,10 @@ document.addEventListener("DOMContentLoaded", () => {
 	});
 
 	// Open triggers
-	document
-		.getElementById("btn-new-task")
-		.addEventListener("click", () => openModal(modalTask));
+	document.getElementById("btn-new-task").addEventListener("click", () => {
+		prepareNewTaskModal();
+		openModal(modalTask);
+	});
 	document
 		.getElementById("btn-new-schedule")
 		.addEventListener("click", () => openModal(modalSchedule));
@@ -682,6 +724,8 @@ document.addEventListener("DOMContentLoaded", () => {
 			fetchPlaybookRunsList();
 		} else if (activeTab === "config") {
 			fetchConfigSettings();
+		} else if (activeTab === "devices") {
+			fetchDevices();
 		}
 		// 統合管理 / 管理者用設定 は独立オーバーレイ（applyRoute で直接 fetch する）ため、ここでは扱わない。
 	}
@@ -867,7 +911,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					} else {
 						alert("同期に失敗しました: " + data.message);
 					}
-				} catch (_err) {
+				} catch (err) {
 					alert("同期中にエラーが発生しました。");
 				} finally {
 					if (icon) icon.style.animation = "";
@@ -922,7 +966,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							} else {
 								alert("削除に失敗しました: " + resData.message);
 							}
-						} catch (_err) {
+						} catch (err) {
 							alert("削除中にエラーが発生しました。");
 						}
 					}
@@ -995,7 +1039,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert("更新に失敗しました: " + data.message);
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -1069,7 +1113,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				const option = select.querySelector(`option[value="${p.id}"]`);
 				if (option) option.textContent = p.displayName;
 			});
-		} catch (_e) {
+		} catch (e) {
 			/* 表示名はHTMLの既定値で続行 */
 		}
 	}
@@ -1105,7 +1149,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert("Bot作成に失敗しました: " + data.message);
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("Bot作成中にエラーが発生しました。");
 			}
 		});
@@ -1115,7 +1159,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		btnBotLogout.addEventListener("click", async () => {
 			try {
 				await originalFetch("/api/logout", { method: "POST" });
-			} catch (_e) {}
+			} catch (e) {}
 			localStorage.removeItem("currentBotId");
 			localStorage.removeItem("currentBotName");
 			window.currentBotId = null;
@@ -1278,9 +1322,24 @@ document.addEventListener("DOMContentLoaded", () => {
 					}
 				}
 
+				// デバイスフロー認可待ち（未ログインで /device に来てログインした場合）は /device へ戻す。
+				// ?code= は sessionStorage(pendingDeviceCode) に退避済みのため、ここで復元する。
+				if (sessionStorage.getItem("pendingDeviceRoute")) {
+					sessionStorage.removeItem("pendingDeviceRoute");
+					const savedCode = sessionStorage.getItem("pendingDeviceCode");
+					const deviceUrl = savedCode
+						? `/device?code=${encodeURIComponent(savedCode)}`
+						: "/device";
+					navigateTo(deviceUrl);
+					return;
+				}
+
 				// If already on a specific deep-link path, navigate there directly
 				const currentPath = window.location.pathname;
-				if (
+				if (currentPath === "/device") {
+					// クエリ保持のため pathname ではなく現在のURL全体で再ルートする。
+					applyRoute(window.location.pathname + window.location.search);
+				} else if (
 					currentPath !== "/" &&
 					currentPath !== "/index.html" &&
 					currentPath !== "/login"
@@ -1301,7 +1360,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				}
 				navigateTo("/login", false);
 			}
-		} catch (_err) {
+		} catch (err) {
 			activeUserId = "";
 			await checkSetupStatus();
 			navigateTo("/login", false);
@@ -1328,7 +1387,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			} else {
 				loginError.textContent = data.message;
 			}
-		} catch (_err) {
+		} catch (err) {
 			loginError.textContent = "サーバー接続に失敗しました。";
 		}
 	});
@@ -1364,7 +1423,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					loginError.textContent = data.message;
 				}
-			} catch (_err) {
+			} catch (err) {
 				loginError.textContent = "サーバー接続に失敗しました。";
 			}
 		});
@@ -1399,7 +1458,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					loginError.textContent = data.message;
 				}
-			} catch (_err) {
+			} catch (err) {
 				loginError.textContent = "サーバー接続に失敗しました。";
 			}
 		});
@@ -1443,7 +1502,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			} else {
 				loginError.textContent = data.message;
 			}
-		} catch (_err) {
+		} catch (err) {
 			loginError.textContent = "サーバー接続に失敗しました。";
 		}
 	});
@@ -1481,7 +1540,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			} else {
 				loginError.textContent = data.message;
 			}
-		} catch (_err) {
+		} catch (err) {
 			loginError.textContent = "サーバー接続に失敗しました。";
 		}
 	});
@@ -1490,7 +1549,7 @@ document.addEventListener("DOMContentLoaded", () => {
 	btnLogout.addEventListener("click", async () => {
 		try {
 			await originalFetch("/api/logout", { method: "POST" });
-		} catch (_e) {}
+		} catch (e) {}
 
 		localStorage.removeItem("currentBotId");
 		localStorage.removeItem("currentBotName");
@@ -2031,7 +2090,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		});
 	}
 
-	async function renderUrgentDashboardList(_pendingCount) {
+	async function renderUrgentDashboardList(pendingCount) {
 		dashboardUrgentList.replaceChildren();
 
 		try {
@@ -2107,121 +2166,267 @@ document.addEventListener("DOMContentLoaded", () => {
 		}
 	}
 
-	// E. TASKS VIEW LOGIC (Fetch & CRUD)
-	async function fetchTasksList(filter = "all") {
-		tasksList.replaceChildren();
+	// E. TASKS VIEW LOGIC (Fetch & CRUD) — v12: サブタスク・進捗・ガント対応
+	const PRIORITY_LABELS = { high: "🔴 高", medium: "🟡 中", low: "🔵 低" };
+	let editingTaskId = null; // タスクモーダルの編集対象（null=新規追加）
+	let subtaskParentId = null; // サブタスク追加対象の親ID
+	let progressTaskId = null; // 進捗更新対象のタスクID
+	let ganttChart = null; // Chart.js インスタンス（再描画時に破棄する）
 
+	/** 現在の一覧フィルタ（all/pending/done） */
+	function currentTaskFilter() {
+		const el = document.querySelector("[data-filter].active");
+		return el ? el.getAttribute("data-filter") : "all";
+	}
+
+	/** tags（JSON文字列）を配列へ */
+	function parseTaskTags(raw) {
+		try {
+			const t = JSON.parse(raw || "[]");
+			return Array.isArray(t) ? t : [];
+		} catch (_e) {
+			return [];
+		}
+	}
+
+	/** ISO文字列の表示整形（日付のみ→そのまま、日時→分まで） */
+	function fmtTaskDate(s) {
+		if (!s) return "";
+		return s.includes("T") ? s.slice(0, 16).replace("T", " ") : s;
+	}
+
+	/** 進捗バー要素を生成 */
+	function buildProgressBar(percent) {
+		const wrap = document.createElement("div");
+		wrap.className = "task-progress-bar";
+		const fill = document.createElement("div");
+		fill.className = "task-progress-fill";
+		fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+		wrap.appendChild(fill);
+		return wrap;
+	}
+
+	/** 小さいアクションボタンを生成 */
+	function buildMiniButton(icon, label, onClick) {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "btn-mini";
+		const ic = document.createElement("span");
+		ic.className = "material-symbols-outlined";
+		ic.textContent = icon;
+		btn.appendChild(ic);
+		btn.appendChild(document.createTextNode(label));
+		btn.addEventListener("click", onClick);
+		return btn;
+	}
+
+	/** メタ行の1項目（アイコン＋テキスト） */
+	function buildMetaItem(icon, text) {
+		const span = document.createElement("span");
+		span.className = "meta-item";
+		const ic = document.createElement("span");
+		ic.className = "material-symbols-outlined meta-icon";
+		ic.textContent = icon;
+		span.appendChild(ic);
+		span.appendChild(document.createTextNode(` ${text}`));
+		return span;
+	}
+
+	/** サブタスク行を生成 */
+	function buildSubtaskRow(sub) {
+		const row = document.createElement("div");
+		row.className = `subtask-row ${sub.status === "done" ? "done" : ""}`;
+
+		const checkbox = document.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "checkbox-custom";
+		checkbox.checked = sub.status === "done";
+		checkbox.addEventListener("change", () =>
+			toggleTaskCompletion(sub.id, checkbox.checked),
+		);
+
+		const title = document.createElement("span");
+		title.className = "subtask-title";
+		title.textContent = sub.title;
+
+		row.appendChild(checkbox);
+		row.appendChild(title);
+
+		if (sub.due_date) {
+			const due = document.createElement("span");
+			due.className = "subtask-due";
+			due.textContent = `〜${fmtTaskDate(sub.due_date)}`;
+			row.appendChild(due);
+		}
+
+		const del = document.createElement("button");
+		del.type = "button";
+		del.className = "btn-trash";
+		const delIcon = document.createElement("span");
+		delIcon.className = "material-symbols-outlined";
+		delIcon.textContent = "delete";
+		del.appendChild(delIcon);
+		del.addEventListener("click", () => handleDeleteTask(sub.id));
+		row.appendChild(del);
+
+		return row;
+	}
+
+	/** 親タスク1件のカードを生成（サブタスク・進捗・操作ボタン込み） */
+	function buildTaskCard(task) {
+		const subtasks = task.subtasks || [];
+		const hasSubtasks = subtasks.length > 0;
+		const percent =
+			typeof task.effective_progress === "number"
+				? task.effective_progress
+				: task.status === "done"
+					? 100
+					: task.progress || 0;
+
+		const card = document.createElement("div");
+		card.className = `card-item glass hover-lift ${task.status === "done" ? "done" : ""}`;
+		card.style.flexDirection = "column";
+		card.style.alignItems = "stretch";
+
+		// 上段: チェックボックス＋本文＋削除
+		const topRow = document.createElement("div");
+		topRow.style.display = "flex";
+		topRow.style.justifyContent = "space-between";
+		topRow.style.gap = "8px";
+
+		const left = document.createElement("div");
+		left.className = "card-content-left";
+
+		const checkbox = document.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "checkbox-custom";
+		checkbox.checked = task.status === "done";
+		checkbox.disabled = hasSubtasks; // 親はサブタスクから算出のため直接完了は子に委ねる
+		checkbox.title = hasSubtasks
+			? "サブタスクを全て完了すると進捗100%になります"
+			: "";
+		checkbox.addEventListener("change", () =>
+			toggleTaskCompletion(task.id, checkbox.checked),
+		);
+
+		const text = document.createElement("div");
+		text.className = "card-text";
+
+		const title = document.createElement("div");
+		title.className = "card-title";
+		title.textContent = task.title;
+
+		const desc = document.createElement("div");
+		desc.className = "card-desc";
+		desc.textContent = task.description || "説明なし";
+
+		const meta = document.createElement("div");
+		meta.className = "card-meta-row";
+		if (task.start_date)
+			meta.appendChild(buildMetaItem("event", `開始: ${fmtTaskDate(task.start_date)}`));
+		if (task.due_date)
+			meta.appendChild(buildMetaItem("calendar_today", `期限: ${fmtTaskDate(task.due_date)}`));
+		meta.appendChild(
+			buildMetaItem("priority_high", `優先度: ${PRIORITY_LABELS[task.priority] || "—"}`),
+		);
+		parseTaskTags(task.tags).forEach((tag) => {
+			const chip = document.createElement("span");
+			chip.className = "tag-chip";
+			chip.textContent = `#${tag}`;
+			meta.appendChild(chip);
+		});
+
+		text.appendChild(title);
+		text.appendChild(desc);
+		text.appendChild(meta);
+		left.appendChild(checkbox);
+		left.appendChild(text);
+
+		const right = document.createElement("div");
+		right.className = "card-actions-right";
+		const btnTrash = document.createElement("button");
+		btnTrash.className = "btn-trash";
+		const trashIcon = document.createElement("span");
+		trashIcon.className = "material-symbols-outlined";
+		trashIcon.textContent = "delete";
+		btnTrash.appendChild(trashIcon);
+		btnTrash.addEventListener("click", () => handleDeleteTask(task.id));
+		right.appendChild(btnTrash);
+
+		topRow.appendChild(left);
+		topRow.appendChild(right);
+		card.appendChild(topRow);
+
+		// 進捗バー＋％
+		const progRow = document.createElement("div");
+		progRow.style.display = "flex";
+		progRow.style.alignItems = "center";
+		const bar = buildProgressBar(percent);
+		bar.style.flex = "1";
+		const pctText = document.createElement("span");
+		pctText.className = "task-progress-text";
+		pctText.textContent = hasSubtasks
+			? `${percent}% (${subtasks.filter((s) => s.status === "done").length}/${subtasks.length})`
+			: `${percent}%`;
+		progRow.appendChild(bar);
+		progRow.appendChild(pctText);
+		card.appendChild(progRow);
+
+		// 操作ボタン
+		const buttons = document.createElement("div");
+		buttons.className = "task-card-buttons";
+		buttons.style.marginTop = "8px";
+		if (!hasSubtasks) {
+			buttons.appendChild(
+				buildMiniButton("trending_up", "進捗更新", () => openProgressModal(task)),
+			);
+		}
+		buttons.appendChild(
+			buildMiniButton("add_task", "サブタスク", () => openSubtaskModal(task)),
+		);
+		buttons.appendChild(
+			buildMiniButton("edit", "編集", () => openEditTaskModal(task)),
+		);
+		card.appendChild(buttons);
+
+		// サブタスク（折りたたみ）
+		if (hasSubtasks) {
+			const toggle = document.createElement("button");
+			toggle.type = "button";
+			toggle.className = "subtask-toggle";
+			const tIcon = document.createElement("span");
+			tIcon.className = "material-symbols-outlined";
+			tIcon.textContent = "expand_more";
+			toggle.appendChild(tIcon);
+			toggle.appendChild(
+				document.createTextNode(` サブタスク ${subtasks.length}件`),
+			);
+			toggle.style.marginTop = "6px";
+
+			const subList = document.createElement("div");
+			subList.className = "subtask-list";
+			subtasks.forEach((s) => subList.appendChild(buildSubtaskRow(s)));
+
+			toggle.addEventListener("click", () => {
+				const hidden = subList.style.display === "none";
+				subList.style.display = hidden ? "flex" : "none";
+				tIcon.style.transform = hidden ? "rotate(0deg)" : "rotate(-90deg)";
+			});
+
+			card.appendChild(toggle);
+			card.appendChild(subList);
+		}
+
+		return card;
+	}
+
+	async function fetchTasksList(filter = currentTaskFilter()) {
+		tasksList.replaceChildren();
 		try {
 			const res = await fetch(`/api/tasks?status=${filter}`);
 			const data = await res.json();
-
 			if (data.success && data.tasks.length > 0) {
-				data.tasks.forEach((task) => {
-					const card = document.createElement("div");
-					card.className = `card-item glass hover-lift ${task.status === "done" ? "done" : ""}`;
-
-					const left = document.createElement("div");
-					left.className = "card-content-left";
-
-					const checkbox = document.createElement("input");
-					checkbox.type = "checkbox";
-					checkbox.className = "checkbox-custom";
-					checkbox.checked = task.status === "done";
-					checkbox.addEventListener("change", () =>
-						toggleTaskCompletion(task.id, checkbox.checked),
-					);
-
-					const text = document.createElement("div");
-					text.className = "card-text";
-
-					const title = document.createElement("div");
-					title.className = "card-title";
-					title.textContent = task.title;
-
-					const desc = document.createElement("div");
-					desc.className = "card-desc";
-					desc.textContent = task.description || "説明なし";
-
-					const meta = document.createElement("div");
-					meta.className = "card-meta-row";
-
-					if (task.due_date) {
-						const due = document.createElement("span");
-						due.className = "meta-item";
-
-						const dueIcon = document.createElement("span");
-						dueIcon.className = "material-symbols-outlined meta-icon";
-						dueIcon.textContent = "calendar_today";
-
-						const dueText = document.createTextNode(` 期限: ${task.due_date}`);
-
-						due.appendChild(dueIcon);
-						due.appendChild(dueText);
-						meta.appendChild(due);
-					}
-
-					const pri = document.createElement("span");
-					pri.className = "meta-item";
-
-					const priIcon = document.createElement("span");
-					priIcon.className = "material-symbols-outlined meta-icon";
-					priIcon.textContent = "priority_high";
-
-					// v2: priority は "high" | "medium" | "low" | null
-					const priorityLabels = {
-						high: "🔴 高",
-						medium: "🟡 中",
-						low: "🔵 低",
-					};
-					const priText = document.createTextNode(
-						` 優先度: ${priorityLabels[task.priority] || "—"}`,
-					);
-
-					pri.appendChild(priIcon);
-					pri.appendChild(priText);
-					meta.appendChild(pri);
-
-					// v2: tags はJSON文字列（パースしてチップ表示）
-					let taskTags = [];
-					try {
-						taskTags = JSON.parse(task.tags || "[]");
-						if (!Array.isArray(taskTags)) taskTags = [];
-					} catch (_err) {
-						taskTags = [];
-					}
-					taskTags.forEach((tag) => {
-						const chip = document.createElement("span");
-						chip.className = "tag-chip";
-						chip.textContent = `#${tag}`;
-						meta.appendChild(chip);
-					});
-
-					text.appendChild(title);
-					text.appendChild(desc);
-					text.appendChild(meta);
-
-					left.appendChild(checkbox);
-					left.appendChild(text);
-
-					const right = document.createElement("div");
-					right.className = "card-actions-right";
-
-					const btnTrash = document.createElement("button");
-					btnTrash.className = "btn-trash";
-
-					const trashIcon = document.createElement("span");
-					trashIcon.className = "material-symbols-outlined";
-					trashIcon.textContent = "delete";
-					btnTrash.appendChild(trashIcon);
-
-					btnTrash.addEventListener("click", () => handleDeleteTask(task.id));
-
-					right.appendChild(btnTrash);
-
-					card.appendChild(left);
-					card.appendChild(right);
-					tasksList.appendChild(card);
-				});
+				data.tasks.forEach((task) => tasksList.appendChild(buildTaskCard(task)));
 			} else {
 				const empty = document.createElement("div");
 				empty.className = "glass";
@@ -2231,78 +2436,445 @@ document.addEventListener("DOMContentLoaded", () => {
 		} catch (e) {
 			console.error(e);
 		}
+		fetchSomedayTasks();
 	}
 
-	// Filter Tasks
+	/** 「いつかやる」（日付未設定の親タスク）を取得・描画 */
+	async function fetchSomedayTasks() {
+		const section = document.getElementById("tasks-someday-section");
+		const list = document.getElementById("tasks-someday-list");
+		if (!section || !list) return;
+		list.replaceChildren();
+		try {
+			const res = await fetch("/api/tasks/someday");
+			const data = await res.json();
+			if (data.success && data.tasks.length > 0) {
+				section.style.display = "block";
+				data.tasks.forEach((task) => list.appendChild(buildTaskCard(task)));
+			} else {
+				section.style.display = "none";
+			}
+		} catch (e) {
+			console.error(e);
+			section.style.display = "none";
+		}
+	}
+
+	// ── 一覧フィルタ（all/pending/done） ──
 	document.querySelectorAll("[data-filter]").forEach((btn) => {
-		btn.addEventListener("click", (_e) => {
+		btn.addEventListener("click", () => {
 			document
 				.querySelectorAll("[data-filter]")
 				.forEach((b) => b.classList.remove("active"));
 			btn.classList.add("active");
-			const f = btn.getAttribute("data-filter");
-			fetchTasksList(f);
+			fetchTasksList(btn.getAttribute("data-filter"));
 		});
 	});
+
+	// ── 表示モード切替（一覧 / ガント） ──
+	document.querySelectorAll("[data-task-view]").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			document
+				.querySelectorAll("[data-task-view]")
+				.forEach((b) => b.classList.remove("active"));
+			btn.classList.add("active");
+			const mode = btn.getAttribute("data-task-view");
+			const listMode = document.getElementById("tasks-list-mode");
+			const ganttMode = document.getElementById("tasks-gantt-mode");
+			if (mode === "gantt") {
+				listMode.style.display = "none";
+				ganttMode.style.display = "block";
+				renderGantt();
+			} else {
+				ganttMode.style.display = "none";
+				listMode.style.display = "block";
+				fetchTasksList();
+			}
+		});
+	});
+
+	/** 新規タスクモーダルを開く準備（編集状態をリセット） */
+	function prepareNewTaskModal() {
+		editingTaskId = null;
+		taskForm.reset();
+		const h = modalTask.querySelector(".modal-header h3");
+		if (h) h.textContent = "新規タスクの追加";
+		const submit = taskForm.querySelector('button[type="submit"]');
+		if (submit) submit.textContent = "タスク登録";
+	}
+
+	/** 既存タスクの編集モーダルを開く */
+	function openEditTaskModal(task) {
+		editingTaskId = task.id;
+		document.getElementById("task-title").value = task.title || "";
+		document.getElementById("task-description").value = task.description || "";
+		document.getElementById("task-start").value = (task.start_date || "").slice(0, 10);
+		document.getElementById("task-due").value = (task.due_date || "").slice(0, 10);
+		document.getElementById("task-priority").value = task.priority || "";
+		const h = modalTask.querySelector(".modal-header h3");
+		if (h) h.textContent = "タスクを編集";
+		const submit = taskForm.querySelector('button[type="submit"]');
+		if (submit) submit.textContent = "更新を保存";
+		openModal(modalTask);
+	}
 
 	taskForm.addEventListener("submit", async (e) => {
 		e.preventDefault();
 		const title = document.getElementById("task-title").value.trim();
-		const description = document
-			.getElementById("task-description")
-			.value.trim();
+		const description = document.getElementById("task-description").value.trim();
+		const startDate = document.getElementById("task-start").value;
 		const dueDate = document.getElementById("task-due").value;
-		const priority =
-			document.getElementById("task-priority").value || undefined;
+		const priority = document.getElementById("task-priority").value || undefined;
+		if (!title) return;
 
+		const isEdit = editingTaskId != null;
+		const url = isEdit ? "/api/tasks/update" : "/api/tasks/add";
+		const body = isEdit
+			? { id: editingTaskId, title, description, startDate, dueDate, priority }
+			: { title, description, startDate, dueDate, priority };
 		try {
-			const res = await fetch("/api/tasks/add", {
+			const res = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title, description, dueDate, priority }),
+				body: JSON.stringify(body),
 			});
 			const data = await res.json();
 			if (data.success) {
 				closeModal(modalTask);
-				taskForm.reset();
+				prepareNewTaskModal();
 				fetchTasksList();
 			}
-		} catch (e) {
-			console.error(e);
+		} catch (err) {
+			console.error(err);
 		}
 	});
 
-	async function toggleTaskCompletion(id, _isChecked) {
+	// ── サブタスク追加モーダル ──
+	function openSubtaskModal(parent) {
+		subtaskParentId = parent.id;
+		const form = document.getElementById("subtask-form");
+		form.reset();
+		document.getElementById("subtask-parent-label").textContent =
+			`親タスク: ${parent.title}`;
+		openModal(document.getElementById("modal-subtask"));
+	}
+
+	document.getElementById("subtask-form").addEventListener("submit", async (e) => {
+		e.preventDefault();
+		if (subtaskParentId == null) return;
+		const title = document.getElementById("subtask-title").value.trim();
+		const startDate = document.getElementById("subtask-start").value;
+		const dueDate = document.getElementById("subtask-due").value;
+		if (!title) return;
 		try {
-			await fetch("/api/tasks/complete", {
+			const res = await fetch("/api/tasks/add", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id }),
+				body: JSON.stringify({
+					title,
+					startDate,
+					dueDate,
+					parentId: subtaskParentId,
+				}),
 			});
-			const activeFilter = document
-				.querySelector("[data-filter].active")
-				.getAttribute("data-filter");
-			fetchTasksList(activeFilter);
+			const data = await res.json();
+			if (data.success) {
+				closeModal(document.getElementById("modal-subtask"));
+				subtaskParentId = null;
+				fetchTasksList();
+			}
+		} catch (err) {
+			console.error(err);
+		}
+	});
+
+	// ── 進捗更新モーダル ──
+	function openProgressModal(task) {
+		progressTaskId = task.id;
+		const range = document.getElementById("task-progress-range");
+		const value = document.getElementById("task-progress-value");
+		range.value = task.progress || 0;
+		value.textContent = task.progress || 0;
+		document.getElementById("task-progress-note").value = "";
+		document.getElementById("task-progress-label").textContent =
+			`タスク: ${task.title}`;
+		openModal(document.getElementById("modal-task-progress"));
+	}
+
+	document.getElementById("task-progress-range").addEventListener("input", (e) => {
+		document.getElementById("task-progress-value").textContent = e.target.value;
+	});
+
+	document
+		.getElementById("task-progress-form")
+		.addEventListener("submit", async (e) => {
+			e.preventDefault();
+			if (progressTaskId == null) return;
+			const progress = Number(
+				document.getElementById("task-progress-range").value,
+			);
+			const note = document.getElementById("task-progress-note").value.trim();
+			try {
+				const res = await fetch("/api/tasks/progress", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ id: progressTaskId, progress, note }),
+				});
+				const data = await res.json();
+				if (data.success) {
+					closeModal(document.getElementById("modal-task-progress"));
+					progressTaskId = null;
+					fetchTasksList();
+				}
+			} catch (err) {
+				console.error(err);
+			}
+		});
+
+	async function toggleTaskCompletion(id, isChecked) {
+		try {
+			if (isChecked) {
+				await fetch("/api/tasks/complete", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ id }),
+				});
+			} else {
+				// 未完了へ戻す（v12: /update で status を open に）
+				await fetch("/api/tasks/update", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ id, status: "open" }),
+				});
+			}
+			fetchTasksList();
 		} catch (e) {
 			console.error(e);
 		}
 	}
 
 	async function handleDeleteTask(id) {
-		if (!confirm("本当にこのタスクを削除しますか？")) return;
+		if (
+			!confirm(
+				"本当にこのタスクを削除しますか？（サブタスクや進捗履歴も一緒に削除されます）",
+			)
+		)
+			return;
 		try {
 			await fetch("/api/tasks/delete", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ id }),
 			});
-			const activeFilter = document
-				.querySelector("[data-filter].active")
-				.getAttribute("data-filter");
-			fetchTasksList(activeFilter);
+			fetchTasksList();
 		} catch (e) {
 			console.error(e);
 		}
+	}
+
+	// ── ガントチャート（chart.js 水平フローティングバー） ──
+
+	/** ISO日付文字列をミリ秒へ（日付のみはローカル0時で解釈しTZズレを防ぐ） */
+	function parseDateMs(s) {
+		if (!s) return null;
+		if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+			const [y, m, d] = s.split("-").map(Number);
+			return new Date(y, m - 1, d).getTime();
+		}
+		const t = new Date(s).getTime();
+		return Number.isNaN(t) ? null : t;
+	}
+
+	/** 今日の0時(ms) */
+	function startOfTodayMs() {
+		const n = new Date();
+		return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+	}
+
+	const DAY_MS = 24 * 60 * 60 * 1000;
+
+	/** 1タスクをガント1行（start/end/色/進捗/ラベル）へ正規化。日付が全く無ければ null */
+	function toGanttRow(task, indent) {
+		const startMs = parseDateMs(task.start_date);
+		const dueMs = parseDateMs(task.due_date);
+		if (startMs == null && dueMs == null) return null;
+		const today = startOfTodayMs();
+		// 始端・終端の補完: 期限のみ→単日マイルストーン / 開始のみ→今日まで
+		let s = startMs != null ? startMs : dueMs;
+		let e = dueMs != null ? dueMs : Math.max(startMs, today);
+		if (e <= s) e = s + DAY_MS; // 最低1日分の幅を確保
+		const percent =
+			typeof task.effective_progress === "number"
+				? task.effective_progress
+				: task.status === "done"
+					? 100
+					: task.progress || 0;
+		const overdue = task.status !== "done" && dueMs != null && dueMs < today;
+		const color =
+			task.status === "done"
+				? "rgba(120,120,128,0.55)"
+				: overdue
+					? "rgba(237,66,69,0.65)"
+					: "rgba(187,134,252,0.55)";
+		return {
+			label: `${indent ? "↳ " : ""}${task.title}`,
+			range: [s, e],
+			color,
+			progress: percent,
+		};
+	}
+
+	async function renderGantt() {
+		const canvas = document.getElementById("tasks-gantt-canvas");
+		const emptyEl = document.getElementById("tasks-gantt-empty");
+		if (!canvas || typeof Chart === "undefined") return;
+		let tasks = [];
+		try {
+			const res = await fetch("/api/tasks/gantt");
+			const data = await res.json();
+			if (data.success) tasks = data.tasks;
+		} catch (e) {
+			console.error(e);
+		}
+
+		// 親→サブタスクの順に行を構築
+		const rows = [];
+		tasks.forEach((t) => {
+			const parentRow = toGanttRow(t, false);
+			if (parentRow) rows.push(parentRow);
+			(t.subtasks || []).forEach((s) => {
+				const r = toGanttRow(s, true);
+				if (r) rows.push(r);
+			});
+		});
+
+		if (ganttChart) {
+			ganttChart.destroy();
+			ganttChart = null;
+		}
+
+		if (rows.length === 0) {
+			emptyEl.style.display = "block";
+			canvas.style.display = "none";
+			return;
+		}
+		emptyEl.style.display = "none";
+		canvas.style.display = "block";
+
+		// 行数に応じて高さを確保
+		const scroll = document.getElementById("tasks-gantt-scroll");
+		scroll.style.height = `${rows.length * 36 + 70}px`;
+
+		const minMs = Math.min(...rows.map((r) => r.range[0]), startOfTodayMs());
+		const maxMs = Math.max(...rows.map((r) => r.range[1]), startOfTodayMs());
+		const pad = Math.max(DAY_MS, (maxMs - minMs) * 0.05);
+
+		// バー内に進捗分の塗りを重ねるプラグイン
+		const progressFill = {
+			id: "ganttProgressFill",
+			afterDatasetsDraw(chart) {
+				const { ctx } = chart;
+				const meta = chart.getDatasetMeta(0);
+				const progress = chart.data.datasets[0].progress || [];
+				meta.data.forEach((bar, i) => {
+					const pct = progress[i] || 0;
+					if (!pct) return;
+					const props = bar.getProps(["x", "base", "y", "height"], true);
+					const left = Math.min(props.base, props.x);
+					const width = Math.abs(props.x - props.base);
+					ctx.save();
+					ctx.fillStyle = "rgba(255,255,255,0.4)";
+					ctx.fillRect(
+						left,
+						props.y - props.height / 2,
+						width * (pct / 100),
+						props.height,
+					);
+					ctx.restore();
+				});
+			},
+		};
+
+		// 今日の縦線
+		const todayLine = {
+			id: "ganttTodayLine",
+			afterDraw(chart) {
+				const x = chart.scales.x;
+				const today = startOfTodayMs();
+				if (today < x.min || today > x.max) return;
+				const px = x.getPixelForValue(today);
+				const { top, bottom } = chart.chartArea;
+				const { ctx } = chart;
+				ctx.save();
+				ctx.strokeStyle = "rgba(237,66,69,0.9)";
+				ctx.lineWidth = 1.5;
+				ctx.setLineDash([4, 3]);
+				ctx.beginPath();
+				ctx.moveTo(px, top);
+				ctx.lineTo(px, bottom);
+				ctx.stroke();
+				ctx.restore();
+			},
+		};
+
+		ganttChart = new Chart(canvas, {
+			type: "bar",
+			data: {
+				labels: rows.map((r) => r.label),
+				datasets: [
+					{
+						data: rows.map((r) => r.range),
+						backgroundColor: rows.map((r) => r.color),
+						borderColor: "rgba(187,134,252,0.9)",
+						borderWidth: 1,
+						borderSkipped: false,
+						borderRadius: 4,
+						progress: rows.map((r) => r.progress),
+					},
+				],
+			},
+			options: {
+				indexAxis: "y",
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: {
+					x: {
+						type: "linear",
+						position: "top",
+						min: minMs - pad,
+						max: maxMs + pad,
+						ticks: {
+							callback: (v) => {
+								const d = new Date(v);
+								return `${d.getMonth() + 1}/${d.getDate()}`;
+							},
+							color: "rgba(160,160,170,0.9)",
+							maxRotation: 0,
+						},
+						grid: { color: "rgba(128,128,128,0.15)" },
+					},
+					y: {
+						ticks: { color: "rgba(200,200,210,0.95)", font: { size: 11 } },
+						grid: { display: false },
+					},
+				},
+				plugins: {
+					legend: { display: false },
+					tooltip: {
+						callbacks: {
+							label: (item) => {
+								const r = item.raw;
+								const s = new Date(r[0]);
+								const e = new Date(r[1]);
+								const pct = rows[item.dataIndex].progress;
+								return `${s.getMonth() + 1}/${s.getDate()} 〜 ${e.getMonth() + 1}/${e.getDate()}  進捗${pct}%`;
+							},
+						},
+					},
+				},
+			},
+			plugins: [progressFill, todayLine],
+		});
 	}
 
 	// F. SCHEDULES VIEW LOGIC (Fetch & CRUD)
@@ -2482,6 +3054,257 @@ document.addEventListener("DOMContentLoaded", () => {
 		} catch (e) {
 			console.error(e);
 		}
+	}
+
+	// ==========================================
+	// F-2. 接続端末（デバイスフロー）ロジック
+	//  - 一覧/失効はダッシュボードの「接続端末」タブ
+	//  - 認可は /device?code= の独立オーバーレイ
+	//  デバイス系3エンドポイントは botId を注入しない originalFetch を使う
+	//  （ユーザー単位の認可情報のため、stale な botId を混ぜない）。
+	// ==========================================
+
+	// 接続端末カードを生成（schedules カードと同様の card-item/glass 構造）。
+	function buildDeviceCard(d) {
+		const card = document.createElement("div");
+		card.className = "card-item glass hover-lift";
+
+		const left = document.createElement("div");
+		left.className = "card-content-left";
+
+		const icon = document.createElement("span");
+		icon.className = "material-symbols-outlined list-card-icon";
+		icon.style.fontSize = "1.8rem";
+		icon.textContent = "devices";
+
+		const text = document.createElement("div");
+		text.className = "card-text";
+
+		const title = document.createElement("div");
+		title.className = "card-title";
+		title.textContent = d.device_name || "不明な端末";
+
+		// 現在の端末バッジ（このブラウザ/セッションと同一の端末）
+		if (d.current) {
+			const badge = document.createElement("span");
+			badge.className = "badge badge-accent";
+			badge.style.marginLeft = "8px";
+			badge.textContent = "現在の端末";
+			title.appendChild(badge);
+		}
+
+		const meta = document.createElement("div");
+		meta.className = "card-meta-row";
+
+		const created = document.createElement("span");
+		created.className = "meta-item";
+		const createdIcon = document.createElement("span");
+		createdIcon.className = "material-symbols-outlined meta-icon";
+		createdIcon.textContent = "schedule";
+		created.appendChild(createdIcon);
+		created.appendChild(
+			document.createTextNode(` 認可: ${(d.created_at || "").slice(0, 16)}`),
+		);
+		meta.appendChild(created);
+
+		const used = document.createElement("span");
+		used.className = "meta-item";
+		const usedIcon = document.createElement("span");
+		usedIcon.className = "material-symbols-outlined meta-icon";
+		usedIcon.textContent = "history";
+		used.appendChild(usedIcon);
+		used.appendChild(
+			document.createTextNode(
+				d.last_used_at
+					? ` 最終利用: ${d.last_used_at.slice(0, 16)}`
+					: " 最終利用: 未使用",
+			),
+		);
+		meta.appendChild(used);
+
+		text.appendChild(title);
+		text.appendChild(meta);
+
+		left.appendChild(icon);
+		left.appendChild(text);
+
+		const right = document.createElement("div");
+		right.className = "card-actions-right";
+
+		const btnTrash = document.createElement("button");
+		btnTrash.className = "btn-trash";
+		btnTrash.title = "この端末を失効する";
+		const trashIcon = document.createElement("span");
+		trashIcon.className = "material-symbols-outlined";
+		trashIcon.textContent = "delete";
+		btnTrash.appendChild(trashIcon);
+		btnTrash.addEventListener("click", () => handleRevokeDevice(d.id));
+		right.appendChild(btnTrash);
+
+		card.appendChild(left);
+		card.appendChild(right);
+		return card;
+	}
+
+	// 接続端末一覧を取得して描画。
+	async function fetchDevices() {
+		const list = document.getElementById("devices-list");
+		if (!list) return;
+		list.replaceChildren();
+
+		try {
+			const res = await originalFetch("/api/devices");
+			const data = await res.json();
+
+			if (data.success && Array.isArray(data.devices) && data.devices.length) {
+				data.devices.forEach((d) => list.appendChild(buildDeviceCard(d)));
+			} else {
+				const empty = document.createElement("div");
+				empty.className = "glass";
+				empty.textContent =
+					"接続中の端末はありません。デスクトップアプリからログインすると、ここに表示されます。";
+				list.appendChild(empty);
+			}
+		} catch (e) {
+			console.error(e);
+			const err = document.createElement("div");
+			err.className = "glass";
+			err.textContent = "端末一覧の取得に失敗しました。";
+			list.appendChild(err);
+		}
+	}
+
+	// 接続端末を失効する。
+	async function handleRevokeDevice(id) {
+		if (!confirm("この端末のアクセスを失効しますか？")) return;
+		try {
+			const res = await originalFetch("/api/devices/revoke", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id }),
+			});
+			const data = await res.json();
+			if (!data.success) {
+				alert(data.message || "端末の失効に失敗しました。");
+			}
+		} catch (e) {
+			console.error(e);
+			alert("端末の失効に失敗しました。");
+		}
+		fetchDevices();
+	}
+
+	// ── デバイスフロー認可ページ（/device）のロジック ──
+
+	// 入力されたコードを XXXX-XXXX 形式に整形（英数字のみ・大文字・8桁でハイフン挿入）。
+	function formatDeviceCode(raw) {
+		const cleaned = String(raw || "")
+			.toUpperCase()
+			.replace(/[^A-Z0-9]/g, "")
+			.slice(0, 8);
+		return cleaned.length > 4
+			? `${cleaned.slice(0, 4)}-${cleaned.slice(4)}`
+			: cleaned;
+	}
+
+	// 認可ビューを初期化（URL/退避済みコードのプリフィル・状態リセット）。
+	function showDeviceApprovalView() {
+		const formBox = document.getElementById("device-approve-form");
+		const successBox = document.getElementById("device-success");
+		const errorEl = document.getElementById("device-error");
+		const input = document.getElementById("device-code-input");
+		const userEl = document.getElementById("device-current-user");
+		if (!formBox || !input) return;
+
+		// 状態リセット（再表示時に前回の成功表示が残らないように）。
+		formBox.style.display = "";
+		if (successBox) successBox.style.display = "none";
+		if (errorEl) errorEl.textContent = "";
+
+		// ログイン中ユーザーの表示。
+		if (userEl) {
+			userEl.textContent =
+				document.getElementById("current-user-display")?.textContent ||
+				activeUserId ||
+				"—";
+		}
+
+		// URL の ?code= を優先し、なければ sessionStorage の退避値を使う。
+		let code = "";
+		try {
+			code =
+				new URLSearchParams(window.location.search).get("code") ||
+				sessionStorage.getItem("pendingDeviceCode") ||
+				"";
+		} catch (e) {
+			/* no-op */
+		}
+		input.value = formatDeviceCode(code);
+		sessionStorage.removeItem("pendingDeviceCode");
+	}
+
+	// 入力中のコードを自動整形。
+	const deviceCodeInput = document.getElementById("device-code-input");
+	if (deviceCodeInput) {
+		deviceCodeInput.addEventListener("input", () => {
+			const pos = deviceCodeInput.selectionStart;
+			deviceCodeInput.value = formatDeviceCode(deviceCodeInput.value);
+			// カーソルは末尾でよい（短い入力のため）。
+			void pos;
+		});
+	}
+
+	// 「この端末を許可」: デバイスフローを承認する。
+	const btnDeviceApprove = document.getElementById("btn-device-approve");
+	if (btnDeviceApprove) {
+		btnDeviceApprove.addEventListener("click", async () => {
+			const errorEl = document.getElementById("device-error");
+			const input = document.getElementById("device-code-input");
+			if (errorEl) errorEl.textContent = "";
+			const userCode = formatDeviceCode(input ? input.value : "");
+			if (userCode.length !== 9) {
+				if (errorEl)
+					errorEl.textContent = "コードは XXXX-XXXX 形式で入力してください。";
+				return;
+			}
+			btnDeviceApprove.disabled = true;
+			try {
+				const res = await originalFetch("/api/auth/device/approve", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ user_code: userCode }),
+				});
+				const data = await res.json();
+				if (data.success) {
+					const formBox = document.getElementById("device-approve-form");
+					const successBox = document.getElementById("device-success");
+					const successText = document.getElementById("device-success-text");
+					if (successText) {
+						successText.textContent = `${data.device_name || "端末"} を許可しました。アプリに戻ってください。`;
+					}
+					if (formBox) formBox.style.display = "none";
+					if (successBox) successBox.style.display = "";
+				} else if (errorEl) {
+					errorEl.textContent =
+						data.message || "コードが無効か、有効期限が切れています。";
+				}
+			} catch (e) {
+				console.error(e);
+				if (errorEl) errorEl.textContent = "サーバー接続に失敗しました。";
+			} finally {
+				btnDeviceApprove.disabled = false;
+			}
+		});
+	}
+
+	// 「キャンセル」/「ホームに戻る」: ルートへ。
+	const btnDeviceCancel = document.getElementById("btn-device-cancel");
+	if (btnDeviceCancel) {
+		btnDeviceCancel.addEventListener("click", () => navigateTo("/"));
+	}
+	const btnDeviceDone = document.getElementById("btn-device-done");
+	if (btnDeviceDone) {
+		btnDeviceDone.addEventListener("click", () => navigateTo("/"));
 	}
 
 	// G. EXPENSES VIEW LOGIC (Fetch & Receipt AI Scanning & Manual Add)
@@ -2728,7 +3551,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert("エラー: " + result.message);
 						}
-					} catch (_e) {
+					} catch (e) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -2752,7 +3575,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						if (result.success) {
 							fetchExpensesList();
 						}
-					} catch (_e) {
+					} catch (e) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -3271,7 +4094,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								select.appendChild(opt);
 							});
 						}
-					} catch (_e) {}
+					} catch (e) {}
 					select.value = bot.preset || "secretary";
 				}
 			}
@@ -3558,7 +4381,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 			await loadAssistantConfig(body.botId);
 			return data;
-		} catch (_e) {
+		} catch (e) {
 			alert("通信エラーが発生しました。");
 			return { success: false };
 		}
@@ -3573,7 +4396,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			);
 			const data = await res.json();
 			noteArea.value = data.success ? data.content : "";
-		} catch (_e) {
+		} catch (e) {
 			noteArea.value = "";
 		}
 	}
@@ -3600,14 +4423,14 @@ document.addEventListener("DOMContentLoaded", () => {
 					try {
 						document.execCommand("copy");
 						flash();
-					} catch (_e) {}
+					} catch (e) {}
 				});
 		} else {
 			input.select();
 			try {
 				document.execCommand("copy");
 				flash();
-			} catch (_e) {}
+			} catch (e) {}
 		}
 	}
 
@@ -3646,7 +4469,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							"同期に失敗しました。Botが起動しているか確認してください。",
 					);
 				}
-			} catch (_e) {
+			} catch (e) {
 				alert("通信エラーが発生しました。");
 			} finally {
 				btnInviteSync.disabled = false;
@@ -3687,7 +4510,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					updateSidebarBotBranding();
 					fetchBotAttributeConfig();
 				}
-			} catch (_e) {
+			} catch (e) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3818,7 +4641,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
-			} catch (_e) {
+			} catch (e) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3871,7 +4694,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					showFb(data.message || "変更に失敗しました。", false);
 				}
-			} catch (_err) {
+			} catch (err) {
 				showFb("通信エラーが発生しました。", false);
 			} finally {
 				if (btn) btn.disabled = false;
@@ -3900,7 +4723,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message);
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3927,7 +4750,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message);
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3953,7 +4776,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message);
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3986,7 +4809,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							: "パスワードの変更に失敗しました。"),
 				);
 				if (data.success) passwordConfigForm.reset();
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4023,7 +4846,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "アカウントの削除に失敗しました。");
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4067,7 +4890,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "設定の保存に失敗しました。");
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4112,7 +4935,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				recommendedPersonaCard.classList.remove("hidden");
 			renderBotShares(data.shares || []);
 			populateRecommendedPersonaSelect(data.recommended_persona_id ?? null);
-		} catch (_err) {
+		} catch (err) {
 			hideOwnerCards();
 		}
 	}
@@ -4179,7 +5002,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					} else {
 						alert(data.message || "取り消しに失敗しました。");
 					}
-				} catch (_err) {
+				} catch (err) {
 					alert("通信エラーが発生しました。");
 				}
 			});
@@ -4213,7 +5036,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					botShareInviteForm.reset();
 					fetchBotShares();
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4258,7 +5081,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "設定しました。" : "設定に失敗しました。"),
 				);
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4556,7 +5379,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
 				if (data.success) fetchAdminBotAttributeSettings();
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4575,7 +5398,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				document.getElementById("admin-stat-invites").textContent =
 					s.availableInviteCodes;
 			}
-		} catch (_err) {
+		} catch (err) {
 			console.error("Admin stats fetch error");
 		}
 	}
@@ -4673,7 +5496,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								// TODO(security): Replace alert with a modal in production
 								alert(d.message);
 							}
-						} catch (_e) {
+						} catch (e) {
 							console.error("Role change failed");
 						}
 					});
@@ -4706,7 +5529,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							} else {
 								alert(d.message || "削除に失敗しました。");
 							}
-						} catch (_e) {
+						} catch (e) {
 							console.error("User delete failed");
 							alert("削除処理中にエラーが発生しました。");
 						}
@@ -4724,7 +5547,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 				tbody.appendChild(tr);
 			});
-		} catch (_err) {
+		} catch (err) {
 			console.error("Admin users fetch error");
 		}
 	}
@@ -4817,7 +5640,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								fetchAdminBots();
 								fetchAdminStats();
 							}
-						} catch (_e) {
+						} catch (e) {
 							console.error("Unsuspend failed");
 						}
 					});
@@ -4845,7 +5668,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								fetchAdminBots();
 								fetchAdminStats();
 							}
-						} catch (_e) {
+						} catch (e) {
 							console.error("Suspend failed");
 						}
 					});
@@ -4855,7 +5678,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 				tbody.appendChild(tr);
 			});
-		} catch (_err) {
+		} catch (err) {
 			console.error("Admin bots fetch error");
 		}
 	}
@@ -4951,7 +5774,7 @@ document.addEventListener("DOMContentLoaded", () => {
 									fetchAdminInviteCodes();
 									fetchAdminStats();
 								} else alert(d.message || "無効化に失敗しました。");
-							} catch (_e) {
+							} catch (e) {
 								console.error("Invite code revoke failed");
 								alert("無効化処理中にエラーが発生しました。");
 							}
@@ -4981,7 +5804,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								fetchAdminInviteCodes();
 								fetchAdminStats();
 							} else alert(d.message || "削除に失敗しました。");
-						} catch (_e) {
+						} catch (e) {
 							console.error("Invite code delete failed");
 							alert("削除処理中にエラーが発生しました。");
 						}
@@ -4997,7 +5820,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 				tbody.appendChild(tr);
 			});
-		} catch (_err) {
+		} catch (err) {
 			console.error("Admin invite codes fetch error");
 		}
 	}
@@ -5258,7 +6081,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert(d.message || "非公開化に失敗しました。");
 						}
-					} catch (_e) {
+					} catch (e) {
 						console.error("Persona unpublish failed");
 					}
 				});
@@ -5283,7 +6106,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert(d.message || "削除に失敗しました。");
 						}
-					} catch (_e) {
+					} catch (e) {
 						console.error("Persona delete failed");
 					}
 				});
@@ -5321,7 +6144,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					// TODO(security): Replace alert with a modal in production
 					alert(data.message);
 				}
-			} catch (_err) {
+			} catch (err) {
 				console.error("Invite code creation failed");
 			}
 		});
@@ -5349,7 +6172,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(`更新失敗: ${data.message}`);
 				}
-			} catch (_err) {
+			} catch (err) {
 				console.error("Default bot token update failed");
 				alert("更新に失敗しました。");
 			}
@@ -5944,7 +6767,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "保存に失敗しました。");
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6107,7 +6930,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 			fetchPersonasList();
 			fetchPersonaMarketplace();
-		} catch (_err) {
+		} catch (err) {
 			alert("通信エラーが発生しました。");
 		}
 	}
@@ -6210,7 +7033,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			document.getElementById("persona-preview-prompt").textContent =
 				data.persona.prompt;
 			openModal(modalPersonaPreview);
-		} catch (_err) {
+		} catch (err) {
 			alert("通信エラーが発生しました。");
 		}
 	}
@@ -6232,7 +7055,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			if (data.success) {
 				fetchPersonasList();
 			}
-		} catch (_err) {
+		} catch (err) {
 			alert("通信エラーが発生しました。");
 		}
 	}
@@ -6352,7 +7175,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							} else {
 								alert(d.message || "キャンセルに失敗しました。");
 							}
-						} catch (_err) {
+						} catch (err) {
 							alert("通信エラーが発生しました。");
 						}
 					});
@@ -6408,7 +7231,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "リマインダーの登録に失敗しました。");
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6469,7 +7292,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6611,7 +7434,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "保存に失敗しました。");
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6847,7 +7670,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6864,7 +7687,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "テスト配信しました。" : "配信に失敗しました。"),
 				);
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			} finally {
 				btnBriefingTest.disabled = false;
@@ -6914,7 +7737,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						data.message ||
 							(data.success ? "保存しました。" : "保存に失敗しました。"),
 					);
-				} catch (_err) {
+				} catch (err) {
 					alert("通信エラーが発生しました。");
 				}
 			});
@@ -6935,7 +7758,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						data.message ||
 							(data.success ? "テスト配信しました。" : "配信に失敗しました。"),
 					);
-				} catch (_err) {
+				} catch (err) {
 					alert("通信エラーが発生しました。");
 				} finally {
 					testBtn.disabled = false;
@@ -6993,7 +7816,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "作成に失敗しました。");
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -7068,7 +7891,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						const d = await r.json();
 						if (d.success) fetchWebhooksList();
 						else alert(d.message || "更新に失敗しました。");
-					} catch (_err) {
+					} catch (err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7099,7 +7922,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert(d.message || "削除に失敗しました。");
 						}
-					} catch (_err) {
+					} catch (err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7133,7 +7956,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						setTimeout(() => {
 							copyBtn.textContent = "URLコピー";
 						}, 1500);
-					} catch (_err) {
+					} catch (err) {
 						urlInput.select();
 						alert("コピーに失敗しました。手動で選択してコピーしてください。");
 					}
@@ -7399,7 +8222,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								(d.success ? "更新しました。" : "更新に失敗しました。"),
 						);
 						if (d.success) fetchMcpServersList();
-					} catch (_err) {
+					} catch (err) {
 						alert("通信エラーが発生しました。");
 					} finally {
 						refreshBtn.disabled = false;
@@ -7422,7 +8245,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						const d = await r.json();
 						if (d.success) fetchMcpServersList();
 						else alert(d.message || "操作に失敗しました。");
-					} catch (_err) {
+					} catch (err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7444,7 +8267,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						const d = await r.json();
 						if (d.success) fetchMcpServersList();
 						else alert(d.message || "削除に失敗しました。");
-					} catch (_err) {
+					} catch (err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7518,7 +8341,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					document.getElementById("mcp-requires-confirmation").checked = true;
 					fetchMcpServersList();
 				}
-			} catch (_err) {
+			} catch (err) {
 				alert("通信エラーが発生しました。");
 			} finally {
 				if (submitBtn) submitBtn.disabled = false;
@@ -7601,7 +8424,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const parseKey = (el) => {
 			try {
 				return JSON.parse(el.getAttribute("data-int-grant-key"));
-			} catch (_e) {
+			} catch (e) {
 				return el.getAttribute("data-int-grant-key");
 			}
 		};
@@ -8059,7 +8882,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)
 			).json();
 			avail = r.calendars || [];
-		} catch (_e) {
+		} catch (e) {
 			avail = [];
 		}
 
@@ -8114,7 +8937,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				}
 				closeModal(modal);
 				fetchIntegratedOverview();
-			} catch (_e) {
+			} catch (e) {
 				if (errEl) {
 					errEl.textContent = "通信エラーが発生しました。";
 					errEl.style.display = "block";
@@ -8188,7 +9011,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						await fetch("/api/settings/google/oauth/url")
 					).json();
 					if (r.url) window.location.href = r.url;
-				} catch (_e) {
+				} catch (e) {
 					alert("OAuth URLの取得に失敗しました。");
 				}
 			});
@@ -8196,7 +9019,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	// Handle popstate event (back/forward browser buttons)
 	window.addEventListener("popstate", () => {
-		applyRoute(window.location.pathname);
+		// /device はクエリ(?code=)に依存するため search も渡す。
+		applyRoute(window.location.pathname + window.location.search);
 	});
 
 	// On page load, try auto-login

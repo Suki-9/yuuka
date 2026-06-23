@@ -285,6 +285,9 @@ Discord の [Embed オブジェクト](https://discord.com/developers/docs/resou
 | Googleカレンダー削除 | 指定イベントを削除する |
 | タスク優先度整理 | 未完了ToDoをLLMが分析し、優先順位の提案を行う |
 | タグ自動付与 | タスク登録・更新時にLLMがタグを自動付与しグルーピングする |
+| サブタスク | タスクに1階層のサブタスクをぶら下げ、分解した手順を管理する（§3.2.6） |
+| 進捗管理 | 進捗率(0-100%)を更新し、進捗メモを履歴として保存する（§3.2.6） |
+| ガントチャート | 開始日・期限を持つタスクをWeb管理画面にガントで表示する（§3.2.6） |
 
 #### 3.2.2 Google Calendar連携
 
@@ -327,15 +330,51 @@ TodoItem {
   user_id           : DiscordUserId
   title             : string
   description       : string (optional)
-  due_date          : datetime (optional)
+  due_date          : datetime (optional, ガントのバー終端)
+  start_date        : datetime (optional, v12: ガントのバー始端)
   priority          : "high" | "medium" | "low" (optional, LLM自動付与)
   tags              : JSON    (string[], LLM自動付与, 例: ["業務", "開発"])
   status            : "open" | "done"
+  progress          : int 0-100 (v12: 手動進捗。子を持つ親は算出値を表示)
+  parent_id         : UUID (optional, v12: 自己参照。サブタスクの親。1階層のみ)
   linked_payment_id : UUID (optional, 支払い予定との紐付け)
   created_at        : datetime
   updated_at        : datetime
 }
+
+TaskProgressLog {            // v12: 進捗報告の時系列ログ
+  id         : UUID
+  user_id    : DiscordUserId
+  bot_id     : BotId
+  todo_id    : UUID
+  progress   : int 0-100     // この時点の進捗
+  note       : string (optional, 例: "設計フェーズ完了")
+  created_at : datetime
+}
 ```
+
+#### 3.2.6 進捗管理・サブタスク・ガント（v12）
+
+**サブタスク**
+
+- タスクは `parent_id` による自己参照で **1階層** のサブタスクを持つ（サブタスクは孫を持てず、指定された場合は親へ平坦化される）
+- 親タスクの削除時はサブタスク・進捗ログも連鎖削除される
+- LLMツール: `addSubtask`（親IDを指定して追加）
+
+**進捗管理**
+
+- 進捗は **算出ルール** で表現する:
+  - サブタスクを持つ親タスク: `完了サブタスク数 / 全サブタスク数 × 100`（自動算出・手動更新不可）
+  - サブタスクを持たない葉タスク: 手動 `progress`（`status=done` は100扱い。100更新で `done`・100未満で `open` へ同期）
+- 「〜まで終わった」等の進捗報告で `progress` を更新し、`TaskProgressLog` に履歴を1件追記する（経緯を後から追える）
+- LLMツール: `updateTaskProgress`（進捗率＋メモ）、`getTaskDetail`（サブタスク・算出進捗・進捗履歴）
+
+**ガントチャート（Web管理画面）**
+
+- タスクビューの「一覧 / ガント」トグルで切替。`chart.js`（self-host）の水平フローティングバーで描画
+- バーは `start_date` → `due_date`。進捗分の塗り・今日ラインを重ねる
+- **開始日・期限がともに未設定のタスクはガントに載せず**「いつかやる」セクションへ振り分ける
+  - 期限のみ → 単日マイルストーン / 開始日のみ → 今日まで（進行中扱い）
 
 ---
 

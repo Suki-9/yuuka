@@ -19,13 +19,37 @@ export interface TodoRecord {
 	title: string;
 	description: string | null;
 	due_date: string | null;
+	/** v12: ガントのバー始端（ISO 8601。任意） */
+	start_date: string | null;
 	priority: TodoPriority | null;
 	tags: string;
 	status: "open" | "done";
+	/** v12: 手動進捗 0-100（葉タスク用。子を持つ親は completeEffectiveProgress で算出する） */
+	progress: number;
+	/** v12: 自己参照。NULL=親タスク / 値=サブタスクの親ID（1階層のみ） */
+	parent_id: number | null;
 	linked_payment_id: number | null;
 	due_reminded: number;
 	created_at: string;
 	updated_at: string;
+}
+
+/** 親タスク＋サブタスク＋算出進捗を束ねた読み取り専用ビュー（一覧・ガント用） */
+export interface TodoWithSubtasks extends TodoRecord {
+	subtasks: TodoRecord[];
+	/** 算出進捗 0-100（子があれば「完了子数/全体」、無ければ葉の progress または done→100） */
+	effective_progress: number;
+}
+
+/** task_progress_logs の1レコード（進捗報告の時系列ログ） */
+export interface TaskProgressLogRecord {
+	id: number;
+	user_id: string;
+	bot_id: string;
+	todo_id: number;
+	progress: number;
+	note: string | null;
+	created_at: string;
 }
 
 /** addTodo の入力 */
@@ -33,8 +57,12 @@ export interface TodoInput {
 	title: string;
 	description?: string;
 	dueDate?: string;
+	/** v12: 開始日（ISO 8601。任意） */
+	startDate?: string;
 	priority?: TodoPriority;
 	tags?: string[];
+	/** v12: サブタスクにする場合の親ToDoのID（1階層のみ。2階層目以降は親へ平坦化される） */
+	parentId?: number;
 }
 
 /** updateTodo の入力（指定されたフィールドのみ更新） */
@@ -42,6 +70,8 @@ export interface TodoUpdateInput {
 	title?: string;
 	description?: string;
 	dueDate?: string;
+	/** v12: 開始日（空文字でクリア） */
+	startDate?: string;
 	priority?: TodoPriority;
 	status?: "open" | "done";
 }
@@ -52,6 +82,13 @@ export interface TodoListFilter {
 	status?: "open" | "done" | "all";
 	/** 指定タグを持つToDoのみ（§3.2.4: グループ別表示） */
 	tag?: string;
+	/**
+	 * v12: 親子の絞り込み。
+	 * - null  → 親タスクのみ（parent_id IS NULL）
+	 * - number → 指定IDのサブタスクのみ
+	 * - undefined → 親子を区別せず全件（後方互換）
+	 */
+	parentId?: number | null;
 }
 
 /** タグ集計結果（§3.2.4: タグ一覧・グループ表示用） */
@@ -85,6 +122,22 @@ const ORDER_CLAUSE = `
 
 // ─── 追加・取得 ──────────────────────────────────────────────────────────────
 
+/**
+ * サブタスクの親IDを1階層に正規化する。
+ * - 親が存在しない／本人のものでない → null（トップレベル化）
+ * - 親自身がサブタスク（parent_id あり）→ その親（祖父）に付け替え、常に深さ1を保証する
+ */
+function normalizeParentId(
+	userId: string,
+	botId: string,
+	parentId: number | null | undefined,
+): number | null {
+	if (parentId == null) return null;
+	const parent = getTodoById(userId, botId, parentId);
+	if (!parent) return null;
+	return parent.parent_id != null ? parent.parent_id : parent.id;
+}
+
 /** ToDo を追加する（タグは省略時は空配列。LLMによる自動付与は autoTagService が後追いで行う） */
 export function addTodo(
 	userId: string,
@@ -92,10 +145,11 @@ export function addTodo(
 	input: TodoInput,
 ): TodoRecord {
 	const db = getDb();
+	const parentId = normalizeParentId(userId, botId, input.parentId);
 	const result = db
 		.prepare(
-			`INSERT INTO todos (user_id, bot_id, title, description, due_date, priority, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO todos (user_id, bot_id, title, description, due_date, start_date, priority, tags, parent_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			userId,
@@ -103,8 +157,10 @@ export function addTodo(
 			input.title,
 			input.description ?? null,
 			input.dueDate ?? null,
+			input.startDate ?? null,
 			input.priority ?? null,
 			JSON.stringify(input.tags ?? []),
+			parentId,
 		);
 	return getTodoById(userId, botId, result.lastInsertRowid as number)!;
 }
@@ -146,6 +202,13 @@ export function listTodos(
 		);
 		params.push(filter.tag);
 	}
+	// v12: 親子の絞り込み（null=親のみ / number=指定親のサブタスク / undefined=全件）
+	if (filter.parentId === null) {
+		conditions.push("parent_id IS NULL");
+	} else if (typeof filter.parentId === "number") {
+		conditions.push("parent_id = ?");
+		params.push(filter.parentId);
+	}
 
 	return db
 		.prepare(
@@ -179,8 +242,14 @@ export function updateTodo(
 		params.push(input.description);
 	}
 	if (input.dueDate !== undefined) {
+		// 空文字は期限クリア（NULL）として扱う
 		sets.push("due_date = ?", "due_reminded = 0");
-		params.push(input.dueDate);
+		params.push(input.dueDate === "" ? null : input.dueDate);
+	}
+	if (input.startDate !== undefined) {
+		// v12: 空文字は開始日クリア（NULL）
+		sets.push("start_date = ?");
+		params.push(input.startDate === "" ? null : input.startDate);
 	}
 	if (input.priority !== undefined) {
 		sets.push("priority = ?");
@@ -264,13 +333,196 @@ export function completeTodo(
 	return getTodoById(userId, botId, id);
 }
 
-/** ToDo を削除する */
+/**
+ * ToDo を削除する。親を削除した場合はサブタスクも一緒に削除する。
+ * ※ 既存DBは parent_id を ALTER ADD COLUMN で後付けするため FK ON DELETE CASCADE が効かない。
+ *    新規DB・既存DBの双方で確実に連鎖削除するため、ここで明示的に子も削除する（深さ1前提）。
+ *    進捗ログ(task_progress_logs)は常に FK 付きで新規作成されるため、各行削除でカスケード除去される。
+ */
 export function deleteTodo(userId: string, botId: string, id: number): boolean {
 	const db = getDb();
 	const result = db
-		.prepare("DELETE FROM todos WHERE user_id = ? AND bot_id = ? AND id = ?")
-		.run(userId, botId, id);
+		.prepare(
+			"DELETE FROM todos WHERE user_id = ? AND bot_id = ? AND (id = ? OR parent_id = ?)",
+		)
+		.run(userId, botId, id, id);
 	return result.changes > 0;
+}
+
+// ─── 進捗・サブタスク・ガント（§3.2 v12） ────────────────────────────────────
+
+/** サブタスク一覧（指定親の子を全件。ステータス問わず） */
+export function listSubtasks(
+	userId: string,
+	botId: string,
+	parentId: number,
+): TodoRecord[] {
+	return listTodos(userId, botId, { status: "all", parentId });
+}
+
+/**
+ * 算出進捗（0-100）を求める。
+ * - サブタスクあり: 完了サブタスク数 / 全サブタスク数 ×100（ユーザー選択の算出方式）
+ * - サブタスクなし: status=done なら100、それ以外は手動 progress
+ */
+export function computeEffectiveProgress(
+	todo: TodoRecord,
+	subtasks: TodoRecord[],
+): number {
+	if (subtasks.length > 0) {
+		const done = subtasks.filter((s) => s.status === "done").length;
+		return Math.round((done / subtasks.length) * 100);
+	}
+	return todo.status === "done" ? 100 : (todo.progress ?? 0);
+}
+
+/** 子レコードを親IDでグルーピングする（深さ1前提） */
+function groupChildren(rows: TodoRecord[]): Map<number, TodoRecord[]> {
+	const map = new Map<number, TodoRecord[]>();
+	for (const r of rows) {
+		if (r.parent_id == null) continue;
+		const arr = map.get(r.parent_id);
+		if (arr) arr.push(r);
+		else map.set(r.parent_id, [r]);
+	}
+	return map;
+}
+
+/** 親ToDoの配列へサブタスクと算出進捗を束ねる（子は1クエリでまとめて取得） */
+function attachSubtasks(
+	userId: string,
+	botId: string,
+	parents: TodoRecord[],
+): TodoWithSubtasks[] {
+	if (parents.length === 0) return [];
+	const db = getDb();
+	const ids = parents.map((p) => p.id);
+	const placeholders = ids.map(() => "?").join(", ");
+	const children = db
+		.prepare(
+			`SELECT * FROM todos
+       WHERE user_id = ? AND bot_id = ? AND parent_id IN (${placeholders})
+       ${ORDER_CLAUSE}`,
+		)
+		.all(userId, botId, ...ids) as TodoRecord[];
+	const byParent = groupChildren(children);
+	return parents.map((p) => {
+		const subtasks = byParent.get(p.id) ?? [];
+		return {
+			...p,
+			subtasks,
+			effective_progress: computeEffectiveProgress(p, subtasks),
+		};
+	});
+}
+
+/**
+ * 親タスク一覧（サブタスク・算出進捗付き）を返す。一覧UI／LLMの構造化表示用。
+ * filter.status/tag は親に適用し、サブタスクは状態に関わらず全件同梱する（進捗算出のため）。
+ */
+export function listTodoTree(
+	userId: string,
+	botId: string,
+	filter: TodoListFilter = {},
+): TodoWithSubtasks[] {
+	const parents = listTodos(userId, botId, { ...filter, parentId: null });
+	return attachSubtasks(userId, botId, parents);
+}
+
+/**
+ * ガント表示対象（開始日 or 期限のどちらかを持つ親タスク）をサブタスク付きで返す。
+ * 両方未設定のタスクは listSomedayTasks（いつかやる）へ回す仕様のため除外する。
+ */
+export function listGanttTasks(
+	userId: string,
+	botId: string,
+): TodoWithSubtasks[] {
+	const db = getDb();
+	const parents = db
+		.prepare(
+			`SELECT * FROM todos
+       WHERE user_id = ? AND bot_id = ? AND parent_id IS NULL
+         AND (start_date IS NOT NULL OR due_date IS NOT NULL)
+       ORDER BY
+         CASE WHEN COALESCE(start_date, due_date) IS NULL THEN 1 ELSE 0 END,
+         datetime(COALESCE(start_date, due_date)) ASC,
+         datetime(COALESCE(due_date, start_date)) ASC,
+         created_at DESC`,
+		)
+		.all(userId, botId) as TodoRecord[];
+	return attachSubtasks(userId, botId, parents);
+}
+
+/**
+ * 「いつかやる」（開始日・期限とも未設定の親タスク）をサブタスク付きで返す。
+ * ガントには載せられないタスクの受け皿。
+ */
+export function listSomedayTasks(
+	userId: string,
+	botId: string,
+): TodoWithSubtasks[] {
+	const db = getDb();
+	const parents = db
+		.prepare(
+			`SELECT * FROM todos
+       WHERE user_id = ? AND bot_id = ? AND parent_id IS NULL
+         AND start_date IS NULL AND due_date IS NULL
+       ${ORDER_CLAUSE}`,
+		)
+		.all(userId, botId) as TodoRecord[];
+	return attachSubtasks(userId, botId, parents);
+}
+
+/**
+ * 進捗を更新し、進捗ログ（task_progress_logs）へ1件追記する（トランザクション）。
+ * progress は 0-100 にクランプ。100 で status=done、100未満で status=open へ同期する。
+ * 子を持つ親タスクは進捗が子から算出されるため、ここでは呼ばないこと（呼び出し側で弾く）。
+ * 戻り値は更新後の TodoRecord（対象が無ければ undefined）。
+ */
+export function updateProgress(
+	userId: string,
+	botId: string,
+	id: number,
+	progress: number,
+	note?: string,
+): TodoRecord | undefined {
+	const db = getDb();
+	const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+	const tx = db.transaction((): boolean => {
+		const upd = db
+			.prepare(
+				`UPDATE todos
+         SET progress = ?,
+             status = CASE WHEN ? >= 100 THEN 'done' ELSE 'open' END,
+             updated_at = datetime('now', 'localtime')
+         WHERE user_id = ? AND bot_id = ? AND id = ?`,
+			)
+			.run(clamped, clamped, userId, botId, id);
+		if (upd.changes === 0) return false;
+		db.prepare(
+			`INSERT INTO task_progress_logs (user_id, bot_id, todo_id, progress, note)
+       VALUES (?, ?, ?, ?, ?)`,
+		).run(userId, botId, id, clamped, note ?? null);
+		return true;
+	});
+	if (!tx()) return undefined;
+	return getTodoById(userId, botId, id);
+}
+
+/** 進捗ログを新しい順で取得する */
+export function listProgressLogs(
+	userId: string,
+	botId: string,
+	todoId: number,
+): TaskProgressLogRecord[] {
+	const db = getDb();
+	return db
+		.prepare(
+			`SELECT * FROM task_progress_logs
+       WHERE user_id = ? AND bot_id = ? AND todo_id = ?
+       ORDER BY datetime(created_at) DESC, id DESC`,
+		)
+		.all(userId, botId, todoId) as TaskProgressLogRecord[];
 }
 
 // ─── タグ集計（§3.2.4） ──────────────────────────────────────────────────────

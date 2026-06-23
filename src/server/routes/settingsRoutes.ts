@@ -11,6 +11,7 @@ import {
 	updateBotDiscordToken,
 } from "../../db/botRepo.js";
 import { getDb } from "../../db/database.js";
+import { revokeAllDesktopTokensForUser } from "../../db/desktopTokenRepo.js";
 import {
 	addGoogleAccount,
 	getPrimaryGoogleAccount,
@@ -85,6 +86,29 @@ function mask(str: string | null): string {
 	return str.substring(0, 4) + "..." + str.substring(str.length - 4);
 }
 
+/** システムに Google OAuth2 のクライアント設定（ID/Secret）が登録されているか。 */
+function isGoogleOAuthConfigured(): boolean {
+	return !!(config.googleClientId && config.googleClientSecret);
+}
+
+/** 認可コードフロー用の OAuth2 クライアント（認可URL生成・トークン交換で共用）。 */
+function buildInteractiveOAuthClient(ctx: RouteRequestCtx) {
+	return new google.auth.OAuth2(
+		config.googleClientId,
+		config.googleClientSecret,
+		buildOAuthRedirectUri(ctx),
+	);
+}
+
+/** 認可URL生成時に要求する OAuth スコープ（同意画面・付与権限を規定）。 */
+const GOOGLE_OAUTH_SCOPES = [
+	"openid",
+	"https://www.googleapis.com/auth/userinfo.email",
+	"https://www.googleapis.com/auth/userinfo.profile",
+	"https://www.googleapis.com/auth/calendar",
+	"https://www.googleapis.com/auth/drive.file",
+];
+
 export const settingsRoutes: RouteDef[] = [
 	// ── システムステータス（ユーザー個別のダッシュボード用集計） ──
 	{
@@ -103,14 +127,15 @@ export const settingsRoutes: RouteDef[] = [
 					: "system_default";
 
 			// v3: (user_id, bot_id) スコープの統計（読み取り専用の集計クエリ）
+			// v12: 件数は親タスクのみ集計する（サブタスクは parent_id IS NULL でない＝個別カウントしない）。
 			const todoCount = db
 				.prepare(
-					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ?",
+					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND parent_id IS NULL",
 				)
 				.get(userId, botId) as { count: number };
 			const openTodoCount = db
 				.prepare(
-					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'open'",
+					"SELECT COUNT(*) as count FROM todos WHERE user_id = ? AND bot_id = ? AND status = 'open' AND parent_id IS NULL",
 				)
 				.get(userId, botId) as { count: number };
 			const scheduleCount = db
@@ -129,7 +154,7 @@ export const settingsRoutes: RouteDef[] = [
 				.prepare(`
         SELECT priority, COUNT(*) as count
         FROM todos
-        WHERE user_id = ? AND bot_id = ? AND status = 'open'
+        WHERE user_id = ? AND bot_id = ? AND status = 'open' AND parent_id IS NULL
         GROUP BY priority
       `)
 				.all(userId, botId) as { priority: string | null; count: number }[];
@@ -300,6 +325,8 @@ export const settingsRoutes: RouteDef[] = [
 
 			updatePassword(userId, newPassword);
 			await destroyAllSessionsForUser(userId);
+			// デスクトップトークンも全失効（backend_api.md §1.4）。各端末は次回 401 で再ログインへ。
+			revokeAllDesktopTokensForUser(userId);
 			addAuditLog(userId, "auth.password_change");
 
 			// 新しいセッションを発行して継続ログイン
@@ -614,7 +641,7 @@ export const settingsRoutes: RouteDef[] = [
 		path: "/api/settings/google/oauth/url",
 		auth: "user",
 		async handler(ctx) {
-			if (!config.googleClientId || !config.googleClientSecret) {
+			if (!isGoogleOAuthConfigured()) {
 				return sendJson(ctx.res, 400, {
 					success: false,
 					message:
@@ -622,9 +649,10 @@ export const settingsRoutes: RouteDef[] = [
 				});
 			}
 
-			let redirectUri: string;
+			// redirect_uri 構築失敗（BASE_URL 未設定など）は 500 で明示する。
+			let oauth2Client: ReturnType<typeof buildInteractiveOAuthClient>;
 			try {
-				redirectUri = buildOAuthRedirectUri(ctx);
+				oauth2Client = buildInteractiveOAuthClient(ctx);
 			} catch {
 				return sendJson(ctx.res, 500, {
 					success: false,
@@ -633,26 +661,12 @@ export const settingsRoutes: RouteDef[] = [
 				});
 			}
 
-			const oauth2Client = new google.auth.OAuth2(
-				config.googleClientId,
-				config.googleClientSecret,
-				redirectUri,
-			);
-
-			const scopes = [
-				"openid",
-				"https://www.googleapis.com/auth/userinfo.email",
-				"https://www.googleapis.com/auth/userinfo.profile",
-				"https://www.googleapis.com/auth/calendar",
-				"https://www.googleapis.com/auth/drive.file",
-			];
-
 			// CSRF対策: セッションユーザーに束縛した一回限りの state nonce を発行する
 			const state = await createOAuthState(ctx.user!.discordId);
 
 			const oauthUrl = oauth2Client.generateAuthUrl({
 				access_type: "offline",
-				scope: scopes,
+				scope: GOOGLE_OAUTH_SCOPES,
 				prompt: "consent",
 				state,
 			});
@@ -678,7 +692,7 @@ export const settingsRoutes: RouteDef[] = [
 			}
 			const userId = ctx.user.discordId;
 
-			if (!config.googleClientId || !config.googleClientSecret) {
+			if (!isGoogleOAuthConfigured()) {
 				return redirect("/?oauth=error&msg=missing_config");
 			}
 
@@ -695,11 +709,7 @@ export const settingsRoutes: RouteDef[] = [
 				if (!code) {
 					return redirect("/?oauth=error&msg=missing_code");
 				}
-				const oauth2Client = new google.auth.OAuth2(
-					config.googleClientId,
-					config.googleClientSecret,
-					buildOAuthRedirectUri(ctx),
-				);
+				const oauth2Client = buildInteractiveOAuthClient(ctx);
 
 				const { tokens } = await oauth2Client.getToken(code);
 				oauth2Client.setCredentials(tokens);

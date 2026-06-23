@@ -13,7 +13,8 @@ export interface UserGoogleAccount {
 	refresh_token_iv: string;
 	refresh_token_tag: string;
 	calendar_id: string | null;
-	calendars: string; // JSON string[]
+	/** DBには JSON エンコードした string[] を格納する生の行値。利用時は parseAccountCalendars でデコードする。 */
+	calendars: string;
 	is_primary: number;
 	created_at: string;
 	updated_at: string;
@@ -28,19 +29,24 @@ export interface UserGoogleAccountSafe {
 	is_primary: boolean;
 }
 
-function toSafe(a: UserGoogleAccount): UserGoogleAccountSafe {
-	let calendars: string[] = [];
+/** アカウントの calendars 列（JSON文字列）を string[] へデコードする（不正値は []）。 */
+export function parseAccountCalendars(
+	acct: Pick<UserGoogleAccount, "calendars">,
+): string[] {
 	try {
-		const parsed = JSON.parse(a.calendars || "[]");
-		if (Array.isArray(parsed)) calendars = parsed;
+		const parsed = JSON.parse(acct.calendars || "[]");
+		return Array.isArray(parsed) ? parsed : [];
 	} catch {
-		/* ignore */
+		return [];
 	}
+}
+
+function toSafe(a: UserGoogleAccount): UserGoogleAccountSafe {
 	return {
 		id: a.id,
 		email: a.email,
 		calendar_id: a.calendar_id,
-		calendars,
+		calendars: parseAccountCalendars(a),
 		is_primary: a.is_primary === 1,
 	};
 }
@@ -115,11 +121,14 @@ export function getGoogleAccountById(
 		.get(id) as UserGoogleAccount | undefined;
 }
 
+// primary を先頭に、以降は登録順（id 昇順）で並べる共通の並び順。
+const ACCOUNT_ORDER_BY = "ORDER BY is_primary DESC, id ASC";
+
 /** owner の連携アカウント一覧（フル）。 */
 export function listGoogleAccounts(userId: string): UserGoogleAccount[] {
 	return getDb()
 		.prepare(
-			"SELECT * FROM user_google_accounts WHERE user_id = ? ORDER BY is_primary DESC, id ASC",
+			`SELECT * FROM user_google_accounts WHERE user_id = ? ${ACCOUNT_ORDER_BY}`,
 		)
 		.all(userId) as UserGoogleAccount[];
 }
@@ -137,7 +146,7 @@ export function getPrimaryGoogleAccount(
 ): UserGoogleAccount | undefined {
 	return getDb()
 		.prepare(
-			"SELECT * FROM user_google_accounts WHERE user_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1",
+			`SELECT * FROM user_google_accounts WHERE user_id = ? ${ACCOUNT_ORDER_BY} LIMIT 1`,
 		)
 		.get(userId) as UserGoogleAccount | undefined;
 }
@@ -188,7 +197,7 @@ export function deleteGoogleAccount(
 	const tx = db.transaction(() => {
 		db.prepare("DELETE FROM user_google_accounts WHERE id = ?").run(accountId);
 		if (acct.is_primary === 1) {
-			const next = getDb()
+			const next = db
 				.prepare(
 					"SELECT id FROM user_google_accounts WHERE user_id = ? ORDER BY id ASC LIMIT 1",
 				)
@@ -205,6 +214,17 @@ export function deleteGoogleAccount(
 }
 
 // ─── Bot ごとの使用アカウント（bot_google_account） ─────────────────────────
+
+/** Bot に割り当てられた Google アカウントの行（未設定は undefined、連携なしは google_account_id=null）。 */
+function getBotGoogleAccountRow(
+	botId: string,
+): { google_account_id: number | null } | undefined {
+	return getDb()
+		.prepare(
+			"SELECT google_account_id FROM bot_google_account WHERE bot_id = ?",
+		)
+		.get(botId) as { google_account_id: number | null } | undefined;
+}
 
 /**
  * Botが使う Google アカウントを解決する（発話者 speakerUserId のコンテキストで）。
@@ -223,11 +243,7 @@ export function getAccountForBot(
 	botId: string,
 	speakerUserId: string,
 ): UserGoogleAccount | undefined {
-	const row = getDb()
-		.prepare(
-			"SELECT google_account_id FROM bot_google_account WHERE bot_id = ?",
-		)
-		.get(botId) as { google_account_id: number | null } | undefined;
+	const row = getBotGoogleAccountRow(botId);
 	if (!row) return getPrimaryGoogleAccount(speakerUserId); // 未設定 → 発話者の primary
 	if (row.google_account_id == null) return undefined; // 連携なし
 	const acct = getGoogleAccountById(row.google_account_id);
@@ -261,11 +277,7 @@ export function clearBotGoogleAccount(botId: string): void {
 
 /** BotのGoogle使用設定モード（UI/オーバービュー用）。 */
 export function getBotGoogleMode(botId: string): "primary" | "none" | number {
-	const row = getDb()
-		.prepare(
-			"SELECT google_account_id FROM bot_google_account WHERE bot_id = ?",
-		)
-		.get(botId) as { google_account_id: number | null } | undefined;
+	const row = getBotGoogleAccountRow(botId);
 	if (!row) return "primary"; // 未設定
 	if (row.google_account_id == null) return "none"; // 連携なし
 	return row.google_account_id;

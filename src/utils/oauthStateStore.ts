@@ -12,6 +12,9 @@ import { generateToken } from "./crypto.js";
 const STATE_PREFIX = "oauth_state:";
 const TTL_SECONDS = 10 * 60; // 10分
 
+/** Redis 上の state キー（接頭辞付与を一箇所に集約し、保存/消費でのキー不整合を防ぐ）。 */
+const stateKey = (state: string): string => STATE_PREFIX + state;
+
 interface MemoryEntry {
 	userId: string;
 	expiresAt: number;
@@ -35,7 +38,7 @@ export async function createOAuthState(userId: string): Promise<string> {
 	const redis = getRedisClient();
 	if (redis) {
 		try {
-			await redis.set(STATE_PREFIX + state, userId, { EX: TTL_SECONDS });
+			await redis.set(stateKey(state), userId, { EX: TTL_SECONDS });
 			return state;
 		} catch {
 			// フォールバックへ
@@ -56,7 +59,7 @@ export async function consumeOAuthState(state: string): Promise<string | null> {
 	const redis = getRedisClient();
 	if (redis) {
 		try {
-			const key = STATE_PREFIX + state;
+			const key = stateKey(state);
 			const userId = await redis.get(key);
 			if (userId) {
 				await redis.del(key);

@@ -2,7 +2,13 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { config } from "./config.js";
-import { checkHttps, getSessionUser } from "./server/httpHelpers.js";
+import { hasBotAccess } from "./db/botRepo.js";
+import { chatWss, handleChatConnection } from "./server/chatWebSocket.js";
+import {
+	checkHttps,
+	getBearerUser,
+	resolveRequestUser,
+} from "./server/httpHelpers.js";
 
 // ── ルートレジストリ（全HTTPルートは server/routes/*.ts のモジュールへ分離） ──
 import { dispatchRoute, registerRoutes } from "./server/routeRegistry.js";
@@ -12,6 +18,8 @@ import { botAttributeRoutes } from "./server/routes/botAttributeRoutes.js";
 import { botRoutes } from "./server/routes/botRoutes.js";
 import { credentialRoutes } from "./server/routes/credentialRoutes.js";
 import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
+import { deviceAuthRoutes } from "./server/routes/deviceAuthRoutes.js";
+import { deviceMgmtRoutes } from "./server/routes/deviceMgmtRoutes.js";
 import { financeRoutes } from "./server/routes/financeRoutes.js";
 import { integratedRoutes } from "./server/routes/integratedRoutes.js";
 import { mcpRoutes } from "./server/routes/mcpRoutes.js";
@@ -41,6 +49,8 @@ registerRoutes(mcpRoutes); // MCPサーバー拡張（§4.4）
 registerRoutes(integratedRoutes); // Bot統合管理（owner単位の横断ページ, v5）
 registerRoutes(webhookRoutes); // 外部Webhook受信（§3.13）
 registerRoutes(deliveryRoutes); // 朝報・日報・週報（§3.8, §3.9）
+registerRoutes(deviceAuthRoutes); // デスクトップ: OAuth デバイスフロー（desktop_client §1）
+registerRoutes(deviceMgmtRoutes); // デスクトップ: 接続端末管理（desktop_client §4）
 
 // ─── 静的ファイル配信 ────────────────────────────────────────────────────────
 
@@ -239,7 +249,7 @@ export async function serverHandler(
 	//     専用ルートが処理する。ここで特別扱いする必要はない。）
 	try {
 		const handled = await dispatchRoute(req, res, parsedUrl, () =>
-			getSessionUser(req),
+			resolveRequestUser(req),
 		);
 		if (handled) return;
 	} catch (err) {
@@ -304,6 +314,32 @@ export function startWebServer(): Promise<void> {
 			});
 		});
 
+		// ── WebSocket: /ws/chat の upgrade を Bearer 認証 + ?botId= 所有/共有検証で受理する ──
+		// （desktop_client backend_api.md §2.2。ネイティブ Bearer は CSRF 非該当のため Origin チェックは課さない）
+		server.on("upgrade", (req, socket, head) => {
+			const url = new URL(req.url ?? "", "http://localhost");
+			if (url.pathname !== "/ws/chat") {
+				socket.destroy();
+				return;
+			}
+			const user = getBearerUser(req);
+			if (!user) {
+				socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+				socket.destroy();
+				return;
+			}
+			// 接続時に 1 Bot へ束縛。未指定は既定 Bot（system_default）。
+			const botId = url.searchParams.get("botId") || "system_default";
+			if (!hasBotAccess(user.discordId, botId)) {
+				socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+				socket.destroy();
+				return;
+			}
+			chatWss.handleUpgrade(req, socket, head, (ws) => {
+				handleChatConnection(ws, user, botId);
+			});
+		});
+
 		server.listen(config.port, config.host, () => {
 			console.log(
 				`🌐 Yuuka 管理画面サーバー起動完了: http://${config.host}:${config.port}`,
@@ -318,6 +354,14 @@ export function startWebServer(): Promise<void> {
  */
 export function stopWebServer(): void {
 	if (server) {
+		// 稼働中の WS 接続を閉じてから HTTP サーバを停止する
+		for (const client of chatWss.clients) {
+			try {
+				client.terminate();
+			} catch {
+				// 個別失敗は無視
+			}
+		}
 		server.close(() => {
 			console.log("🌐 Yuuka 管理画面サーバーを停止しました。");
 		});

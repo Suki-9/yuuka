@@ -623,6 +623,10 @@
           <span class="material-symbols-outlined menu-icon-symbol">smart_toy</span> <span class="menu-text">Bot
             設定</span>
         </a>
+        <!-- 接続端末（デスクトップアプリ等のデバイスフロー認可済みクライアント一覧） -->
+        <a href="/bot/devices" class="menu-item" data-tab="devices">
+          <span class="material-symbols-outlined menu-icon-symbol">devices</span> <span class="menu-text">接続端末</span>
+        </a>
       </nav>
     </aside>
 
@@ -923,15 +927,44 @@
         <section id="tab-tasks" class="tab-view">
           <div class="view-actions-card card">
             <div class="filters-group">
-              <button class="btn btn-filter active" data-filter="all">全て</button>
-              <button class="btn btn-filter" data-filter="pending">未完了</button>
-              <button class="btn btn-filter" data-filter="done">完了済み</button>
+              <!-- 表示モード切替（一覧 / ガント） -->
+              <button class="btn btn-filter active" data-task-view="list">📋 一覧</button>
+              <button class="btn btn-filter" data-task-view="gantt">📊 ガント</button>
             </div>
             <button id="btn-new-task" class="btn btn-primary">＋ タスク追加</button>
           </div>
 
-          <div class="list-container" id="tasks-list">
-            <!-- Generated dynamically -->
+          <!-- 一覧モード -->
+          <div id="tasks-list-mode">
+            <div class="view-actions-card card">
+              <div class="filters-group">
+                <button class="btn btn-filter active" data-filter="all">全て</button>
+                <button class="btn btn-filter" data-filter="pending">未完了</button>
+                <button class="btn btn-filter" data-filter="done">完了済み</button>
+              </div>
+            </div>
+
+            <div class="list-container" id="tasks-list">
+              <!-- Generated dynamically -->
+            </div>
+
+            <!-- いつかやる（開始日・期限とも未設定のタスク） -->
+            <div id="tasks-someday-section" style="margin-top: 1.5rem; display: none;">
+              <h3 style="font-size: 0.95rem; opacity: 0.8; margin-bottom: 0.5rem;">🕗 いつかやる（日付未設定）</h3>
+              <div class="list-container" id="tasks-someday-list"></div>
+            </div>
+          </div>
+
+          <!-- ガントモード -->
+          <div id="tasks-gantt-mode" style="display: none;">
+            <div class="card">
+              <div id="tasks-gantt-empty" class="glass" style="display: none;">
+                ガントに表示できるタスクがありません。タスクに開始日か期限を設定すると、ここに表示されます（日付のないタスクは「いつかやる」に並びます）。
+              </div>
+              <div id="tasks-gantt-scroll" style="overflow-x: auto;">
+                <canvas id="tasks-gantt-canvas"></canvas>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1459,6 +1492,23 @@
               <a href="/integrated" class="btn btn-secondary btn-sm">Bot統合管理へ</a>
             </div>
           </details>
+        </section>
+
+        <!-- ==========================================
+             接続端末 VIEW（デバイスフローで認可済みのクライアント一覧）
+             ========================================== -->
+        <section id="tab-devices" class="tab-view">
+          <div class="view-actions-card card">
+            <div class="header-title">
+              <h2 style="font-size: 1.05rem; margin: 0;">接続端末</h2>
+              <p class="field-sub" style="margin-top: 4px;">
+                デバイスログインで認可したデスクトップアプリ等のクライアント一覧です。心当たりのない端末は失効してください。
+              </p>
+            </div>
+          </div>
+          <div class="list-container" id="devices-list">
+            <!-- Generated dynamically -->
+          </div>
         </section>
 
         <!-- ==========================================
@@ -2159,6 +2209,59 @@
   <!-- /#account-overlay -->
 
   <!-- ==========================================
+       DEVICE APPROVAL VIEW（デスクトップアプリのデバイスフロー認可）
+       デスクトップアプリが /device?code=XXXX-XXXX をブラウザで開く。
+       ログイン中のユーザーがコードを確認して端末を許可する独立オーバーレイ。
+       ========================================== -->
+  <div id="device-overlay" class="overlay">
+    <div class="usage-card">
+      <div class="login-header">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+          <div class="logo-icon-container"
+            style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
+            <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">devices</span>
+          </div>
+          <h1 style="font-size: 1.5rem; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">Device Login</h1>
+        </div>
+        <p style="margin-bottom: 16px;">デスクトップアプリからのログインを許可します。</p>
+      </div>
+
+      <!-- 入力・許可フォーム（認可後は非表示にする） -->
+      <div id="device-approve-form" class="card" style="padding: 24px; text-align: left;">
+        <p class="description-text" style="margin-bottom: 16px;">
+          デスクトップアプリからのログインを許可します。表示されているコードがアプリの画面と一致することを確認してください。
+        </p>
+        <p class="field-sub" style="margin-bottom: 16px;">
+          ログイン中のユーザー: <strong id="device-current-user">—</strong>
+        </p>
+        <div class="form-group">
+          <label for="device-code-input">確認コード（XXXX-XXXX）</label>
+          <input type="text" id="device-code-input" autocomplete="off" spellcheck="false" maxlength="9"
+            placeholder="WDJB-MJHT"
+            style="font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.15em; font-size: 1.15rem; text-align: center;">
+        </div>
+        <div id="device-error" class="error-msg" style="text-align: center;"></div>
+        <div style="display: flex; gap: 12px; margin-top: 16px;">
+          <button id="btn-device-approve" type="button" class="btn btn-primary" style="flex: 1;">この端末を許可</button>
+          <button id="btn-device-cancel" type="button" class="btn btn-secondary" style="flex: 1;">キャンセル</button>
+        </div>
+        <p class="field-sub" style="margin-top: 16px;">
+          ※フィッシング対策: ご自身のデスクトップアプリからログインを開始した場合のみ許可してください。心当たりのない場合は許可しないでください。
+        </p>
+      </div>
+
+      <!-- 認可成功メッセージ（成功時に表示） -->
+      <div id="device-success" class="card glass" style="display: none; padding: 24px; text-align: center;">
+        <span class="material-symbols-outlined"
+          style="font-size: 40px; color: var(--color-green, #10b981); margin-bottom: 8px;">check_circle</span>
+        <p id="device-success-text" style="margin: 0 0 16px;"></p>
+        <button id="btn-device-done" type="button" class="btn btn-secondary" style="min-width: 150px;">ホームに戻る</button>
+      </div>
+    </div>
+  </div>
+  <!-- /#device-overlay -->
+
+  <!-- ==========================================
        管理者用設定 VIEW（admin専用。Bot選択画面から開く独立オーバーレイ）
        ========================================== -->
   <div id="admin-overlay" class="overlay">
@@ -2511,20 +2614,78 @@
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label for="task-start">開始日</label>
+            <input type="date" id="task-start">
+          </div>
+          <div class="form-group">
             <label for="task-due">期限日</label>
             <input type="date" id="task-due">
           </div>
-          <div class="form-group">
-            <label for="task-priority">優先度</label>
-            <select id="task-priority">
-              <option value="">指定なし</option>
-              <option value="low">🔵 低</option>
-              <option value="medium">🟡 中</option>
-              <option value="high">🔴 高</option>
-            </select>
-          </div>
+        </div>
+        <div class="form-group">
+          <label for="task-priority">優先度</label>
+          <select id="task-priority">
+            <option value="">指定なし</option>
+            <option value="low">🔵 低</option>
+            <option value="medium">🟡 中</option>
+            <option value="high">🔴 高</option>
+          </select>
         </div>
         <button type="submit" class="btn btn-primary btn-block">タスク登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- サブタスク追加モーダル -->
+  <div id="modal-subtask" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>サブタスクの追加</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="subtask-form">
+        <p id="subtask-parent-label" style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.75rem;"></p>
+        <div class="form-group">
+          <label for="subtask-title">タイトル *</label>
+          <input type="text" id="subtask-title" required placeholder="サブタスク名">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="subtask-start">開始日</label>
+            <input type="date" id="subtask-start">
+          </div>
+          <div class="form-group">
+            <label for="subtask-due">期限日</label>
+            <input type="date" id="subtask-due">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">サブタスク登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 進捗更新モーダル -->
+  <div id="modal-task-progress" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>進捗を更新</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="task-progress-form">
+        <p id="task-progress-label" style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.75rem;"></p>
+        <div class="form-group">
+          <label for="task-progress-range">進捗: <span id="task-progress-value">0</span>%</label>
+          <input type="range" id="task-progress-range" min="0" max="100" step="5" value="0" style="width: 100%;">
+        </div>
+        <div class="form-group">
+          <label for="task-progress-note">進捗メモ（任意）</label>
+          <textarea id="task-progress-note" placeholder="例: 設計フェーズ完了、実装に着手"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">進捗を保存</button>
       </form>
     </div>
   </div>
@@ -2898,6 +3059,8 @@
     </div>
   </div>
 
+  <!-- chart.js (self-host: CSP script-src 'self'。ガントチャート描画に使用) -->
+  <script src="/vendor/chart.umd.min.js"></script>
   <script src="/app.js"></script>
 </body>
 
