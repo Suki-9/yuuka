@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import type { FunctionDeclaration, Schema } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { addAuditLog } from "../db/auditRepo.js";
 import {
 	listServersGrantedToBot,
 	listServersGrantedToBotScoped,
-	parseToolsCache,
 	type McpServerRecord,
 	type McpToolDef,
+	parseToolsCache,
 } from "../db/mcpRepo.js";
 import { callTool, refreshToolsCache } from "../services/mcpClient.js";
-import { addAuditLog } from "../db/auditRepo.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 
 // ─── MCP動的Function（§4.4: MCP ToolをGemini Function Callとして動的登録） ────
 // (ownerUserId, botId) スコープで利用可能な enabled なMCPサーバーの tools_cache から

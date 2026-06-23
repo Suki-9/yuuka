@@ -2,8 +2,8 @@ import type { EmbedBuilder, TextBasedChannel } from "discord.js";
 import { client, customClients } from "../bot.js";
 import { listBotsForUser } from "../db/botRepo.js";
 import { getUserNotifyTarget } from "../db/userRepo.js";
-import { isGuildAssistantBot } from "./botCapabilities.js";
 import { toDiscordMarkdown } from "../utils/discordMarkdown.js";
+import { isGuildAssistantBot } from "./botCapabilities.js";
 
 export interface NotifyPayload {
 	content?: string;

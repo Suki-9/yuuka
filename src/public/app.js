@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	// Override native fetch to auto-inject currentBotId
 	const originalFetch = window.fetch;
-	window.fetch = async function (resource, options) {
+	window.fetch = async (resource, options) => {
 		if (
 			typeof resource === "string" &&
 			resource.startsWith("/api/") &&
@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							bodyObj.botId = window.currentBotId;
 							options.body = JSON.stringify(bodyObj);
 						}
-					} catch (e) {
+					} catch (_e) {
 						// Ignore parsing errors for non-JSON bodies
 					}
 				}
@@ -136,7 +136,7 @@ document.addEventListener("DOMContentLoaded", () => {
 	const btnBotLogout = document.getElementById("btn-bot-logout");
 	const modalCreateBot = document.getElementById("modal-create-bot");
 	const createBotForm = document.getElementById("create-bot-form");
-	const btnCloseCreateBot = document.getElementById("btn-close-create-bot");
+	const _btnCloseCreateBot = document.getElementById("btn-close-create-bot");
 	const btnSwitchBot = document.getElementById("btn-switch-bot");
 	const activeBotDisplay = document.getElementById("active-bot-display");
 
@@ -867,7 +867,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					} else {
 						alert("同期に失敗しました: " + data.message);
 					}
-				} catch (err) {
+				} catch (_err) {
 					alert("同期中にエラーが発生しました。");
 				} finally {
 					if (icon) icon.style.animation = "";
@@ -922,7 +922,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							} else {
 								alert("削除に失敗しました: " + resData.message);
 							}
-						} catch (err) {
+						} catch (_err) {
 							alert("削除中にエラーが発生しました。");
 						}
 					}
@@ -995,7 +995,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert("更新に失敗しました: " + data.message);
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -1069,7 +1069,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				const option = select.querySelector(`option[value="${p.id}"]`);
 				if (option) option.textContent = p.displayName;
 			});
-		} catch (e) {
+		} catch (_e) {
 			/* 表示名はHTMLの既定値で続行 */
 		}
 	}
@@ -1105,7 +1105,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert("Bot作成に失敗しました: " + data.message);
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("Bot作成中にエラーが発生しました。");
 			}
 		});
@@ -1115,7 +1115,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		btnBotLogout.addEventListener("click", async () => {
 			try {
 				await originalFetch("/api/logout", { method: "POST" });
-			} catch (e) {}
+			} catch (_e) {}
 			localStorage.removeItem("currentBotId");
 			localStorage.removeItem("currentBotName");
 			window.currentBotId = null;
@@ -1301,7 +1301,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				}
 				navigateTo("/login", false);
 			}
-		} catch (err) {
+		} catch (_err) {
 			activeUserId = "";
 			await checkSetupStatus();
 			navigateTo("/login", false);
@@ -1328,7 +1328,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			} else {
 				loginError.textContent = data.message;
 			}
-		} catch (err) {
+		} catch (_err) {
 			loginError.textContent = "サーバー接続に失敗しました。";
 		}
 	});
@@ -1364,7 +1364,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					loginError.textContent = data.message;
 				}
-			} catch (err) {
+			} catch (_err) {
 				loginError.textContent = "サーバー接続に失敗しました。";
 			}
 		});
@@ -1399,7 +1399,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					loginError.textContent = data.message;
 				}
-			} catch (err) {
+			} catch (_err) {
 				loginError.textContent = "サーバー接続に失敗しました。";
 			}
 		});
@@ -1443,7 +1443,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			} else {
 				loginError.textContent = data.message;
 			}
-		} catch (err) {
+		} catch (_err) {
 			loginError.textContent = "サーバー接続に失敗しました。";
 		}
 	});
@@ -1481,7 +1481,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			} else {
 				loginError.textContent = data.message;
 			}
-		} catch (err) {
+		} catch (_err) {
 			loginError.textContent = "サーバー接続に失敗しました。";
 		}
 	});
@@ -1490,7 +1490,7 @@ document.addEventListener("DOMContentLoaded", () => {
 	btnLogout.addEventListener("click", async () => {
 		try {
 			await originalFetch("/api/logout", { method: "POST" });
-		} catch (e) {}
+		} catch (_e) {}
 
 		localStorage.removeItem("currentBotId");
 		localStorage.removeItem("currentBotName");
@@ -2031,7 +2031,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		});
 	}
 
-	async function renderUrgentDashboardList(pendingCount) {
+	async function renderUrgentDashboardList(_pendingCount) {
 		dashboardUrgentList.replaceChildren();
 
 		try {
@@ -2186,7 +2186,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					try {
 						taskTags = JSON.parse(task.tags || "[]");
 						if (!Array.isArray(taskTags)) taskTags = [];
-					} catch (err) {
+					} catch (_err) {
 						taskTags = [];
 					}
 					taskTags.forEach((tag) => {
@@ -2235,7 +2235,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	// Filter Tasks
 	document.querySelectorAll("[data-filter]").forEach((btn) => {
-		btn.addEventListener("click", (e) => {
+		btn.addEventListener("click", (_e) => {
 			document
 				.querySelectorAll("[data-filter]")
 				.forEach((b) => b.classList.remove("active"));
@@ -2272,7 +2272,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		}
 	});
 
-	async function toggleTaskCompletion(id, isChecked) {
+	async function toggleTaskCompletion(id, _isChecked) {
 		try {
 			await fetch("/api/tasks/complete", {
 				method: "POST",
@@ -2728,7 +2728,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert("エラー: " + result.message);
 						}
-					} catch (e) {
+					} catch (_e) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -2752,7 +2752,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						if (result.success) {
 							fetchExpensesList();
 						}
-					} catch (e) {
+					} catch (_e) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -3271,7 +3271,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								select.appendChild(opt);
 							});
 						}
-					} catch (e) {}
+					} catch (_e) {}
 					select.value = bot.preset || "secretary";
 				}
 			}
@@ -3558,7 +3558,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 			await loadAssistantConfig(body.botId);
 			return data;
-		} catch (e) {
+		} catch (_e) {
 			alert("通信エラーが発生しました。");
 			return { success: false };
 		}
@@ -3573,7 +3573,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			);
 			const data = await res.json();
 			noteArea.value = data.success ? data.content : "";
-		} catch (e) {
+		} catch (_e) {
 			noteArea.value = "";
 		}
 	}
@@ -3600,14 +3600,14 @@ document.addEventListener("DOMContentLoaded", () => {
 					try {
 						document.execCommand("copy");
 						flash();
-					} catch (e) {}
+					} catch (_e) {}
 				});
 		} else {
 			input.select();
 			try {
 				document.execCommand("copy");
 				flash();
-			} catch (e) {}
+			} catch (_e) {}
 		}
 	}
 
@@ -3646,7 +3646,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							"同期に失敗しました。Botが起動しているか確認してください。",
 					);
 				}
-			} catch (e) {
+			} catch (_e) {
 				alert("通信エラーが発生しました。");
 			} finally {
 				btnInviteSync.disabled = false;
@@ -3687,7 +3687,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					updateSidebarBotBranding();
 					fetchBotAttributeConfig();
 				}
-			} catch (e) {
+			} catch (_e) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3818,7 +3818,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
-			} catch (e) {
+			} catch (_e) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3871,7 +3871,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					showFb(data.message || "変更に失敗しました。", false);
 				}
-			} catch (err) {
+			} catch (_err) {
 				showFb("通信エラーが発生しました。", false);
 			} finally {
 				if (btn) btn.disabled = false;
@@ -3900,7 +3900,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message);
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3927,7 +3927,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message);
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3953,7 +3953,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message);
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -3986,7 +3986,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							: "パスワードの変更に失敗しました。"),
 				);
 				if (data.success) passwordConfigForm.reset();
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4023,7 +4023,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "アカウントの削除に失敗しました。");
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4067,7 +4067,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "設定の保存に失敗しました。");
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4112,7 +4112,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				recommendedPersonaCard.classList.remove("hidden");
 			renderBotShares(data.shares || []);
 			populateRecommendedPersonaSelect(data.recommended_persona_id ?? null);
-		} catch (err) {
+		} catch (_err) {
 			hideOwnerCards();
 		}
 	}
@@ -4179,7 +4179,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					} else {
 						alert(data.message || "取り消しに失敗しました。");
 					}
-				} catch (err) {
+				} catch (_err) {
 					alert("通信エラーが発生しました。");
 				}
 			});
@@ -4213,7 +4213,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					botShareInviteForm.reset();
 					fetchBotShares();
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4258,7 +4258,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "設定しました。" : "設定に失敗しました。"),
 				);
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4556,7 +4556,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
 				if (data.success) fetchAdminBotAttributeSettings();
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -4575,7 +4575,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				document.getElementById("admin-stat-invites").textContent =
 					s.availableInviteCodes;
 			}
-		} catch (err) {
+		} catch (_err) {
 			console.error("Admin stats fetch error");
 		}
 	}
@@ -4673,7 +4673,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								// TODO(security): Replace alert with a modal in production
 								alert(d.message);
 							}
-						} catch (e) {
+						} catch (_e) {
 							console.error("Role change failed");
 						}
 					});
@@ -4706,7 +4706,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							} else {
 								alert(d.message || "削除に失敗しました。");
 							}
-						} catch (e) {
+						} catch (_e) {
 							console.error("User delete failed");
 							alert("削除処理中にエラーが発生しました。");
 						}
@@ -4724,7 +4724,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 				tbody.appendChild(tr);
 			});
-		} catch (err) {
+		} catch (_err) {
 			console.error("Admin users fetch error");
 		}
 	}
@@ -4817,7 +4817,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								fetchAdminBots();
 								fetchAdminStats();
 							}
-						} catch (e) {
+						} catch (_e) {
 							console.error("Unsuspend failed");
 						}
 					});
@@ -4845,7 +4845,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								fetchAdminBots();
 								fetchAdminStats();
 							}
-						} catch (e) {
+						} catch (_e) {
 							console.error("Suspend failed");
 						}
 					});
@@ -4855,7 +4855,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 				tbody.appendChild(tr);
 			});
-		} catch (err) {
+		} catch (_err) {
 			console.error("Admin bots fetch error");
 		}
 	}
@@ -4951,7 +4951,7 @@ document.addEventListener("DOMContentLoaded", () => {
 									fetchAdminInviteCodes();
 									fetchAdminStats();
 								} else alert(d.message || "無効化に失敗しました。");
-							} catch (e) {
+							} catch (_e) {
 								console.error("Invite code revoke failed");
 								alert("無効化処理中にエラーが発生しました。");
 							}
@@ -4981,7 +4981,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								fetchAdminInviteCodes();
 								fetchAdminStats();
 							} else alert(d.message || "削除に失敗しました。");
-						} catch (e) {
+						} catch (_e) {
 							console.error("Invite code delete failed");
 							alert("削除処理中にエラーが発生しました。");
 						}
@@ -4997,7 +4997,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 				tbody.appendChild(tr);
 			});
-		} catch (err) {
+		} catch (_err) {
 			console.error("Admin invite codes fetch error");
 		}
 	}
@@ -5258,7 +5258,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert(d.message || "非公開化に失敗しました。");
 						}
-					} catch (e) {
+					} catch (_e) {
 						console.error("Persona unpublish failed");
 					}
 				});
@@ -5283,7 +5283,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert(d.message || "削除に失敗しました。");
 						}
-					} catch (e) {
+					} catch (_e) {
 						console.error("Persona delete failed");
 					}
 				});
@@ -5321,7 +5321,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					// TODO(security): Replace alert with a modal in production
 					alert(data.message);
 				}
-			} catch (err) {
+			} catch (_err) {
 				console.error("Invite code creation failed");
 			}
 		});
@@ -5349,7 +5349,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(`更新失敗: ${data.message}`);
 				}
-			} catch (err) {
+			} catch (_err) {
 				console.error("Default bot token update failed");
 				alert("更新に失敗しました。");
 			}
@@ -5944,7 +5944,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "保存に失敗しました。");
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6107,7 +6107,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 			fetchPersonasList();
 			fetchPersonaMarketplace();
-		} catch (err) {
+		} catch (_err) {
 			alert("通信エラーが発生しました。");
 		}
 	}
@@ -6210,7 +6210,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			document.getElementById("persona-preview-prompt").textContent =
 				data.persona.prompt;
 			openModal(modalPersonaPreview);
-		} catch (err) {
+		} catch (_err) {
 			alert("通信エラーが発生しました。");
 		}
 	}
@@ -6232,7 +6232,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			if (data.success) {
 				fetchPersonasList();
 			}
-		} catch (err) {
+		} catch (_err) {
 			alert("通信エラーが発生しました。");
 		}
 	}
@@ -6352,7 +6352,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							} else {
 								alert(d.message || "キャンセルに失敗しました。");
 							}
-						} catch (err) {
+						} catch (_err) {
 							alert("通信エラーが発生しました。");
 						}
 					});
@@ -6408,7 +6408,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "リマインダーの登録に失敗しました。");
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6469,7 +6469,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6611,7 +6611,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "保存に失敗しました。");
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6847,7 +6847,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),
 				);
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -6864,7 +6864,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					data.message ||
 						(data.success ? "テスト配信しました。" : "配信に失敗しました。"),
 				);
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			} finally {
 				btnBriefingTest.disabled = false;
@@ -6914,7 +6914,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						data.message ||
 							(data.success ? "保存しました。" : "保存に失敗しました。"),
 					);
-				} catch (err) {
+				} catch (_err) {
 					alert("通信エラーが発生しました。");
 				}
 			});
@@ -6935,7 +6935,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						data.message ||
 							(data.success ? "テスト配信しました。" : "配信に失敗しました。"),
 					);
-				} catch (err) {
+				} catch (_err) {
 					alert("通信エラーが発生しました。");
 				} finally {
 					testBtn.disabled = false;
@@ -6993,7 +6993,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				} else {
 					alert(data.message || "作成に失敗しました。");
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			}
 		});
@@ -7068,7 +7068,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						const d = await r.json();
 						if (d.success) fetchWebhooksList();
 						else alert(d.message || "更新に失敗しました。");
-					} catch (err) {
+					} catch (_err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7099,7 +7099,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						} else {
 							alert(d.message || "削除に失敗しました。");
 						}
-					} catch (err) {
+					} catch (_err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7133,7 +7133,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						setTimeout(() => {
 							copyBtn.textContent = "URLコピー";
 						}, 1500);
-					} catch (err) {
+					} catch (_err) {
 						urlInput.select();
 						alert("コピーに失敗しました。手動で選択してコピーしてください。");
 					}
@@ -7399,7 +7399,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								(d.success ? "更新しました。" : "更新に失敗しました。"),
 						);
 						if (d.success) fetchMcpServersList();
-					} catch (err) {
+					} catch (_err) {
 						alert("通信エラーが発生しました。");
 					} finally {
 						refreshBtn.disabled = false;
@@ -7422,7 +7422,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						const d = await r.json();
 						if (d.success) fetchMcpServersList();
 						else alert(d.message || "操作に失敗しました。");
-					} catch (err) {
+					} catch (_err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7444,7 +7444,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						const d = await r.json();
 						if (d.success) fetchMcpServersList();
 						else alert(d.message || "削除に失敗しました。");
-					} catch (err) {
+					} catch (_err) {
 						alert("通信エラーが発生しました。");
 					}
 				});
@@ -7518,7 +7518,7 @@ document.addEventListener("DOMContentLoaded", () => {
 					document.getElementById("mcp-requires-confirmation").checked = true;
 					fetchMcpServersList();
 				}
-			} catch (err) {
+			} catch (_err) {
 				alert("通信エラーが発生しました。");
 			} finally {
 				if (submitBtn) submitBtn.disabled = false;
@@ -7601,7 +7601,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const parseKey = (el) => {
 			try {
 				return JSON.parse(el.getAttribute("data-int-grant-key"));
-			} catch (e) {
+			} catch (_e) {
 				return el.getAttribute("data-int-grant-key");
 			}
 		};
@@ -8059,7 +8059,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				await fetch(`/api/integrated/google/accounts/${accountId}/calendars`)
 			).json();
 			avail = r.calendars || [];
-		} catch (e) {
+		} catch (_e) {
 			avail = [];
 		}
 
@@ -8114,7 +8114,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				}
 				closeModal(modal);
 				fetchIntegratedOverview();
-			} catch (e) {
+			} catch (_e) {
 				if (errEl) {
 					errEl.textContent = "通信エラーが発生しました。";
 					errEl.style.display = "block";
@@ -8188,7 +8188,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						await fetch("/api/settings/google/oauth/url")
 					).json();
 					if (r.url) window.location.href = r.url;
-				} catch (e) {
+				} catch (_e) {
 					alert("OAuth URLの取得に失敗しました。");
 				}
 			});

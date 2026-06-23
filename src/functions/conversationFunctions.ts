@@ -1,7 +1,7 @@
-import { SchemaType } from "@google/generative-ai";
 import type { FunctionDeclaration } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
+import { type MessageLogRecord, searchMessages } from "../db/messageLogRepo.js";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
-import { searchMessages, type MessageLogRecord } from "../db/messageLogRepo.js";
 
 // ─── 会話ログ要約 Function（§3.12） ─────────────────────────────────────────
 //

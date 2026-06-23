@@ -1,54 +1,54 @@
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
-import {
-	listBotsOwnedBy,
-	getBotById,
-	isBotSuspended,
-	setBotStopped,
-	hasBotAccess,
-	type BotRecord,
-} from "../../db/botRepo.js";
-import { clearContext, clearBotDmContext } from "../../db/messageLogRepo.js";
 import {
 	client,
 	customClients,
 	startCustomBot,
 	stopCustomBot,
 } from "../../bot.js";
+import { addAuditLog } from "../../db/auditRepo.js";
 import {
-	parseCapabilities,
-	presetIdForCapabilities,
-	isGuildAssistantBot,
-} from "../../services/botCapabilities.js";
-import {
-	listServersForOwner,
-	getServerById,
-	grantMcpToBot,
-	revokeMcpFromBot,
-	listServerIdsForBot,
-	parseToolsCache,
-} from "../../db/mcpRepo.js";
+	type BotRecord,
+	getBotById,
+	hasBotAccess,
+	isBotSuspended,
+	listBotsOwnedBy,
+	setBotStopped,
+} from "../../db/botRepo.js";
 import {
 	grantCredentialToBot,
-	revokeCredentialFromBot,
 	listCredentialNamesForBot,
+	revokeCredentialFromBot,
 } from "../../db/credentialAccessRepo.js";
-import * as secretService from "../../services/secretService.js";
 import {
-	listGoogleAccountsSafe,
-	deleteGoogleAccount,
-	setPrimaryGoogleAccount,
-	updateGoogleCalendars,
-	setBotGoogleAccount,
 	clearBotGoogleAccount,
+	deleteGoogleAccount,
 	getBotGoogleMode,
 	getGoogleAccountById,
+	listGoogleAccountsSafe,
+	setBotGoogleAccount,
+	setPrimaryGoogleAccount,
+	updateGoogleCalendars,
 } from "../../db/googleAccountRepo.js";
+import {
+	getServerById,
+	grantMcpToBot,
+	listServerIdsForBot,
+	listServersForOwner,
+	parseToolsCache,
+	revokeMcpFromBot,
+} from "../../db/mcpRepo.js";
+import { clearBotDmContext, clearContext } from "../../db/messageLogRepo.js";
+import {
+	isGuildAssistantBot,
+	parseCapabilities,
+	presetIdForCapabilities,
+} from "../../services/botCapabilities.js";
 import {
 	fetchCalendarsForAccount,
 	invalidateCalendarCacheForAccount,
 } from "../../services/googleCalendarService.js";
-import { addAuditLog } from "../../db/auditRepo.js";
+import * as secretService from "../../services/secretService.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 
 // ─── Bot統合管理（owner単位の横断ページ, v5） ───────────────────────────────
 // owner が「自分のBot」のヘルス/起動停止と、「自分のリソース（認証情報/MCP/Google）」の

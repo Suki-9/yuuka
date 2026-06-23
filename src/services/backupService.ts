@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import cron from "node-cron";
 // @ts-expect-error @types/archiver is outdated for v8
 import { ZipArchive } from "archiver";
 import Database from "better-sqlite3";
+import cron from "node-cron";
 import { getDb } from "../db/database.js";
 import {
 	getUserBackupConfig,
@@ -12,9 +12,9 @@ import {
 	touchBackupLastRun,
 } from "../db/userRepo.js";
 import {
-	uploadToGoogleDrive,
-	listBackupFiles,
 	deleteDriveFile,
+	listBackupFiles,
+	uploadToGoogleDrive,
 } from "./googleDriveService.js";
 
 // ─── ユーザー単位バックアップ（§8） ──────────────────────────────────────────

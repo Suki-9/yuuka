@@ -1,51 +1,51 @@
-import type { RouteDef, RouteRequestCtx } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
+import { addAuditLog } from "../../db/auditRepo.js";
 import {
+	addAllowedGuild,
+	addBotMember,
+	listAllowedGuilds,
+	listBotMembers,
+	removeAllowedGuild,
+	removeBotMember,
+} from "../../db/botAttributesRepo.js";
+import {
+	BOT_NOTE_MAX_LENGTH,
+	getBotGuildNote,
+	setBotGuildNote,
+} from "../../db/botNoteRepo.js";
+import {
+	type BotRecord,
 	getBotById,
 	hasBotAccess,
 	setBotPersona,
 	updateBotGeminiKey,
-	type BotRecord,
 } from "../../db/botRepo.js";
-import {
-	addAllowedGuild,
-	removeAllowedGuild,
-	listAllowedGuilds,
-	addBotMember,
-	removeBotMember,
-	listBotMembers,
-} from "../../db/botAttributesRepo.js";
-import {
-	getBotGuildNote,
-	setBotGuildNote,
-	BOT_NOTE_MAX_LENGTH,
-} from "../../db/botNoteRepo.js";
-import {
-	BOT_PRESETS,
-	applyBotPreset,
-	parseCapabilities,
-	presetIdForCapabilities,
-	listPresets,
-	setPresetDisplayName,
-	type BotPresetId,
-} from "../../services/botCapabilities.js";
-import {
-	getRateLimitSettings,
-	RATE_LIMIT_DEFAULTS,
-} from "../../services/botRateLimit.js";
-import { setSystemSetting } from "../../db/systemSettingsRepo.js";
-import {
-	listPersonasForUser,
-	listPublicPersonas,
-	getPersonaById,
-} from "../../db/personaRepo.js";
 import { listServersGrantedToBot } from "../../db/mcpRepo.js";
 import {
 	countBotDailyUsage,
 	getBotUsageSeries,
 } from "../../db/messageLogRepo.js";
+import {
+	getPersonaById,
+	listPersonasForUser,
+	listPublicPersonas,
+} from "../../db/personaRepo.js";
+import { setSystemSetting } from "../../db/systemSettingsRepo.js";
 import { isAdmin } from "../../db/userRepo.js";
-import { addAuditLog } from "../../db/auditRepo.js";
+import {
+	applyBotPreset,
+	BOT_PRESETS,
+	type BotPresetId,
+	listPresets,
+	parseCapabilities,
+	presetIdForCapabilities,
+	setPresetDisplayName,
+} from "../../services/botCapabilities.js";
+import {
+	getRateLimitSettings,
+	RATE_LIMIT_DEFAULTS,
+} from "../../services/botRateLimit.js";
+import type { RouteDef, RouteRequestCtx } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 import { encryptText } from "../../utils/crypto.js";
 
 // ─── Bot属性・汎用モード設定 HTTPルート（bot_attributes_requirements.md §4.7） ─

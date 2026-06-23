@@ -1,6 +1,5 @@
-import { SchemaType } from "@google/generative-ai";
 import type { FunctionDeclaration } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { SchemaType } from "@google/generative-ai";
 import * as todoRepo from "../db/todoRepo.js";
 import {
 	parseTodoTags,
@@ -8,6 +7,7 @@ import {
 	type TodoRecord,
 } from "../db/todoRepo.js";
 import { scheduleAutoTagging } from "../services/autoTagService.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import { formatDateTime } from "../utils/formatters.js";
 
 // ─── ToDo・タグ管理・優先度整理 Function 群（§3.2） ──────────────────────────

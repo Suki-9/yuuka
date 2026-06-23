@@ -1,8 +1,8 @@
-import puppeteer, { Browser, Page } from "puppeteer";
-import path from "node:path";
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
-import { spawn, ChildProcess } from "node:child_process";
+import path from "node:path";
 import { createInterface } from "node:readline";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 
 const SCREENSHOT_DIR = path.resolve(process.cwd(), "data/screenshots");
@@ -58,7 +58,7 @@ function getCrawlerBinPath(): string | null {
 }
 
 // Puppeteerのバンドル済みChromiumパスをキャッシュ
-let cachedChromePath: string | null | undefined = undefined;
+let cachedChromePath: string | null | undefined;
 
 async function getChromePath(): Promise<string | null> {
 	if (cachedChromePath !== undefined) return cachedChromePath;
@@ -882,7 +882,9 @@ export async function annotateInteractiveElements(page: Page): Promise<void> {
 		await page.evaluate(() => {
 			// 既存のIDを一旦クリア
 			const oldElements = document.querySelectorAll("[data-yuuka-id]");
-			oldElements.forEach((el) => el.removeAttribute("data-yuuka-id"));
+			oldElements.forEach((el) => {
+				el.removeAttribute("data-yuuka-id");
+			});
 
 			// 操作対象となるセレクタ
 			const selectors = [

@@ -1,12 +1,12 @@
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
+import { hasBotAccess } from "../../db/botRepo.js";
 import {
 	addTodo,
-	listTodos,
 	completeTodo,
 	deleteTodo,
+	listTodos,
 } from "../../db/todoRepo.js";
-import { hasBotAccess } from "../../db/botRepo.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 
 // ─── ToDo HTTPルート（§3.2: タグ/優先度対応） ────────────────────────────────
 // パスは旧UI互換のため /api/tasks のまま。優先度は旧UIの数値(0/1/2)も受け付ける。

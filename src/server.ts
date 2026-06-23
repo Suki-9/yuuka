@@ -1,28 +1,28 @@
-import http from "node:http";
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { config } from "./config.js";
 import { checkHttps, getSessionUser } from "./server/httpHelpers.js";
 
 // ── ルートレジストリ（全HTTPルートは server/routes/*.ts のモジュールへ分離） ──
-import { registerRoutes, dispatchRoute } from "./server/routeRegistry.js";
-import { authRoutes } from "./server/routes/authRoutes.js";
-import { settingsRoutes } from "./server/routes/settingsRoutes.js";
-import { botRoutes } from "./server/routes/botRoutes.js";
-import { botAttributeRoutes } from "./server/routes/botAttributeRoutes.js";
-import { todoRoutes } from "./server/routes/todoRoutes.js";
-import { scheduleRoutes } from "./server/routes/scheduleRoutes.js";
-import { financeRoutes } from "./server/routes/financeRoutes.js";
-import { playbookRoutes } from "./server/routes/playbookRoutes.js";
-import { credentialRoutes } from "./server/routes/credentialRoutes.js";
+import { dispatchRoute, registerRoutes } from "./server/routeRegistry.js";
 import { adminRoutes } from "./server/routes/adminRoutes.js";
-import { reminderRoutes } from "./server/routes/reminderRoutes.js";
+import { authRoutes } from "./server/routes/authRoutes.js";
+import { botAttributeRoutes } from "./server/routes/botAttributeRoutes.js";
+import { botRoutes } from "./server/routes/botRoutes.js";
+import { credentialRoutes } from "./server/routes/credentialRoutes.js";
+import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
+import { financeRoutes } from "./server/routes/financeRoutes.js";
+import { integratedRoutes } from "./server/routes/integratedRoutes.js";
+import { mcpRoutes } from "./server/routes/mcpRoutes.js";
 import { personalRoutes } from "./server/routes/personalRoutes.js";
 import { personaRoutes } from "./server/routes/personaRoutes.js";
-import { mcpRoutes } from "./server/routes/mcpRoutes.js";
-import { integratedRoutes } from "./server/routes/integratedRoutes.js";
+import { playbookRoutes } from "./server/routes/playbookRoutes.js";
+import { reminderRoutes } from "./server/routes/reminderRoutes.js";
+import { scheduleRoutes } from "./server/routes/scheduleRoutes.js";
+import { settingsRoutes } from "./server/routes/settingsRoutes.js";
+import { todoRoutes } from "./server/routes/todoRoutes.js";
 import { webhookRoutes } from "./server/routes/webhookRoutes.js";
-import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
 
 registerRoutes(authRoutes); // 認証・登録（§5.4）
 registerRoutes(settingsRoutes); // ユーザー設定・ステータス・Google OAuth

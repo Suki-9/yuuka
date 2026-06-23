@@ -1,23 +1,23 @@
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
+import { hasBotAccess } from "../../db/botRepo.js";
+import { deleteEntry, listEntries } from "../../db/clipboardRepo.js";
 import {
-	getContextNote,
-	setContextNote,
-	getContextNoteUpdatedAt,
-	CONTEXT_NOTE_MAX_LENGTH,
-} from "../../db/contextNoteRepo.js";
-import { listEntries, deleteEntry } from "../../db/clipboardRepo.js";
-import {
-	listContacts,
 	addContact,
-	updateContact,
+	type ContactRecord,
 	deleteContact,
 	getContactById,
 	isValidBirthday,
-	type ContactRecord,
+	listContacts,
+	updateContact,
 } from "../../db/contactRepo.js";
-import { hasBotAccess } from "../../db/botRepo.js";
+import {
+	CONTEXT_NOTE_MAX_LENGTH,
+	getContextNote,
+	getContextNoteUpdatedAt,
+	setContextNote,
+} from "../../db/contextNoteRepo.js";
 import { contactViewSchema } from "../../types/apiViews.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 
 // ─── コンテキストノート・クリップボード・連絡先 HTTPルート ────────────────────
 // 全ルート auth:"user"。リソースは ctx.user.discordId でスコープする（§12）。

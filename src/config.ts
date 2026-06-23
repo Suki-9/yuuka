@@ -41,7 +41,7 @@ function getSettingArray(key: string, defaultValue: string[] = []): string[] {
 		.filter(Boolean);
 }
 
-function requireSetting(key: string): string {
+function _requireSetting(key: string): string {
 	const value = getSetting(key);
 	if (!value) {
 		throw new Error(

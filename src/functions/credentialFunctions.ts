@@ -1,14 +1,14 @@
-import { SchemaType } from "@google/generative-ai";
 import type { FunctionDeclaration } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
-import * as secretService from "../services/secretService.js";
-import { browserInteractiveType } from "../services/browserService.js";
+import { SchemaType } from "@google/generative-ai";
 import {
-	isCredentialGrantedToBot,
-	grantCredentialToBot,
-	listCredentialNamesForBot,
 	deleteAllGrantsForCredential,
+	grantCredentialToBot,
+	isCredentialGrantedToBot,
+	listCredentialNamesForBot,
 } from "../db/credentialAccessRepo.js";
+import { browserInteractiveType } from "../services/browserService.js";
+import * as secretService from "../services/secretService.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 
 // ─── パスワードマネージャ Function 群（§6.4） ────────────────────────────────
 //
@@ -172,7 +172,9 @@ const handlers: FunctionModule["handlers"] = {
 		// browserFillCredential の isCredentialGrantedToBot ゲート、および HTTP /api/credentials と
 		// 一致させ、未許可Botに他の認証情報（サービス名・ユーザー名・URL）を露出させない。
 		// 一覧だけ全件見えて利用時にゲートで弾かれる「認識の不整合」を防ぐ。
-		const grantedSet = new Set(listCredentialNamesForBot(ctx.botId, ctx.userId));
+		const grantedSet = new Set(
+			listCredentialNamesForBot(ctx.botId, ctx.userId),
+		);
 		const services = secretService
 			.listCredentialServices(ctx.userId)
 			.filter((s) => grantedSet.has(s.service_name));

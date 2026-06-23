@@ -1,32 +1,32 @@
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
+import { customClients, restartDefaultBot, stopCustomBot } from "../../bot.js";
 import { config } from "../../config.js";
-import { getDb } from "../../db/database.js";
-import {
-	getUserByDiscordId,
-	listAllUsers,
-	updateUserRole,
-	deleteUser,
-} from "../../db/userRepo.js";
-import { destroyAllSessionsForUser } from "../../services/sessionService.js";
 import {
 	addAuditLog,
-	listAuditLogs,
 	countAuditLogs,
+	listAuditLogs,
 } from "../../db/auditRepo.js";
 import { listAllBots, suspendBot, unsuspendBot } from "../../db/botRepo.js";
-import { stopCustomBot, customClients, restartDefaultBot } from "../../bot.js";
+import { getDb } from "../../db/database.js";
 import {
-	listInviteCodes,
 	createInviteCode,
-	revokeInviteCode,
 	deleteInviteCode,
+	listInviteCodes,
+	revokeInviteCode,
 } from "../../db/inviteRepo.js";
-import { encryptText } from "../../utils/crypto.js";
 import {
 	getSystemSetting,
 	setSystemSetting,
 } from "../../db/systemSettingsRepo.js";
+import {
+	deleteUser,
+	getUserByDiscordId,
+	listAllUsers,
+	updateUserRole,
+} from "../../db/userRepo.js";
+import { destroyAllSessionsForUser } from "../../services/sessionService.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
+import { encryptText } from "../../utils/crypto.js";
 
 // ─── Admin 管理 HTTPルート（§5.3。全ルート auth:"admin"） ────────────────────
 // 注意: ロール変更・ユーザー削除時に destroyAllSessionsForUser を呼ぶことで、

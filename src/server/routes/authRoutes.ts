@@ -1,32 +1,32 @@
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
+import { sendRegistrationCodeDM } from "../../bot.js";
 import { config } from "../../config.js";
-import {
-	setSessionCookie,
-	getSessionToken,
-	getClientIp,
-} from "../httpHelpers.js";
-import {
-	createSession,
-	destroySession,
-} from "../../services/sessionService.js";
-import { validatePassword } from "../../services/passwordPolicy.js";
+import { addAuditLog } from "../../db/auditRepo.js";
+import { isValidCode, validateAndConsumeCode } from "../../db/inviteRepo.js";
+import { getSystemSetting } from "../../db/systemSettingsRepo.js";
 import {
 	createUser,
 	getUserByDiscordId,
-	verifyPasswordConstantTime,
 	listAllUsers,
+	updateUserGeminiSettings,
+	verifyPasswordConstantTime,
 } from "../../db/userRepo.js";
-import { isValidCode, validateAndConsumeCode } from "../../db/inviteRepo.js";
+import { validatePassword } from "../../services/passwordPolicy.js";
 import {
 	createPendingRegistration,
 	verifyPendingRegistration,
 } from "../../services/pendingRegistration.js";
-import { sendRegistrationCodeDM } from "../../bot.js";
+import {
+	createSession,
+	destroySession,
+} from "../../services/sessionService.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 import { encryptText } from "../../utils/crypto.js";
-import { updateUserGeminiSettings } from "../../db/userRepo.js";
-import { addAuditLog } from "../../db/auditRepo.js";
-import { getSystemSetting } from "../../db/systemSettingsRepo.js";
+import {
+	getClientIp,
+	getSessionToken,
+	setSessionCookie,
+} from "../httpHelpers.js";
 
 // ─── 認証・登録 HTTPルート（§5.4） ───────────────────────────────────────────
 

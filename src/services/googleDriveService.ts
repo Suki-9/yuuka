@@ -1,6 +1,6 @@
-import { google, drive_v3 } from "googleapis";
-import { getOAuthClientForUser } from "./googleCalendarService.js";
 import fs from "node:fs";
+import { type drive_v3, google } from "googleapis";
+import { getOAuthClientForUser } from "./googleCalendarService.js";
 
 // ─── Google Drive 連携（§8: バックアップはユーザー個人のDriveへ） ─────────────
 // v2: OAuth情報はユーザー単位（users テーブル）。スコープは drive.file。

@@ -1,12 +1,12 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
-	getContextNote,
-	setContextNote,
 	appendContextNote,
 	CONTEXT_NOTE_MAX_LENGTH,
+	getContextNote,
+	setContextNote,
 } from "../db/contextNoteRepo.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 
 // ─── コンテキストノート Function（§3.7） ─────────────────────────────────────
 

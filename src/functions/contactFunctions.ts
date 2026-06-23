@@ -1,16 +1,16 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
 	addContact,
-	updateContact,
+	type ContactRecord,
 	deleteContact,
-	searchContacts,
-	listContacts,
 	getContactById,
 	isValidBirthday,
-	type ContactRecord,
+	listContacts,
+	searchContacts,
+	updateContact,
 } from "../db/contactRepo.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 
 // ─── 連絡先管理 Function（§3.11） ────────────────────────────────────────────
 

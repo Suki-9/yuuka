@@ -1,28 +1,27 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
+import type { BotCapability } from "../services/botCapabilities.js";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
-import * as browserFn from "./browserFunctions.js";
 import { buildRichContentEmbed } from "../utils/embeds.js";
-
-// ── 各機能モジュール（FunctionModule） ──
-import { todoFunctions } from "./todoFunctions.js";
-import { scheduleFunctions } from "./scheduleFunctions.js";
-import { reminderFunctions } from "./reminderFunctions.js";
-import { financeFunctions } from "./financeFunctions.js";
-import { credentialFunctions } from "./credentialFunctions.js";
-import { playbookFunctions } from "./playbookFunctions.js";
-import { noteFunctions } from "./noteFunctions.js";
+import {
+	botGuildMemoryFunctions,
+	botMemberFunctions,
+	botPersonalNoteFunctions,
+} from "./botAssistantFunctions.js";
+import { briefingFunctions } from "./briefingFunctions.js";
+import * as browserFn from "./browserFunctions.js";
+import { chartFunctions } from "./chartFunctions.js";
 import { clipboardFunctions } from "./clipboardFunctions.js";
 import { contactFunctions } from "./contactFunctions.js";
 import { conversationFunctions } from "./conversationFunctions.js";
-import { briefingFunctions } from "./briefingFunctions.js";
-import { chartFunctions } from "./chartFunctions.js";
-import {
-	botMemberFunctions,
-	botPersonalNoteFunctions,
-	botGuildMemoryFunctions,
-} from "./botAssistantFunctions.js";
-import type { BotCapability } from "../services/botCapabilities.js";
+import { credentialFunctions } from "./credentialFunctions.js";
+import { financeFunctions } from "./financeFunctions.js";
+import { noteFunctions } from "./noteFunctions.js";
+import { playbookFunctions } from "./playbookFunctions.js";
+import { reminderFunctions } from "./reminderFunctions.js";
+import { scheduleFunctions } from "./scheduleFunctions.js";
+// ── 各機能モジュール（FunctionModule） ──
+import { todoFunctions } from "./todoFunctions.js";
 
 // ─── ブラウザ操作 FunctionModule（§3.5: 既存実装のアダプタ） ──────────────────
 // browserFunctions.ts（既存・変更禁止）は (userId, args) 形式のため、

@@ -1,15 +1,15 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import * as scheduleRepo from "../db/scheduleRepo.js";
-import { formatDateTime } from "../utils/formatters.js";
 import { getUserRemindDefaultMinutes } from "../db/userRepo.js";
 import {
-	isCalendarEnabled,
 	createCalendarEvent,
 	deleteCalendarEvent,
+	isCalendarEnabled,
 	syncGoogleCalendarToLocal,
 } from "../services/googleCalendarService.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { formatDateTime } from "../utils/formatters.js";
 
 // ─── 予定管理 Function（§3.2: Googleカレンダー双方向同期） ────────────────────
 
@@ -108,8 +108,8 @@ const handlers: FunctionModule["handlers"] = {
 			});
 		}
 
-		let googleEventId: string | undefined = undefined;
-		let googleCalendarId: string | undefined = undefined;
+		let googleEventId: string | undefined;
+		let googleCalendarId: string | undefined;
 
 		if (isCalendarEnabled(userId, ctx.botId) && !args.local_only) {
 			try {

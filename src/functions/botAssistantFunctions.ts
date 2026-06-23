@@ -1,27 +1,27 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { addAuditLog } from "../db/auditRepo.js";
 import {
 	addBotMember,
-	removeBotMember,
-	listBotMembers,
 	isBotMember,
+	listBotMembers,
+	removeBotMember,
 } from "../db/botAttributesRepo.js";
 import {
-	getBotUserNote,
-	setBotUserNote,
-	appendBotUserNote,
-	getBotGuildNote,
-	setBotGuildNote,
 	appendBotGuildNote,
+	appendBotUserNote,
 	BOT_NOTE_MAX_LENGTH,
+	getBotGuildNote,
+	getBotUserNote,
+	setBotGuildNote,
+	setBotUserNote,
 } from "../db/botNoteRepo.js";
-import {
-	searchGuildMessages,
-	type MessageLogRecord,
-} from "../db/messageLogRepo.js";
 import { getBotById } from "../db/botRepo.js";
-import { addAuditLog } from "../db/auditRepo.js";
+import {
+	type MessageLogRecord,
+	searchGuildMessages,
+} from "../db/messageLogRepo.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 
 // ─── 汎用モード（MCPアシスタント）専用 Function 群 ───────────────────────────
 // bot_attributes_requirements.md §4.3.3（利用メンバー管理）/ §4.6（メモリ2層）。

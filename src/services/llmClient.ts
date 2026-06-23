@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getUserGeminiConfig } from "../db/userRepo.js";
 import { getBotById } from "../db/botRepo.js";
+import { getUserGeminiConfig } from "../db/userRepo.js";
 import { decryptText } from "../utils/crypto.js";
 
 // ユーザー別 GoogleGenerativeAI インスタンスキャッシュ
@@ -143,7 +143,7 @@ export async function generateAuxText(
 			return result.response.text();
 		} catch (error) {
 			if (isRetryableError(error) && attempt < maxRetries) {
-				const waitMs = Math.min(1000 * Math.pow(2, attempt + 1), 30000);
+				const waitMs = Math.min(1000 * 2 ** (attempt + 1), 30000);
 				console.log(
 					`⏳ 補助生成リトライ (${attempt + 1}/${maxRetries})、${Math.ceil(waitMs / 1000)}秒後...`,
 				);
@@ -183,7 +183,7 @@ export async function generateAuxMultimodal(
 			return result.response.text();
 		} catch (error) {
 			if (isRetryableError(error) && attempt < maxRetries) {
-				const waitMs = Math.min(1000 * Math.pow(2, attempt + 1), 30000);
+				const waitMs = Math.min(1000 * 2 ** (attempt + 1), 30000);
 				await sleep(waitMs);
 				continue;
 			}

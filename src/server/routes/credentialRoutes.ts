@@ -1,12 +1,12 @@
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
-import * as secretService from "../../services/secretService.js";
 import { hasBotAccess, listBotsOwnedBy } from "../../db/botRepo.js";
 import {
-	listCredentialNamesForBot,
-	grantCredentialToBot,
 	deleteAllGrantsForCredential,
+	grantCredentialToBot,
+	listCredentialNamesForBot,
 } from "../../db/credentialAccessRepo.js";
+import * as secretService from "../../services/secretService.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 
 // ─── パスワードマネージャ HTTPルート（§6: ユーザー鍵暗号化） ──────────────────
 // 監査ログは secretService 層で記録される（二重記録しない）。

@@ -1,12 +1,12 @@
-import { google, Auth } from "googleapis";
-import * as scheduleRepo from "../db/scheduleRepo.js";
-import { decryptText } from "../utils/crypto.js";
+import { type Auth, google } from "googleapis";
 import { config } from "../config.js";
 import {
-	getPrimaryGoogleAccount,
 	getAccountForBot,
+	getPrimaryGoogleAccount,
 	type UserGoogleAccount,
 } from "../db/googleAccountRepo.js";
+import * as scheduleRepo from "../db/scheduleRepo.js";
+import { decryptText } from "../utils/crypto.js";
 
 // ─── Google Calendar 連携 ───────────────────────────────────────────────────
 // v5: OAuth情報は user_google_accounts（owner単位・複数可）から取得する。

@@ -1,13 +1,13 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { getRecentActions } from "../services/actionRecorder.js";
 import {
-	savePlaybook,
+	deletePlaybook,
 	findPlaybooks,
 	getPlaybookByName,
-	deletePlaybook,
+	savePlaybook,
 } from "../services/playbookService.js";
-import { getRecentActions } from "../services/actionRecorder.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 
 // ─── 操作記憶（マクロ）Function（§3.6） ──────────────────────────────────────
 // 説明ベース登録: savePlaybook（ユーザーが手順を説明 → LLMが構造化して保存）

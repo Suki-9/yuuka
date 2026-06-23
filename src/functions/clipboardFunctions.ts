@@ -1,7 +1,7 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
+import { addEntry, deleteEntry, listEntries } from "../db/clipboardRepo.js";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
-import { addEntry, listEntries, deleteEntry } from "../db/clipboardRepo.js";
 import { toDbDateTime } from "../utils/datetime.js";
 
 // ─── クリップボード / 一時メモ Function（§3.10） ─────────────────────────────

@@ -1,5 +1,5 @@
-import { getDb } from "./database.js";
 import { encryptText, generateToken } from "../utils/crypto.js";
+import { getDb } from "./database.js";
 
 // ─── 外部Webhook受信リポジトリ（§3.13） ──────────────────────────────────────
 

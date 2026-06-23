@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { config } from "../config.js";
 import type {
 	RouteDef,
 	RouteRequestCtx,
 	SessionUser,
 } from "../types/contracts.js";
 import { sendJson } from "../types/contracts.js";
-import { config } from "../config.js";
 
 // 登録済みルート（モジュール起動時に registerRoutes で追加される）
 const routes: RouteDef[] = [];
@@ -71,7 +71,7 @@ function stripProtoKeys(value: unknown, depth = 0): void {
 	}
 	const obj = value as Record<string, unknown>;
 	for (const key of ["__proto__", "constructor", "prototype"]) {
-		if (Object.prototype.hasOwnProperty.call(obj, key)) {
+		if (Object.hasOwn(obj, key)) {
 			delete obj[key];
 		}
 	}

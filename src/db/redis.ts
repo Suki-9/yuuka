@@ -18,10 +18,7 @@ export async function initRedis(): Promise<void> {
 					// 24/365 運用のため再接続は決して諦めない。
 					// 切断中は getRedisClient() が null を返し SQLite フォールバックで稼働し、
 					// Redis 復旧時に 'ready' イベントで自動的にキャッシュ層へ復帰する。
-					const delay = Math.min(
-						1000 * Math.pow(2, Math.min(retries, 5)),
-						30_000,
-					);
+					const delay = Math.min(1000 * 2 ** Math.min(retries, 5), 30_000);
 					if (retries > 0 && retries % 10 === 0) {
 						console.warn(
 							`⚠️ Redis 再接続を継続中 (${retries}回目)。SQLite フォールバックで稼働しています。`,
@@ -108,7 +105,7 @@ export async function closeRedis(): Promise<void> {
 			console.error("Redis 切断中にエラーが発生しました:", err);
 			try {
 				if (client.isOpen) await client.disconnect();
-			} catch (e) {}
+			} catch (_e) {}
 		} finally {
 			client = null;
 			isRedisReady = false;
