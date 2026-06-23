@@ -59,7 +59,10 @@ import type {
 	ToolContext,
 	TurnAsyncDelivery,
 } from "./types/contracts.js";
-import { redactSecretsInText } from "./utils/secretGuard.js";
+import {
+	buildOutcomeArgsDigest,
+	sanitizeArgsForLog,
+} from "./utils/toolArgRedaction.js";
 
 // ─── 検索クロールスキル（docs/skills/search_skills.md のインライン読み込み） ──────────
 
@@ -78,7 +81,13 @@ function loadSearchSkills(): string {
 				cachedSearchSkills = fs.readFileSync(p, "utf-8");
 				return cachedSearchSkills;
 			}
-		} catch {}
+		} catch (err) {
+			// 破損・権限エラー等で読めない場合はスキル無しで継続するが、無言にはしない
+			console.warn(
+				`[gemini] 検索スキル仕様書の読み込みに失敗しました (${p}):`,
+				err,
+			);
+		}
 	}
 	cachedSearchSkills = "";
 	return cachedSearchSkills;
@@ -335,55 +344,6 @@ function isServerError(error: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ─── ログ用の引数サニタイズ（§6.3.2: 認証情報をログに残さない） ───────────────
-
-/** 引数に秘匿値を含み得るFunction（引数ログ自体を抑止する） */
-const SECRET_ARG_FUNCTIONS = new Set(["addCredential", "updateCredential"]);
-
-/** 秘匿すべき引数キーのパターン */
-const SECRET_KEY_PATTERN = /password|secret|token|api_?key|credential/i;
-
-/**
- * コンソールログ用に Function Call 引数をサニタイズする。
- * 認証情報系Functionは引数全体を伏せ、その他も秘匿キー名の値をマスクする。
- */
-function sanitizeArgsForLog(
-	name: string,
-	args: Record<string, unknown>,
-): string {
-	if (SECRET_ARG_FUNCTIONS.has(name)) {
-		return `{"(引数は秘匿情報を含むため非表示)": "service=${String((args as { service_name?: unknown }).service_name ?? "?")}"}`;
-	}
-	const masked: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(args)) {
-		masked[key] = SECRET_KEY_PATTERN.test(key) ? "(秘匿)" : value;
-	}
-	return JSON.stringify(masked).slice(0, 500);
-}
-
-/**
- * 自由入力テキストを引数に持つツール（値そのものに認証情報がタイプされ得る）。
- * これらは値が秘匿キー名でなくても永続化前に伏せる必要がある（§9.3）。
- */
-const FREE_TEXT_INPUT_TOOLS = new Set(["browserInteractiveType"]);
-
-/**
- * tool_outcomes.args_digest 用の引数ダイジェスト（永続化＝ログより強い秘匿要件）。
- * sanitizeArgsForLog（キー名マスク＋認証系Function全伏せ）に加え、
- *   1) 自由入力系ツールの text 値を構造的に伏せ（タイプされた認証情報を弾く）、
- *   2) 値の「形状」から秘匿らしいトークン（JWT/APIキー/鍵等）を伏字化する（§9.3 多層防御）。
- */
-function buildOutcomeArgsDigest(
-	name: string,
-	args: Record<string, unknown>,
-): string {
-	let safeArgs = args;
-	if (FREE_TEXT_INPUT_TOOLS.has(name) && typeof args.text === "string") {
-		safeArgs = { ...args, text: `(入力値:${args.text.length}文字)` };
-	}
-	return redactSecretsInText(sanitizeArgsForLog(name, safeArgs));
 }
 
 /** GenAI ハンドル（getUserGenAI / getBotGenAI の戻り値） */

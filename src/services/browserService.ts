@@ -70,7 +70,13 @@ async function getChromePath(): Promise<string | null> {
 			cachedChromePath = p;
 			return cachedChromePath;
 		}
-	} catch {}
+	} catch (err) {
+		// 想定内: バンドル済み Chromium が未取得でも以降のシステムパス探索で復帰できる
+		console.warn(
+			"[browserService] Puppeteer の executablePath() 取得に失敗しました。システムパスを探索します:",
+			err,
+		);
+	}
 
 	// 一般的なシステムパスも確認
 	const commonPaths = [

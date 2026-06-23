@@ -17,6 +17,8 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "check": "pnpm typecheck && pnpm lint",
     "deploy": "deploy/instance.sh prod update",
     "deploy:dev": "deploy/instance.sh dev update",
@@ -55,7 +57,8 @@
     "@types/node-cron": "^3.0.11",
     "@typescript/native-preview": "7.0.0-dev.20260615.1",
     "tsx": "^4.22.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
   },
   "pnpm": {
     "comment": "推移的依存の既知脆弱性をパッチ版へ固定。互換性維持のため undici は discord.js が前提とする 6.x 系内の修正版に留める（メジャー跨ぎを避ける）。uuid も修正版直近の系統に固定。",

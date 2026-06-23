@@ -35,32 +35,32 @@ const CATEGORY_LIST = CATEGORIES.join(", ");
 // ─── ヘルパー ────────────────────────────────────────────────────────────────
 
 /** Function Call の引数から空でない文字列を取り出す（無ければ undefined） */
-function asOptionalString(value: unknown): string | undefined {
+export function asOptionalString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /** Function Call の引数から整数を取り出す（数値でなければ undefined） */
-function asOptionalInt(value: unknown): number | undefined {
+export function asOptionalInt(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
 	return Math.trunc(value);
 }
 
 /** 'YYYY-MM-DD' 形式かどうか */
-function isYmd(value: string): boolean {
+export function isYmd(value: string): boolean {
 	return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 /** 今日の日付を 'YYYY-MM-DD'（ローカルタイム）で返す */
-function todayYmd(): string {
+export function todayYmd(): string {
 	const now = new Date();
 	const pad = (n: number) => String(n).padStart(2, "0");
 	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 /** 収支差の符号付き表示（例: '+¥12,000' / '-¥3,400'） */
-function formatBalance(balance: number): string {
+export function formatBalance(balance: number): string {
 	return `${balance >= 0 ? "+" : "-"}${formatCurrency(Math.abs(balance))}`;
 }
 
