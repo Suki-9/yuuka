@@ -100,11 +100,11 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-/// tokio ランタイムを専用スレッドで起動し、WS ループを回す。
+/// tokio ランタイムを専用スレッドで起動し、Net オーケストレータ（[`net::run`]）を回す。
 ///
-/// `bot_id` が `Some` なら起動直後に WS 接続を試みる（トークンが keyring にある前提）。
-/// `None`（未ログイン/未確定）の場合は接続せず、デバイスフロー完了後に
-/// `SwitchBot`/再起動経路で接続する想定（Phase 2 後半で配線）。
+/// トークン取得（keyring or デバイスフロー）→ Bot 解決 → WS セッション →
+/// ログアウト/失効での再ログインまでを [`net::run`] が一括して扱う。
+/// `bot_id` が `Some` なら起動直後にその Bot へ接続を試みる（トークンがある前提）。
 fn spawn_net_thread(
     bot_id: Option<String>,
     ui_rx: mpsc::Receiver<UiEvent>,
@@ -119,46 +119,7 @@ fn spawn_net_thread(
                 .build()
                 .expect("failed to build tokio runtime");
 
-            rt.block_on(async move {
-                // keyring から Bearer トークンを取得。
-                let token = match net::auth::load_token() {
-                    Ok(Some(t)) => Some(t),
-                    Ok(None) => None,
-                    Err(e) => {
-                        log::warn!("keyring load failed: {e}");
-                        None
-                    }
-                };
-
-                match (token, bot_id) {
-                    (Some(token), Some(bot_id)) => {
-                        // トークン・botId が揃っていれば即 WS 接続ループへ。
-                        let handle = net::ws::WsHandle {
-                            token,
-                            bot_id,
-                            ui_rx,
-                            net_tx,
-                        };
-                        net::ws::run_ws_loop(handle).await;
-                    }
-                    _ => {
-                        // 未ログイン or botId 未確定。
-                        // TODO(Phase 2 後半): ここでデバイスフロー（net::auth::run_device_flow）
-                        // を回してトークンを得る → REST で主 Bot を解決 → WS 接続。
-                        log::info!("no token/bot yet; awaiting login (device flow TODO)");
-                        let _ = net_tx
-                            .send(NetEvent::Connection(net::ConnectionState::Disconnected))
-                            .await;
-                        // ui_rx を drain して Shutdown を待つ（プロセス常駐）。
-                        let mut ui_rx = ui_rx;
-                        while let Some(ev) = ui_rx.recv().await {
-                            if matches!(ev, UiEvent::Shutdown) {
-                                break;
-                            }
-                        }
-                    }
-                }
-            });
+            rt.block_on(net::run(bot_id, ui_rx, net_tx));
         })
         .expect("failed to spawn net thread");
 }
