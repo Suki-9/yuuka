@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "11";
+const SCHEMA_VERSION = "12";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -669,6 +669,40 @@ function migrateToSynapseEngine(db: ReturnType<typeof getDb>): void {
   ]);
 }
 
+/**
+ * v12: タスク進捗管理（§3.2 進捗・サブタスク・ガント）。
+ * - todos へ後付け列（start_date / progress / parent_id）を冪等追加（新規DBは CREATE TABLE 側で作成済み）。
+ * - 進捗更新ログ task_progress_logs を新設（時系列の進捗報告。user_id/bot_id スコープ必須）。
+ * 破壊的再構築は行わず、列追加・新規テーブルのみで既存タスクを保持する。
+ */
+function migrateToTaskProgress(db: ReturnType<typeof getDb>): void {
+	// 既存DB（v11 以前で todos 作成済み）向けに不足列を追加（冪等）。
+	ensureColumns(db, "todos", [
+		{ name: "start_date", ddl: "start_date TEXT" },
+		{ name: "progress", ddl: "progress INTEGER NOT NULL DEFAULT 0" },
+		{ name: "parent_id", ddl: "parent_id INTEGER" },
+	]);
+	// parent_id を後付けした既存DBでもインデックスを張る（新規DBは CREATE TABLE 側で作成済み・冪等）。
+	db.exec("CREATE INDEX IF NOT EXISTS idx_todos_parent ON todos(parent_id)");
+
+	db.exec(`
+    -- 進捗更新ログ（§3.2: 「〜まで終わった」の報告を時系列で保存し経緯を追える）
+    CREATE TABLE IF NOT EXISTS task_progress_logs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    TEXT    NOT NULL,                 -- データ分離キー（必須）
+      bot_id     TEXT    NOT NULL DEFAULT 'system_default',
+      todo_id    INTEGER NOT NULL,
+      progress   INTEGER NOT NULL,                 -- この時点の進捗 0-100
+      note       TEXT,                             -- 進捗メモ（任意。例: 「設計が完了した」）
+      created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE,
+      FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_progress_logs_todo
+      ON task_progress_logs(todo_id, created_at);
+  `);
+}
+
 export async function runMigrations(): Promise<void> {
 	const db = getDb();
 
@@ -976,17 +1010,22 @@ export async function runMigrations(): Promise<void> {
       user_id TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT,
-      due_date TEXT,                           -- ISO 8601 (日時または日付)
+      due_date TEXT,                           -- ISO 8601 (日時または日付)。ガントのバー終端
+      start_date TEXT,                         -- v12: ISO 8601。ガントのバー始端（任意）
       priority TEXT,                           -- 'high' | 'medium' | 'low' | NULL (LLM自動付与)
       tags TEXT NOT NULL DEFAULT '[]',         -- JSON string[] (LLM自動付与)
       status TEXT NOT NULL DEFAULT 'open',     -- 'open' | 'done'
+      progress INTEGER NOT NULL DEFAULT 0,     -- v12: 手動進捗 0-100（葉タスク用。子を持つ親は完了子数/全体で算出表示）
+      parent_id INTEGER,                       -- v12: 自己参照。NULL=親タスク / 値=サブタスク（1階層のみ）
       linked_payment_id INTEGER,               -- 支払い予定との紐付け（§3.4）
       due_reminded INTEGER NOT NULL DEFAULT 0, -- 期限接近リマインド送信済みフラグ
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_id) REFERENCES todos(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_todos_parent ON todos(parent_id);
   `);
 
 	// ─── 予定（Googleカレンダー同期）（§3.2） ───────────────────────────────
@@ -1357,6 +1396,10 @@ export async function runMigrations(): Promise<void> {
 	// ─── v10: シナプス記憶層（tool_outcomes / topic_tool_stats / synapses） ──
 	// 新規テーブルのみの冪等追加（破壊的再構築なし）。新規DBでも既存DBでも CREATE IF NOT EXISTS で収束する。
 	migrateToSynapseEngine(db);
+
+	// ─── v12: タスク進捗管理（todos へ start_date/progress/parent_id 追加 + task_progress_logs） ──
+	// 列追加・新規テーブルのみの冪等追加（破壊的再構築なし）。既存タスクは保持される。
+	migrateToTaskProgress(db);
 
 	// スキーマバージョンを記録
 	db.prepare(
