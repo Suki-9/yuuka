@@ -69,9 +69,7 @@ pub mod windows;
 #[cfg(windows)]
 pub use windows::WindowsOs as PlatformOs;
 
-#[cfg(not(windows))]
-mod fallback;
-
+// 非 Windows 向け no-op フォールバックはこのファイル末尾にインライン定義する。
 #[cfg(not(windows))]
 pub use fallback::FallbackOs as PlatformOs;
 

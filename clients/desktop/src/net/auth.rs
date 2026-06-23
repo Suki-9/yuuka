@@ -118,7 +118,10 @@ pub async fn run_device_flow(
     // 1) device/code
     let code: DeviceCodeResp = client
         .post(format!("{base}/api/auth/device/code"))
-        .json(&DeviceCodeReq { client: "desktop", device_name })
+        .json(&DeviceCodeReq {
+            client: "desktop",
+            device_name,
+        })
         .send()
         .await?
         .error_for_status()?
@@ -139,7 +142,9 @@ pub async fn run_device_flow(
 
         let resp: TokenResp = client
             .post(format!("{base}/api/auth/device/token"))
-            .json(&TokenReq { device_code: &code.device_code })
+            .json(&TokenReq {
+                device_code: &code.device_code,
+            })
             // 410/202 等の非 2xx も JSON 本体を読むため error_for_status は使わない。
             .send()
             .await?

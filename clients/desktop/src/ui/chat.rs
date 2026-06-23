@@ -66,8 +66,8 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
 
     // --- 入力欄（Enter 送信 / Shift+Enter 改行）---
     ui.horizontal(|ui| {
-        let send_enabled = state.status.is_none()
-            && matches!(state.connection, ConnectionState::Connected { .. });
+        let send_enabled =
+            state.status.is_none() && matches!(state.connection, ConnectionState::Connected { .. });
 
         let text_edit = egui::TextEdit::multiline(&mut state.input)
             .hint_text("メッセージを入力（Enter 送信 / Shift+Enter 改行）")
@@ -76,8 +76,8 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
         let resp = ui.add_enabled(send_enabled, text_edit);
 
         // Enter（Shift 無し）で送信。
-        let enter_pressed = resp.has_focus()
-            && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+        let enter_pressed =
+            resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
 
         let send_clicked = ui
             .add_enabled(send_enabled, egui::Button::new("送信"))
@@ -151,14 +151,8 @@ fn message_bubble(
     cache: &mut egui_commonmark::CommonMarkCache,
 ) {
     let (align, frame_fill) = match entry.role {
-        Role::User => (
-            egui::Align::Max,
-            egui::Color32::from_rgb(60, 90, 140),
-        ),
-        Role::Assistant => (
-            egui::Align::Min,
-            egui::Color32::from_rgb(45, 45, 55),
-        ),
+        Role::User => (egui::Align::Max, egui::Color32::from_rgb(60, 90, 140)),
+        Role::Assistant => (egui::Align::Min, egui::Color32::from_rgb(45, 45, 55)),
     };
 
     ui.with_layout(egui::Layout::top_down(align), |ui| {
@@ -184,7 +178,10 @@ fn message_bubble(
                 }
                 // files のインライン画像表示も Phase 3。
                 if !entry.files.is_empty() {
-                    ui.weak(format!("(添付ファイル {} 件 — Phase 3 で表示)", entry.files.len()));
+                    ui.weak(format!(
+                        "(添付ファイル {} 件 — Phase 3 で表示)",
+                        entry.files.len()
+                    ));
                 }
             });
     });
