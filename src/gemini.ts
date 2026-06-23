@@ -21,6 +21,7 @@ import {
 	getBotDmContext,
 	getGuildContext,
 	getRecentContext,
+	type MessageLogRecord,
 	resolveGuildReplyChain,
 	resolveReplyChain,
 } from "./db/messageLogRepo.js";
@@ -274,6 +275,30 @@ const SYNAPSE_TIME_BIAS_WEIGHT = 0.1;
  * エンジン無効・未起動・タイムアウト時は "" を返し、現行挙動（直近履歴のみ）へデグレードする。
  * 想起したシナプスは鮮度（use_count / last_used_at / decay_score）を更新する。
  */
+/** 返信スレッド化クエリの最大長（字面 n-gram 埋め込みの希釈を避ける上限）。 */
+const RECALL_QUERY_MAX_LEN = 500;
+
+/**
+ * L2 想起のクエリを組み立てる。
+ * 返信時（replyChain 非空）は、直近の返信元文脈（最大2件）を現発話へ前置して
+ * 「数個前をさかのぼる」想起を効かせる。埋め込み器がレキシカル（字面 n-gram）のため、
+ * 文脈語彙を入れると照合が効くが、長文は希釈するので直近2件＋現発話に絞り上限でキャップする。
+ * 返信でない場合は現発話そのまま（現挙動）。
+ */
+function buildRecallQuery(
+	messageText: string,
+	replyChain: MessageLogRecord[],
+): string {
+	const text = messageText.trim();
+	if (replyChain.length === 0) return text;
+	// 返信元は古い順に並ぶため、直近2件を採用する。現発話は必ず末尾に残す。
+	const recentContext = replyChain.slice(-2).map((m) => m.content);
+	const combined = [...recentContext, text].filter((s) => s.trim()).join("\n");
+	return combined.length > RECALL_QUERY_MAX_LEN
+		? combined.slice(combined.length - RECALL_QUERY_MAX_LEN)
+		: combined;
+}
+
 async function buildRecallSection(
 	scope: SynapseScope,
 	query: string,
@@ -282,12 +307,23 @@ async function buildRecallSection(
 	if (!q) return "";
 	const t0 = Date.now();
 	// 現在の時間帯・曜日を渡し、時刻文脈で再ランキングさせる（重み SYNAPSE_TIME_BIAS_WEIGHT）。
+	// あわせて recency（形成からの経過時間）で最近のシナプスを加算ブーストする。
 	const now = new Date();
-	const recall = await assembleRecall(scope, q, config.synapseRecallK, {
-		nowTod: now.getHours(),
-		nowDow: now.getDay(),
-		timeWeight: SYNAPSE_TIME_BIAS_WEIGHT,
-	});
+	const recall = await assembleRecall(
+		scope,
+		q,
+		config.synapseRecallK,
+		{
+			nowTod: now.getHours(),
+			nowDow: now.getDay(),
+			timeWeight: SYNAPSE_TIME_BIAS_WEIGHT,
+		},
+		{
+			nowEpoch: Math.floor(now.getTime() / 1000),
+			weight: config.synapseRecencyWeight,
+			halflifeSecs: config.synapseRecencyHalflifeHours * 3600,
+		},
+	);
 	recordLatency("assemble", Date.now() - t0);
 	if (!recall || recall.synapses.length === 0) {
 		incrMetric("recall_empty");
@@ -928,7 +964,9 @@ export async function processMessage(
 	const history = await getRecentContext(userId, botId, 15);
 
 	// 3. 返信チェーンの解決（§3.1.4: 15件キャッシュとは別枠でコンテキストの先頭に追加）
+	// 解決結果は L2 想起の返信スレッド化クエリ（B）でも再利用するためブロック外へ保持する。
 	const contents: Content[] = [];
+	let replyChain: MessageLogRecord[] = [];
 	if (message.replyToMsgId) {
 		try {
 			const chain = resolveReplyChain(
@@ -936,6 +974,7 @@ export async function processMessage(
 				message.replyToMsgId,
 				config.replyChainMaxDepth,
 			);
+			replyChain = chain;
 			if (chain.length > 0) {
 				const chainText = chain
 					.map(
@@ -1032,9 +1071,10 @@ export async function processMessage(
 
 	// L2 連想想起（シナプス）を systemInstruction の末尾へ追記する（エンジン無効時は ""）。
 	// 秘書モードのスコープは (userId, botId)。guild_id は付けない（DM/秘書利用）。
+	// 返信時は返信元文脈を織り込んだスレッド化クエリ（B）で「数個前」を想起しやすくする。
 	const recallSection = await buildRecallSection(
 		{ userId, botId },
-		message.text ?? "",
+		buildRecallQuery(message.text ?? "", replyChain),
 	);
 	try {
 		const ai = getUserGenAI(userId);

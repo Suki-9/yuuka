@@ -38,9 +38,13 @@ pub fn load_index(
     conn.busy_timeout(std::time::Duration::from_millis(3000))
         .map_err(|e| format!("busy_timeout 設定に失敗: {}", e))?;
 
+    // created_at は localtime 文字列保存（datetime('now','localtime')）。'utc' 修飾子で
+    // localtime→UTC へ変換した上でエポック化し、Node の Math.floor(Date.now()/1000) と一致させる
+    // （= recency 計算の now と同一基準）。created_at が NULL/解釈不能なら NULL（=中立）。
     let mut stmt = conn
         .prepare(
-            "SELECT id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow \
+            "SELECT id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow, \
+             CAST(strftime('%s', created_at, 'utc') AS INTEGER) AS created_epoch \
              FROM synapses WHERE embedding IS NOT NULL",
         )
         .map_err(|e| format!("クエリ準備に失敗: {}", e))?;
@@ -56,8 +60,10 @@ pub fn load_index(
             let embedding: Vec<u8> = row.get(6)?;
             let ctx_tod: Option<i64> = row.get(7)?;
             let ctx_dow: Option<i64> = row.get(8)?;
+            let created_at: Option<i64> = row.get(9)?;
             Ok((
                 id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow,
+                created_at,
             ))
         })
         .map_err(|e| format!("行の読み出しに失敗: {}", e))?;
@@ -66,7 +72,7 @@ pub fn load_index(
     let expected_bytes = dim * 4;
 
     for row in rows {
-        let (id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow) =
+        let (id, user_id, bot_id, guild_id, content, topic_id, embedding, ctx_tod, ctx_dow, created_at) =
             match row {
                 Ok(r) => r,
                 Err(e) => {
@@ -110,6 +116,7 @@ pub fn load_index(
                 vector,
                 ctx_tod,
                 ctx_dow,
+                created_at,
             },
         );
         loaded += 1;

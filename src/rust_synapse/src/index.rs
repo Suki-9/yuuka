@@ -36,6 +36,8 @@ pub struct Entry {
     pub ctx_tod: Option<i64>,
     /// 形成時の曜日（0=日〜6=土）。再ランキング専用。None=文脈未知（中立扱い）。
     pub ctx_dow: Option<i64>,
+    /// 形成時刻（Unix エポック秒）。recency 再ランキング専用。None=不明（ブーストなし＝中立）。
+    pub created_at: Option<i64>,
 }
 
 /// 想起時の時刻文脈（再ランキング指定）。意味KNN後にスコアへ補正をかける。
@@ -45,6 +47,18 @@ pub struct TimeContext {
     pub now_tod: i64,
     pub now_dow: i64,
     pub weight: f32,
+}
+
+/// 想起時の recency 文脈（再ランキング指定）。意味KNN後に「形成からの経過時間」で
+/// 最近のシナプスを加算ブーストする。weight=0 / halflife<=0 のときは補正しない。
+#[derive(Clone, Copy, Debug)]
+pub struct RecencyContext {
+    /// 現在時刻（Unix エポック秒）。
+    pub now_epoch: i64,
+    /// 加算ブーストの重み。
+    pub weight: f32,
+    /// 半減期（秒）。この時間で recency 係数が半分になる。
+    pub halflife_secs: f32,
 }
 
 /// 時刻近接度 [0,1]。1=完全一致、0=最遠。環状距離（24h/7d の周期）で算出。
@@ -73,6 +87,19 @@ fn time_affinity(entry: &Entry, ctx: &TimeContext) -> f32 {
 fn circular_distance(a: i64, b: i64, period: i64) -> i64 {
     let raw = (a - b).abs() % period;
     raw.min(period - raw)
+}
+
+/// recency 係数 [0,1]。1=たった今、経過時間とともに半減期で指数減衰する。
+/// created_at=None（形成時刻不明）は 0（ブーストなし＝中立）。
+/// 呼び出し側は halflife_secs > 0 を保証すること。
+fn recency_factor(entry: &Entry, ctx: &RecencyContext) -> f32 {
+    match entry.created_at {
+        Some(created) => {
+            let age = (ctx.now_epoch - created).max(0) as f32;
+            0.5f32.powf(age / ctx.halflife_secs)
+        }
+        None => 0.0,
+    }
 }
 
 /// 1スコープあたりの保持上限。超過時は最小 id を退避（FIFO 近似）し、
@@ -167,14 +194,16 @@ impl SynapseIndex {
     }
 
     /// 指定スコープに対する総当たりコサイン KNN（スコア降順、最大 k 件）。
-    /// `time_ctx` 指定かつ weight>0 のとき、コサインスコアへ時刻近接の補正をかける
-    /// （意味埋め込みは変えず、最終スコアのみ再ランキング）。
+    /// `time_ctx` 指定かつ weight>0 のとき、コサインスコアへ時刻近接（環状）の補正をかける。
+    /// `recency` 指定かつ weight>0 のとき、形成からの経過時間で最近のシナプスを加算ブーストする。
+    /// いずれも意味埋め込みは変えず、最終スコアのみ再ランキングする。
     pub fn knn(
         &self,
         scope: &Scope,
         query: &[f32],
         k: usize,
         time_ctx: Option<TimeContext>,
+        recency: Option<RecencyContext>,
     ) -> Vec<Neighbor> {
         let bucket = match self.buckets.get(scope) {
             Some(b) => b,
@@ -184,14 +213,19 @@ impl SynapseIndex {
         let mut scored: Vec<(f32, &Entry)> = bucket
             .iter()
             .map(|e| {
-                let base = cosine(query, &e.vector);
+                let mut score = cosine(query, &e.vector);
                 // 時刻補正: weight*(affinity-0.5)。affinity=0.5（中立/文脈未知）で補正ゼロ。
-                let score = match time_ctx {
-                    Some(ctx) if ctx.weight > 0.0 => {
-                        base + ctx.weight * (time_affinity(e, &ctx) - 0.5)
+                if let Some(ctx) = time_ctx {
+                    if ctx.weight > 0.0 {
+                        score += ctx.weight * (time_affinity(e, &ctx) - 0.5);
                     }
-                    _ => base,
-                };
+                }
+                // recency 加算ブースト: weight*recency_factor。最近ほど大きく持ち上げ、古い項は ~0。
+                if let Some(rc) = recency {
+                    if rc.weight > 0.0 && rc.halflife_secs > 0.0 {
+                        score += rc.weight * recency_factor(e, &rc);
+                    }
+                }
                 (score, e)
             })
             .collect();
@@ -236,4 +270,76 @@ pub fn le_bytes_to_vector(bytes: &[u8]) -> Option<Vec<f32>> {
         out.push(f32::from_le_bytes(arr));
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_entry(id: i64, created_at: Option<i64>) -> Entry {
+        Entry {
+            id,
+            topic_id: None,
+            content: format!("c{}", id),
+            // 全件同一ベクトル → cosine は同点になり、recency 補正だけが順位を決める。
+            vector: vec![1.0, 0.0, 0.0],
+            ctx_tod: None,
+            ctx_dow: None,
+            created_at,
+        }
+    }
+
+    fn scope() -> Scope {
+        Scope {
+            user_id: "u".into(),
+            bot_id: "b".into(),
+            guild_id: None,
+        }
+    }
+
+    #[test]
+    fn recency_boosts_newer_when_weight_positive() {
+        let mut idx = SynapseIndex::new(3);
+        idx.insert(scope(), mk_entry(1, Some(1_000))); // 古い
+        idx.insert(scope(), mk_entry(2, Some(100_000))); // 新しい
+        let q = vec![1.0, 0.0, 0.0];
+        let rc = RecencyContext {
+            now_epoch: 100_000,
+            weight: 0.5,
+            halflife_secs: 3600.0,
+        };
+        let res = idx.knn(&scope(), &q, 2, None, Some(rc));
+        assert_eq!(res[0].id, 2, "recency 有効なら新しい方が上位に来るべき");
+        assert!(res[0].score > res[1].score, "新しい方のスコアが高いべき");
+    }
+
+    #[test]
+    fn recency_disabled_keeps_scores_tied() {
+        // recency 無効（None）では cosine 同点 → スコアは等しい（順位は不変）。
+        let mut idx = SynapseIndex::new(3);
+        idx.insert(scope(), mk_entry(1, Some(1_000)));
+        idx.insert(scope(), mk_entry(2, Some(100_000)));
+        let q = vec![1.0, 0.0, 0.0];
+        let res = idx.knn(&scope(), &q, 2, None, None);
+        assert!(
+            (res[0].score - res[1].score).abs() < 1e-6,
+            "recency 無効なら cosine 同点でスコアも同点であるべき"
+        );
+    }
+
+    #[test]
+    fn recency_none_created_at_is_neutral() {
+        // created_at 不明（None）はブーストされず、既知で最近の方が上位になる。
+        let mut idx = SynapseIndex::new(3);
+        idx.insert(scope(), mk_entry(1, None)); // 形成時刻不明
+        idx.insert(scope(), mk_entry(2, Some(100_000))); // 最近
+        let q = vec![1.0, 0.0, 0.0];
+        let rc = RecencyContext {
+            now_epoch: 100_000,
+            weight: 0.5,
+            halflife_secs: 3600.0,
+        };
+        let res = idx.knn(&scope(), &q, 2, None, Some(rc));
+        assert_eq!(res[0].id, 2, "created_at 既知で最近の方がブーストされ上位");
+    }
 }

@@ -137,6 +137,17 @@ export const config = {
 	/** R1: L2 想起(1st Hop KNN)の取得件数。 */
 	synapseRecallK: parseInt(getSetting("SYNAPSE_RECALL_K", "5"), 10),
 
+	/**
+	 * R1: L2 想起の recency 加算ブースト重み。意味KNN後に「形成からの経過時間」で
+	 * 最近のシナプスを上位へ持ち上げる（最大 +weight）。0 で無効（純粋な意味KNN＋時刻補正）。
+	 */
+	synapseRecencyWeight: parseFloat(getSetting("SYNAPSE_RECENCY_WEIGHT", "0.15")),
+
+	/** R1: recency ブーストの半減期（時間）。この時間で recency 係数が半分に減衰する。 */
+	synapseRecencyHalflifeHours: parseFloat(
+		getSetting("SYNAPSE_RECENCY_HALFLIFE_HOURS", "18"),
+	),
+
 	// ─── ターン処理プランナー / 重い処理の非同期化（常時有効） ──────────────
 
 	/** プランナー用モデル（未指定なら本体と同じモデルを使う）。 */

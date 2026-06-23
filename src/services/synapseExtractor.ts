@@ -113,10 +113,16 @@ export async function maybeExtractSynapse(args: {
 
 		// RAM 索引へ登録し、埋め込み(base64)を受け取って永続化する。
 		// エンジンが落ちていれば null（行は埋め込みなしで残る → 将来の reindex で補完）。
-		const indexed = await indexSynapse(id, args.scope, topicId, content, {
-			ctxTod,
-			ctxDow,
-		});
+		// createdAtEpoch は SQLite の created_at（datetime('now','localtime')）と同一基準の
+		// 真の Unix エポック秒。recency 再ランキングの基準時刻として渡す。
+		const indexed = await indexSynapse(
+			id,
+			args.scope,
+			topicId,
+			content,
+			{ ctxTod, ctxDow },
+			Math.floor(now.getTime() / 1000),
+		);
 		if (indexed) {
 			const buffer = Buffer.from(indexed.embeddingB64, "base64");
 			updateSynapseEmbedding(id, buffer, indexed.modelVersion);

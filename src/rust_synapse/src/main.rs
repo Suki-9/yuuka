@@ -25,7 +25,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use embedder::{Embedder, HashNgramEmbedder};
-use index::{vector_to_le_bytes, Entry, Scope, SynapseIndex, TimeContext};
+use index::{vector_to_le_bytes, Entry, RecencyContext, Scope, SynapseIndex, TimeContext};
 
 // ─── Daemon IPC プロトコル（凍結・Node クライアントと厳密一致） ─────────────────
 // Request:  {"id": <u64>, "command": <string>, ...fields}
@@ -127,6 +127,13 @@ struct AssembleReq {
     now_dow: Option<i64>,
     #[serde(default)]
     time_weight: Option<f32>,
+    // recency 文脈（再ランキング・任意）。recency_weight 省略/0 のときはブーストしない。
+    #[serde(default)]
+    now_epoch: Option<i64>,
+    #[serde(default)]
+    recency_weight: Option<f32>,
+    #[serde(default)]
+    recency_halflife_secs: Option<f32>,
 }
 fn default_k() -> usize {
     5
@@ -144,6 +151,9 @@ struct IndexReq {
     ctx_tod: Option<i64>,
     #[serde(default)]
     ctx_dow: Option<i64>,
+    // 形成時刻（Unix エポック秒・recency 再ランキング専用・任意）。
+    #[serde(default)]
+    created_at: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -215,7 +225,21 @@ impl Engine {
                         }
                         _ => None,
                     };
-                    let neighbors = self.index.knn(&scope, &qvec, r.k, time_ctx);
+                    // recency 文脈は now_epoch/recency_weight/recency_halflife_secs が
+                    // 揃い weight>0 かつ halflife>0 のときのみ構築。
+                    let recency = match (r.now_epoch, r.recency_weight, r.recency_halflife_secs) {
+                        (Some(now_epoch), Some(weight), Some(halflife_secs))
+                            if weight > 0.0 && halflife_secs > 0.0 =>
+                        {
+                            Some(RecencyContext {
+                                now_epoch,
+                                weight,
+                                halflife_secs,
+                            })
+                        }
+                        _ => None,
+                    };
+                    let neighbors = self.index.knn(&scope, &qvec, r.k, time_ctx, recency);
                     let synapses: Vec<Value> = neighbors
                         .into_iter()
                         .map(|n| {
@@ -254,6 +278,7 @@ impl Engine {
                             vector,
                             ctx_tod: r.ctx_tod,
                             ctx_dow: r.ctx_dow,
+                            created_at: r.created_at,
                         },
                     );
 

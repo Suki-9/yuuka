@@ -272,6 +272,12 @@ export async function assembleRecall(
 	 * nowTod=現在の時間帯(0-23) / nowDow=現在の曜日(0=日〜6=土)。
 	 */
 	timeCtx?: { nowTod: number; nowDow: number; timeWeight: number },
+	/**
+	 * recency 再ランキング指定（任意）。意味KNN後に「形成からの経過時間」で最近の
+	 * シナプスを加算ブーストする。weight=0/未指定または halflifeSecs<=0 のとき素通り。
+	 * nowEpoch=現在の Unix エポック秒 / halflifeSecs=半減期（秒）。
+	 */
+	recencyCtx?: { nowEpoch: number; weight: number; halflifeSecs: number },
 ): Promise<RecallResult | null> {
 	const daemon = getDaemon();
 	if (!daemon) return null;
@@ -289,6 +295,14 @@ export async function assembleRecall(
 							now_tod: timeCtx.nowTod,
 							now_dow: timeCtx.nowDow,
 							time_weight: timeCtx.timeWeight,
+						}
+					: {}),
+				// 重み・半減期が正のときのみ recency 文脈を送る（既定は送らず素通り）。
+				...(recencyCtx && recencyCtx.weight > 0 && recencyCtx.halflifeSecs > 0
+					? {
+							now_epoch: recencyCtx.nowEpoch,
+							recency_weight: recencyCtx.weight,
+							recency_halflife_secs: recencyCtx.halflifeSecs,
 						}
 					: {}),
 			},
@@ -328,6 +342,8 @@ export async function indexSynapse(
 	content: string,
 	/** 形成時の時刻文脈（再ランキング専用）。未知なら null。 */
 	timeCtx?: { ctxTod: number | null; ctxDow: number | null },
+	/** 形成時刻（Unix エポック秒・recency 再ランキング専用）。未指定なら Rust 側は中立扱い。 */
+	createdAtEpoch?: number,
 ): Promise<{ embeddingB64: string; modelVersion: string; dim: number } | null> {
 	const daemon = getDaemon();
 	if (!daemon) return null;
@@ -341,6 +357,7 @@ export async function indexSynapse(
 				content,
 				ctx_tod: timeCtx?.ctxTod ?? null,
 				ctx_dow: timeCtx?.ctxDow ?? null,
+				created_at: createdAtEpoch ?? null,
 			},
 			8000,
 		)) as {
