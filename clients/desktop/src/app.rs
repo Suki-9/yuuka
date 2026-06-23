@@ -340,8 +340,7 @@ impl eframe::App for YuukaApp {
         }
 
         // Esc でチャット → オーバーレイへ（client_design.md §4.1）。
-        if matches!(self.state.view, View::Chat)
-            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+        if matches!(self.state.view, View::Chat) && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
             self.state.view = View::Overlay;
         }

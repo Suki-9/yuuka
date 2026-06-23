@@ -128,9 +128,8 @@ enum SessionOutcome {
     Disconnected,
 }
 
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// `wss://.../ws/chat?botId={id}` へ Bearer 付きで接続する。
 async fn connect(
@@ -161,11 +160,14 @@ async fn run_session(
     let mut ping_timer = tokio::time::interval(PING_INTERVAL);
     ping_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // 再接続直後に退避分を送り直す（NFR-6）。
-    for frame in outbox.drain(..) {
+    // 再接続直後に退避分を送り直す（NFR-6）。退避キューを一旦取り出し、
+    // 送れなかった分（とそれ以降）はキューへ戻して切断扱いにする。
+    let pending: Vec<ClientFrame> = std::mem::take(outbox);
+    let mut pending_iter = pending.into_iter();
+    while let Some(frame) = pending_iter.next() {
         if send_frame(&mut sink, &frame, &handle.net_tx).await.is_err() {
-            // 送れなければ退避へ戻して切断扱い。
             outbox.push(frame);
+            outbox.extend(pending_iter); // 残りも順序を保って退避へ戻す。
             return SessionOutcome::Disconnected;
         }
     }

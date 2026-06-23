@@ -49,7 +49,12 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
             ui.end_row();
 
             ui.label("自動起動 (Windows)");
-            ui.add_enabled(false, egui::Checkbox::new(&mut false.clone(), "(Phase 5)"));
+            // 自動起動トグルは Phase 5 で os::set_autostart に配線する（現状は無効表示）。
+            let mut autostart_placeholder = false;
+            ui.add_enabled(
+                false,
+                egui::Checkbox::new(&mut autostart_placeholder, "(Phase 5)"),
+            );
             ui.end_row();
         });
 

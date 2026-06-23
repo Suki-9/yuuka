@@ -128,7 +128,10 @@ pub struct OverlayPos {
 impl Default for OverlayPos {
     fn default() -> Self {
         // 既定は右下寄り（実機調整は Phase 5）。
-        OverlayPos { x: 1200.0, y: 700.0 }
+        OverlayPos {
+            x: 1200.0,
+            y: 700.0,
+        }
     }
 }
 
@@ -211,9 +214,7 @@ impl Settings {
 /// 2. 保存された前回 Bot（`Settings.last_bot_id`）
 /// 3. None（呼び出し側が `ready.bots` のプライマリへフォールバック）
 pub fn resolve_bot_id(args: &CliArgs, settings: &Settings) -> Option<String> {
-    args.bot_id
-        .clone()
-        .or_else(|| settings.last_bot_id.clone())
+    args.bot_id.clone().or_else(|| settings.last_bot_id.clone())
 }
 
 // ===========================================================================
@@ -266,7 +267,10 @@ mod tests {
         settings.last_bot_id = Some("saved".into());
 
         // 1. --bot が最優先
-        let args = CliArgs { bot_id: Some("arg".into()), hidden: false };
+        let args = CliArgs {
+            bot_id: Some("arg".into()),
+            hidden: false,
+        };
         assert_eq!(resolve_bot_id(&args, &settings).as_deref(), Some("arg"));
 
         // 2. 引数無し → 保存された前回 Bot

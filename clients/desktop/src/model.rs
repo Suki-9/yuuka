@@ -52,11 +52,7 @@ pub enum ClientFrame {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         audio: Option<Attachment>,
         /// 任意: 返信チェーンの対象メッセージ ID。
-        #[serde(
-            rename = "replyToId",
-            skip_serializing_if = "Option::is_none",
-            default
-        )]
+        #[serde(rename = "replyToId", skip_serializing_if = "Option::is_none", default)]
         reply_to_id: Option<String>,
     },
 
@@ -156,7 +152,11 @@ pub struct BotInfo {
     pub id: String,
     pub name: String,
     /// オーブに描く Discord アバター URL。未設定の Bot もありうるので任意。
-    #[serde(rename = "discord_avatar_url", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "discord_avatar_url",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub discord_avatar_url: Option<String>,
     /// プライマリ Bot か（グローバルホットキー登録の可否判定）。
     #[serde(default)]
@@ -234,10 +234,7 @@ pub enum ServerFrame {
     },
 
     /// エラー（コード＋人間向けメッセージ）。
-    Error {
-        code: ErrorCode,
-        message: String,
-    },
+    Error { code: ErrorCode, message: String },
 }
 
 /// エラーコード（backend_api.md §7）。未知コードにも前方互換で耐える。
@@ -320,7 +317,12 @@ mod tests {
         }"#;
         let frame: ServerFrame = serde_json::from_str(json).unwrap();
         match frame {
-            ServerFrame::Ready { bot, bots, max_upload_mb, user } => {
+            ServerFrame::Ready {
+                bot,
+                bots,
+                max_upload_mb,
+                user,
+            } => {
                 assert_eq!(user.discord_id, "u1");
                 assert_eq!(bot.id, "b1");
                 assert!(bot.primary);
@@ -337,11 +339,21 @@ mod tests {
     fn server_status_parse() {
         let f: ServerFrame =
             serde_json::from_str(r#"{"type":"status","state":"thinking"}"#).unwrap();
-        assert_eq!(f, ServerFrame::Status { state: StatusState::Thinking });
+        assert_eq!(
+            f,
+            ServerFrame::Status {
+                state: StatusState::Thinking
+            }
+        );
         // 未知の state も Other に落ちる（前方互換）。
         let f2: ServerFrame =
             serde_json::from_str(r#"{"type":"status","state":"reflecting"}"#).unwrap();
-        assert_eq!(f2, ServerFrame::Status { state: StatusState::Other });
+        assert_eq!(
+            f2,
+            ServerFrame::Status {
+                state: StatusState::Other
+            }
+        );
     }
 
     #[test]
@@ -358,7 +370,13 @@ mod tests {
         }"#;
         let frame: ServerFrame = serde_json::from_str(json).unwrap();
         match frame {
-            ServerFrame::Done { message_id, embeds, files, deferred, .. } => {
+            ServerFrame::Done {
+                message_id,
+                embeds,
+                files,
+                deferred,
+                ..
+            } => {
                 assert_eq!(message_id, "m1");
                 assert_eq!(embeds.len(), 1);
                 assert_eq!(embeds[0].color, Some(3447003));
@@ -377,7 +395,12 @@ mod tests {
         let json = r#"{"type":"done","messageId":"m2","text":"はい。"}"#;
         let frame: ServerFrame = serde_json::from_str(json).unwrap();
         match frame {
-            ServerFrame::Done { embeds, files, deferred, .. } => {
+            ServerFrame::Done {
+                embeds,
+                files,
+                deferred,
+                ..
+            } => {
                 assert!(embeds.is_empty());
                 assert!(files.is_empty());
                 assert!(!deferred);
@@ -390,7 +413,12 @@ mod tests {
     fn server_push_and_interim() {
         let i: ServerFrame =
             serde_json::from_str(r#"{"type":"interim","text":"やっておきます。"}"#).unwrap();
-        assert_eq!(i, ServerFrame::Interim { text: "やっておきます。".into() });
+        assert_eq!(
+            i,
+            ServerFrame::Interim {
+                text: "やっておきます。".into()
+            }
+        );
 
         let p: ServerFrame = serde_json::from_str(
             r#"{"type":"push","text":"完了しました。","embeds":[],"files":[]}"#,
@@ -405,13 +433,31 @@ mod tests {
     #[test]
     fn server_error_codes() {
         let cases = [
-            (r#"{"type":"error","code":"unauthorized","message":"x"}"#, ErrorCode::Unauthorized),
-            (r#"{"type":"error","code":"no_gemini_key","message":"x"}"#, ErrorCode::NoGeminiKey),
-            (r#"{"type":"error","code":"rate_limited","message":"x"}"#, ErrorCode::RateLimited),
-            (r#"{"type":"error","code":"too_large","message":"x"}"#, ErrorCode::TooLarge),
-            (r#"{"type":"error","code":"internal","message":"x"}"#, ErrorCode::Internal),
+            (
+                r#"{"type":"error","code":"unauthorized","message":"x"}"#,
+                ErrorCode::Unauthorized,
+            ),
+            (
+                r#"{"type":"error","code":"no_gemini_key","message":"x"}"#,
+                ErrorCode::NoGeminiKey,
+            ),
+            (
+                r#"{"type":"error","code":"rate_limited","message":"x"}"#,
+                ErrorCode::RateLimited,
+            ),
+            (
+                r#"{"type":"error","code":"too_large","message":"x"}"#,
+                ErrorCode::TooLarge,
+            ),
+            (
+                r#"{"type":"error","code":"internal","message":"x"}"#,
+                ErrorCode::Internal,
+            ),
             // 未知コードは Unknown へ（前方互換）。
-            (r#"{"type":"error","code":"teapot","message":"x"}"#, ErrorCode::Unknown),
+            (
+                r#"{"type":"error","code":"teapot","message":"x"}"#,
+                ErrorCode::Unknown,
+            ),
         ];
         for (json, expected) in cases {
             match serde_json::from_str::<ServerFrame>(json).unwrap() {

@@ -20,8 +20,10 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
     let mut clicked = false;
 
     // オーブ円の領域を確保。ドラッグ移動はビューポート移動として Phase 5 で配線。
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ORB_DIAMETER, ORB_DIAMETER), egui::Sense::click_and_drag());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ORB_DIAMETER, ORB_DIAMETER),
+        egui::Sense::click_and_drag(),
+    );
 
     let painter = ui.painter();
     let center = rect.center();
