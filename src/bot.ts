@@ -161,6 +161,10 @@ function startProfileSyncTimer(): void {
 		},
 		60 * 60 * 1000,
 	); // 1時間ごと
+	// 常駐タイマーがイベントループを生かし続けて graceful shutdown を妨げないよう unref する。
+	// stopBot() での clearInterval に加えた多重防御で、watchdog 等の stopBot を経由しない
+	// 終了経路でも SIGINT/SIGTERM での即時終了を保証する。
+	profileSyncTimer.unref();
 }
 
 // ─── Bot共有招待への応答（§5.2.2: ボタンによる承認フロー） ───────────────────
