@@ -1,12 +1,12 @@
-import crypto from "node:crypto";
 import { EmbedBuilder } from "discord.js";
-import { type WebhookEndpointRecord, addDelivery } from "../db/webhookRepo.js";
+import { addAuditLog } from "../db/auditRepo.js";
+import { addReminder } from "../db/reminderRepo.js";
+import { addTodo } from "../db/todoRepo.js";
+import { addDelivery, type WebhookEndpointRecord } from "../db/webhookRepo.js";
 import { decryptText } from "../utils/crypto.js";
+import { verifyHmacSha256Hex } from "../utils/webhookSignature.js";
 import { generateAuxText } from "./llmClient.js";
 import { sendToUser } from "./notifier.js";
-import { addTodo } from "../db/todoRepo.js";
-import { addReminder } from "../db/reminderRepo.js";
-import { addAuditLog } from "../db/auditRepo.js";
 
 // ─── Webhook受信処理（§3.13） ────────────────────────────────────────────────
 // 受信ペイロードを（可能なら）LLMが解釈して人間向け通知文を生成し、
@@ -72,21 +72,8 @@ function verifyHmacSignature(
 		return false;
 	}
 
-	// "sha256=<hex>" 形式（GitHub互換）と素のhexの両方を受け付ける
-	const provided = signatureHeader.replace(/^sha256=/i, "").trim();
-	const expected = crypto
-		.createHmac("sha256", secret)
-		.update(rawBody)
-		.digest("hex");
-
-	try {
-		const providedBuf = Buffer.from(provided, "hex");
-		const expectedBuf = Buffer.from(expected, "hex");
-		if (providedBuf.length !== expectedBuf.length) return false;
-		return crypto.timingSafeEqual(providedBuf, expectedBuf);
-	} catch {
-		return false;
-	}
+	// "sha256=<hex>" 形式（GitHub互換）と素のhexの両方を受け付ける（純関数へ委譲）
+	return verifyHmacSha256Hex(secret, rawBody, signatureHeader);
 }
 
 /** ペイロードをLLM抜きで整形するフォールバック（JSONの主要キーを列挙） */
