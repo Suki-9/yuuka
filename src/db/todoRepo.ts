@@ -333,12 +333,19 @@ export function completeTodo(
 	return getTodoById(userId, botId, id);
 }
 
-/** ToDo を削除する（親を削除すると FK ON DELETE CASCADE でサブタスク・進捗ログも連鎖削除される） */
+/**
+ * ToDo を削除する。親を削除した場合はサブタスクも一緒に削除する。
+ * ※ 既存DBは parent_id を ALTER ADD COLUMN で後付けするため FK ON DELETE CASCADE が効かない。
+ *    新規DB・既存DBの双方で確実に連鎖削除するため、ここで明示的に子も削除する（深さ1前提）。
+ *    進捗ログ(task_progress_logs)は常に FK 付きで新規作成されるため、各行削除でカスケード除去される。
+ */
 export function deleteTodo(userId: string, botId: string, id: number): boolean {
 	const db = getDb();
 	const result = db
-		.prepare("DELETE FROM todos WHERE user_id = ? AND bot_id = ? AND id = ?")
-		.run(userId, botId, id);
+		.prepare(
+			"DELETE FROM todos WHERE user_id = ? AND bot_id = ? AND (id = ? OR parent_id = ?)",
+		)
+		.run(userId, botId, id, id);
 	return result.changes > 0;
 }
 

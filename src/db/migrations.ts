@@ -1025,8 +1025,9 @@ export async function runMigrations(): Promise<void> {
       FOREIGN KEY (parent_id) REFERENCES todos(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_id, status);
-    CREATE INDEX IF NOT EXISTS idx_todos_parent ON todos(parent_id);
   `);
+	// 注: parent_id 用インデックス（idx_todos_parent）は migrateToTaskProgress で作成する。
+	// 既存DBではこの時点で parent_id 列が未追加のため、ここで張ると失敗する。
 
 	// ─── 予定（Googleカレンダー同期）（§3.2） ───────────────────────────────
 	db.exec(`

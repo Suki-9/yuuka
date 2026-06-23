@@ -258,7 +258,7 @@ export const todoRoutes: RouteDef[] = [
 					success: false,
 					message: "IDが必要です。",
 				});
-			// 親削除時はサブタスク・進捗ログも FK ON DELETE CASCADE で連鎖削除される
+			// 親削除時はサブタスク・進捗ログも一緒に削除される（deleteTodo が明示的に連鎖削除）
 			const ok = deleteTodo(userId, botId, id);
 			sendJson(ctx.res, 200, { success: ok });
 		},
