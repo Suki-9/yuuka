@@ -619,6 +619,8 @@ document.addEventListener("DOMContentLoaded", () => {
 				"modal-audit",
 				"modal-mcp-dashboard",
 				"modal-int-calendars",
+				"modal-subtask",
+				"modal-task-progress",
 			].forEach((id) => {
 				const m = document.getElementById(id);
 				if (m) closeModal(m);
@@ -630,9 +632,10 @@ document.addEventListener("DOMContentLoaded", () => {
 	});
 
 	// Open triggers
-	document
-		.getElementById("btn-new-task")
-		.addEventListener("click", () => openModal(modalTask));
+	document.getElementById("btn-new-task").addEventListener("click", () => {
+		prepareNewTaskModal();
+		openModal(modalTask);
+	});
 	document
 		.getElementById("btn-new-schedule")
 		.addEventListener("click", () => openModal(modalSchedule));
@@ -2107,121 +2110,267 @@ document.addEventListener("DOMContentLoaded", () => {
 		}
 	}
 
-	// E. TASKS VIEW LOGIC (Fetch & CRUD)
-	async function fetchTasksList(filter = "all") {
-		tasksList.replaceChildren();
+	// E. TASKS VIEW LOGIC (Fetch & CRUD) — v12: サブタスク・進捗・ガント対応
+	const PRIORITY_LABELS = { high: "🔴 高", medium: "🟡 中", low: "🔵 低" };
+	let editingTaskId = null; // タスクモーダルの編集対象（null=新規追加）
+	let subtaskParentId = null; // サブタスク追加対象の親ID
+	let progressTaskId = null; // 進捗更新対象のタスクID
+	let ganttChart = null; // Chart.js インスタンス（再描画時に破棄する）
 
+	/** 現在の一覧フィルタ（all/pending/done） */
+	function currentTaskFilter() {
+		const el = document.querySelector("[data-filter].active");
+		return el ? el.getAttribute("data-filter") : "all";
+	}
+
+	/** tags（JSON文字列）を配列へ */
+	function parseTaskTags(raw) {
+		try {
+			const t = JSON.parse(raw || "[]");
+			return Array.isArray(t) ? t : [];
+		} catch (_e) {
+			return [];
+		}
+	}
+
+	/** ISO文字列の表示整形（日付のみ→そのまま、日時→分まで） */
+	function fmtTaskDate(s) {
+		if (!s) return "";
+		return s.includes("T") ? s.slice(0, 16).replace("T", " ") : s;
+	}
+
+	/** 進捗バー要素を生成 */
+	function buildProgressBar(percent) {
+		const wrap = document.createElement("div");
+		wrap.className = "task-progress-bar";
+		const fill = document.createElement("div");
+		fill.className = "task-progress-fill";
+		fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+		wrap.appendChild(fill);
+		return wrap;
+	}
+
+	/** 小さいアクションボタンを生成 */
+	function buildMiniButton(icon, label, onClick) {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "btn-mini";
+		const ic = document.createElement("span");
+		ic.className = "material-symbols-outlined";
+		ic.textContent = icon;
+		btn.appendChild(ic);
+		btn.appendChild(document.createTextNode(label));
+		btn.addEventListener("click", onClick);
+		return btn;
+	}
+
+	/** メタ行の1項目（アイコン＋テキスト） */
+	function buildMetaItem(icon, text) {
+		const span = document.createElement("span");
+		span.className = "meta-item";
+		const ic = document.createElement("span");
+		ic.className = "material-symbols-outlined meta-icon";
+		ic.textContent = icon;
+		span.appendChild(ic);
+		span.appendChild(document.createTextNode(` ${text}`));
+		return span;
+	}
+
+	/** サブタスク行を生成 */
+	function buildSubtaskRow(sub) {
+		const row = document.createElement("div");
+		row.className = `subtask-row ${sub.status === "done" ? "done" : ""}`;
+
+		const checkbox = document.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "checkbox-custom";
+		checkbox.checked = sub.status === "done";
+		checkbox.addEventListener("change", () =>
+			toggleTaskCompletion(sub.id, checkbox.checked),
+		);
+
+		const title = document.createElement("span");
+		title.className = "subtask-title";
+		title.textContent = sub.title;
+
+		row.appendChild(checkbox);
+		row.appendChild(title);
+
+		if (sub.due_date) {
+			const due = document.createElement("span");
+			due.className = "subtask-due";
+			due.textContent = `〜${fmtTaskDate(sub.due_date)}`;
+			row.appendChild(due);
+		}
+
+		const del = document.createElement("button");
+		del.type = "button";
+		del.className = "btn-trash";
+		const delIcon = document.createElement("span");
+		delIcon.className = "material-symbols-outlined";
+		delIcon.textContent = "delete";
+		del.appendChild(delIcon);
+		del.addEventListener("click", () => handleDeleteTask(sub.id));
+		row.appendChild(del);
+
+		return row;
+	}
+
+	/** 親タスク1件のカードを生成（サブタスク・進捗・操作ボタン込み） */
+	function buildTaskCard(task) {
+		const subtasks = task.subtasks || [];
+		const hasSubtasks = subtasks.length > 0;
+		const percent =
+			typeof task.effective_progress === "number"
+				? task.effective_progress
+				: task.status === "done"
+					? 100
+					: task.progress || 0;
+
+		const card = document.createElement("div");
+		card.className = `card-item glass hover-lift ${task.status === "done" ? "done" : ""}`;
+		card.style.flexDirection = "column";
+		card.style.alignItems = "stretch";
+
+		// 上段: チェックボックス＋本文＋削除
+		const topRow = document.createElement("div");
+		topRow.style.display = "flex";
+		topRow.style.justifyContent = "space-between";
+		topRow.style.gap = "8px";
+
+		const left = document.createElement("div");
+		left.className = "card-content-left";
+
+		const checkbox = document.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "checkbox-custom";
+		checkbox.checked = task.status === "done";
+		checkbox.disabled = hasSubtasks; // 親はサブタスクから算出のため直接完了は子に委ねる
+		checkbox.title = hasSubtasks
+			? "サブタスクを全て完了すると進捗100%になります"
+			: "";
+		checkbox.addEventListener("change", () =>
+			toggleTaskCompletion(task.id, checkbox.checked),
+		);
+
+		const text = document.createElement("div");
+		text.className = "card-text";
+
+		const title = document.createElement("div");
+		title.className = "card-title";
+		title.textContent = task.title;
+
+		const desc = document.createElement("div");
+		desc.className = "card-desc";
+		desc.textContent = task.description || "説明なし";
+
+		const meta = document.createElement("div");
+		meta.className = "card-meta-row";
+		if (task.start_date)
+			meta.appendChild(buildMetaItem("event", `開始: ${fmtTaskDate(task.start_date)}`));
+		if (task.due_date)
+			meta.appendChild(buildMetaItem("calendar_today", `期限: ${fmtTaskDate(task.due_date)}`));
+		meta.appendChild(
+			buildMetaItem("priority_high", `優先度: ${PRIORITY_LABELS[task.priority] || "—"}`),
+		);
+		parseTaskTags(task.tags).forEach((tag) => {
+			const chip = document.createElement("span");
+			chip.className = "tag-chip";
+			chip.textContent = `#${tag}`;
+			meta.appendChild(chip);
+		});
+
+		text.appendChild(title);
+		text.appendChild(desc);
+		text.appendChild(meta);
+		left.appendChild(checkbox);
+		left.appendChild(text);
+
+		const right = document.createElement("div");
+		right.className = "card-actions-right";
+		const btnTrash = document.createElement("button");
+		btnTrash.className = "btn-trash";
+		const trashIcon = document.createElement("span");
+		trashIcon.className = "material-symbols-outlined";
+		trashIcon.textContent = "delete";
+		btnTrash.appendChild(trashIcon);
+		btnTrash.addEventListener("click", () => handleDeleteTask(task.id));
+		right.appendChild(btnTrash);
+
+		topRow.appendChild(left);
+		topRow.appendChild(right);
+		card.appendChild(topRow);
+
+		// 進捗バー＋％
+		const progRow = document.createElement("div");
+		progRow.style.display = "flex";
+		progRow.style.alignItems = "center";
+		const bar = buildProgressBar(percent);
+		bar.style.flex = "1";
+		const pctText = document.createElement("span");
+		pctText.className = "task-progress-text";
+		pctText.textContent = hasSubtasks
+			? `${percent}% (${subtasks.filter((s) => s.status === "done").length}/${subtasks.length})`
+			: `${percent}%`;
+		progRow.appendChild(bar);
+		progRow.appendChild(pctText);
+		card.appendChild(progRow);
+
+		// 操作ボタン
+		const buttons = document.createElement("div");
+		buttons.className = "task-card-buttons";
+		buttons.style.marginTop = "8px";
+		if (!hasSubtasks) {
+			buttons.appendChild(
+				buildMiniButton("trending_up", "進捗更新", () => openProgressModal(task)),
+			);
+		}
+		buttons.appendChild(
+			buildMiniButton("add_task", "サブタスク", () => openSubtaskModal(task)),
+		);
+		buttons.appendChild(
+			buildMiniButton("edit", "編集", () => openEditTaskModal(task)),
+		);
+		card.appendChild(buttons);
+
+		// サブタスク（折りたたみ）
+		if (hasSubtasks) {
+			const toggle = document.createElement("button");
+			toggle.type = "button";
+			toggle.className = "subtask-toggle";
+			const tIcon = document.createElement("span");
+			tIcon.className = "material-symbols-outlined";
+			tIcon.textContent = "expand_more";
+			toggle.appendChild(tIcon);
+			toggle.appendChild(
+				document.createTextNode(` サブタスク ${subtasks.length}件`),
+			);
+			toggle.style.marginTop = "6px";
+
+			const subList = document.createElement("div");
+			subList.className = "subtask-list";
+			subtasks.forEach((s) => subList.appendChild(buildSubtaskRow(s)));
+
+			toggle.addEventListener("click", () => {
+				const hidden = subList.style.display === "none";
+				subList.style.display = hidden ? "flex" : "none";
+				tIcon.style.transform = hidden ? "rotate(0deg)" : "rotate(-90deg)";
+			});
+
+			card.appendChild(toggle);
+			card.appendChild(subList);
+		}
+
+		return card;
+	}
+
+	async function fetchTasksList(filter = currentTaskFilter()) {
+		tasksList.replaceChildren();
 		try {
 			const res = await fetch(`/api/tasks?status=${filter}`);
 			const data = await res.json();
-
 			if (data.success && data.tasks.length > 0) {
-				data.tasks.forEach((task) => {
-					const card = document.createElement("div");
-					card.className = `card-item glass hover-lift ${task.status === "done" ? "done" : ""}`;
-
-					const left = document.createElement("div");
-					left.className = "card-content-left";
-
-					const checkbox = document.createElement("input");
-					checkbox.type = "checkbox";
-					checkbox.className = "checkbox-custom";
-					checkbox.checked = task.status === "done";
-					checkbox.addEventListener("change", () =>
-						toggleTaskCompletion(task.id, checkbox.checked),
-					);
-
-					const text = document.createElement("div");
-					text.className = "card-text";
-
-					const title = document.createElement("div");
-					title.className = "card-title";
-					title.textContent = task.title;
-
-					const desc = document.createElement("div");
-					desc.className = "card-desc";
-					desc.textContent = task.description || "説明なし";
-
-					const meta = document.createElement("div");
-					meta.className = "card-meta-row";
-
-					if (task.due_date) {
-						const due = document.createElement("span");
-						due.className = "meta-item";
-
-						const dueIcon = document.createElement("span");
-						dueIcon.className = "material-symbols-outlined meta-icon";
-						dueIcon.textContent = "calendar_today";
-
-						const dueText = document.createTextNode(` 期限: ${task.due_date}`);
-
-						due.appendChild(dueIcon);
-						due.appendChild(dueText);
-						meta.appendChild(due);
-					}
-
-					const pri = document.createElement("span");
-					pri.className = "meta-item";
-
-					const priIcon = document.createElement("span");
-					priIcon.className = "material-symbols-outlined meta-icon";
-					priIcon.textContent = "priority_high";
-
-					// v2: priority は "high" | "medium" | "low" | null
-					const priorityLabels = {
-						high: "🔴 高",
-						medium: "🟡 中",
-						low: "🔵 低",
-					};
-					const priText = document.createTextNode(
-						` 優先度: ${priorityLabels[task.priority] || "—"}`,
-					);
-
-					pri.appendChild(priIcon);
-					pri.appendChild(priText);
-					meta.appendChild(pri);
-
-					// v2: tags はJSON文字列（パースしてチップ表示）
-					let taskTags = [];
-					try {
-						taskTags = JSON.parse(task.tags || "[]");
-						if (!Array.isArray(taskTags)) taskTags = [];
-					} catch (err) {
-						taskTags = [];
-					}
-					taskTags.forEach((tag) => {
-						const chip = document.createElement("span");
-						chip.className = "tag-chip";
-						chip.textContent = `#${tag}`;
-						meta.appendChild(chip);
-					});
-
-					text.appendChild(title);
-					text.appendChild(desc);
-					text.appendChild(meta);
-
-					left.appendChild(checkbox);
-					left.appendChild(text);
-
-					const right = document.createElement("div");
-					right.className = "card-actions-right";
-
-					const btnTrash = document.createElement("button");
-					btnTrash.className = "btn-trash";
-
-					const trashIcon = document.createElement("span");
-					trashIcon.className = "material-symbols-outlined";
-					trashIcon.textContent = "delete";
-					btnTrash.appendChild(trashIcon);
-
-					btnTrash.addEventListener("click", () => handleDeleteTask(task.id));
-
-					right.appendChild(btnTrash);
-
-					card.appendChild(left);
-					card.appendChild(right);
-					tasksList.appendChild(card);
-				});
+				data.tasks.forEach((task) => tasksList.appendChild(buildTaskCard(task)));
 			} else {
 				const empty = document.createElement("div");
 				empty.className = "glass";
@@ -2231,78 +2380,445 @@ document.addEventListener("DOMContentLoaded", () => {
 		} catch (e) {
 			console.error(e);
 		}
+		fetchSomedayTasks();
 	}
 
-	// Filter Tasks
+	/** 「いつかやる」（日付未設定の親タスク）を取得・描画 */
+	async function fetchSomedayTasks() {
+		const section = document.getElementById("tasks-someday-section");
+		const list = document.getElementById("tasks-someday-list");
+		if (!section || !list) return;
+		list.replaceChildren();
+		try {
+			const res = await fetch("/api/tasks/someday");
+			const data = await res.json();
+			if (data.success && data.tasks.length > 0) {
+				section.style.display = "block";
+				data.tasks.forEach((task) => list.appendChild(buildTaskCard(task)));
+			} else {
+				section.style.display = "none";
+			}
+		} catch (e) {
+			console.error(e);
+			section.style.display = "none";
+		}
+	}
+
+	// ── 一覧フィルタ（all/pending/done） ──
 	document.querySelectorAll("[data-filter]").forEach((btn) => {
-		btn.addEventListener("click", (e) => {
+		btn.addEventListener("click", () => {
 			document
 				.querySelectorAll("[data-filter]")
 				.forEach((b) => b.classList.remove("active"));
 			btn.classList.add("active");
-			const f = btn.getAttribute("data-filter");
-			fetchTasksList(f);
+			fetchTasksList(btn.getAttribute("data-filter"));
 		});
 	});
+
+	// ── 表示モード切替（一覧 / ガント） ──
+	document.querySelectorAll("[data-task-view]").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			document
+				.querySelectorAll("[data-task-view]")
+				.forEach((b) => b.classList.remove("active"));
+			btn.classList.add("active");
+			const mode = btn.getAttribute("data-task-view");
+			const listMode = document.getElementById("tasks-list-mode");
+			const ganttMode = document.getElementById("tasks-gantt-mode");
+			if (mode === "gantt") {
+				listMode.style.display = "none";
+				ganttMode.style.display = "block";
+				renderGantt();
+			} else {
+				ganttMode.style.display = "none";
+				listMode.style.display = "block";
+				fetchTasksList();
+			}
+		});
+	});
+
+	/** 新規タスクモーダルを開く準備（編集状態をリセット） */
+	function prepareNewTaskModal() {
+		editingTaskId = null;
+		taskForm.reset();
+		const h = modalTask.querySelector(".modal-header h3");
+		if (h) h.textContent = "新規タスクの追加";
+		const submit = taskForm.querySelector('button[type="submit"]');
+		if (submit) submit.textContent = "タスク登録";
+	}
+
+	/** 既存タスクの編集モーダルを開く */
+	function openEditTaskModal(task) {
+		editingTaskId = task.id;
+		document.getElementById("task-title").value = task.title || "";
+		document.getElementById("task-description").value = task.description || "";
+		document.getElementById("task-start").value = (task.start_date || "").slice(0, 10);
+		document.getElementById("task-due").value = (task.due_date || "").slice(0, 10);
+		document.getElementById("task-priority").value = task.priority || "";
+		const h = modalTask.querySelector(".modal-header h3");
+		if (h) h.textContent = "タスクを編集";
+		const submit = taskForm.querySelector('button[type="submit"]');
+		if (submit) submit.textContent = "更新を保存";
+		openModal(modalTask);
+	}
 
 	taskForm.addEventListener("submit", async (e) => {
 		e.preventDefault();
 		const title = document.getElementById("task-title").value.trim();
-		const description = document
-			.getElementById("task-description")
-			.value.trim();
+		const description = document.getElementById("task-description").value.trim();
+		const startDate = document.getElementById("task-start").value;
 		const dueDate = document.getElementById("task-due").value;
-		const priority =
-			document.getElementById("task-priority").value || undefined;
+		const priority = document.getElementById("task-priority").value || undefined;
+		if (!title) return;
 
+		const isEdit = editingTaskId != null;
+		const url = isEdit ? "/api/tasks/update" : "/api/tasks/add";
+		const body = isEdit
+			? { id: editingTaskId, title, description, startDate, dueDate, priority }
+			: { title, description, startDate, dueDate, priority };
 		try {
-			const res = await fetch("/api/tasks/add", {
+			const res = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title, description, dueDate, priority }),
+				body: JSON.stringify(body),
 			});
 			const data = await res.json();
 			if (data.success) {
 				closeModal(modalTask);
-				taskForm.reset();
+				prepareNewTaskModal();
 				fetchTasksList();
 			}
-		} catch (e) {
-			console.error(e);
+		} catch (err) {
+			console.error(err);
 		}
 	});
 
-	async function toggleTaskCompletion(id, isChecked) {
+	// ── サブタスク追加モーダル ──
+	function openSubtaskModal(parent) {
+		subtaskParentId = parent.id;
+		const form = document.getElementById("subtask-form");
+		form.reset();
+		document.getElementById("subtask-parent-label").textContent =
+			`親タスク: ${parent.title}`;
+		openModal(document.getElementById("modal-subtask"));
+	}
+
+	document.getElementById("subtask-form").addEventListener("submit", async (e) => {
+		e.preventDefault();
+		if (subtaskParentId == null) return;
+		const title = document.getElementById("subtask-title").value.trim();
+		const startDate = document.getElementById("subtask-start").value;
+		const dueDate = document.getElementById("subtask-due").value;
+		if (!title) return;
 		try {
-			await fetch("/api/tasks/complete", {
+			const res = await fetch("/api/tasks/add", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id }),
+				body: JSON.stringify({
+					title,
+					startDate,
+					dueDate,
+					parentId: subtaskParentId,
+				}),
 			});
-			const activeFilter = document
-				.querySelector("[data-filter].active")
-				.getAttribute("data-filter");
-			fetchTasksList(activeFilter);
+			const data = await res.json();
+			if (data.success) {
+				closeModal(document.getElementById("modal-subtask"));
+				subtaskParentId = null;
+				fetchTasksList();
+			}
+		} catch (err) {
+			console.error(err);
+		}
+	});
+
+	// ── 進捗更新モーダル ──
+	function openProgressModal(task) {
+		progressTaskId = task.id;
+		const range = document.getElementById("task-progress-range");
+		const value = document.getElementById("task-progress-value");
+		range.value = task.progress || 0;
+		value.textContent = task.progress || 0;
+		document.getElementById("task-progress-note").value = "";
+		document.getElementById("task-progress-label").textContent =
+			`タスク: ${task.title}`;
+		openModal(document.getElementById("modal-task-progress"));
+	}
+
+	document.getElementById("task-progress-range").addEventListener("input", (e) => {
+		document.getElementById("task-progress-value").textContent = e.target.value;
+	});
+
+	document
+		.getElementById("task-progress-form")
+		.addEventListener("submit", async (e) => {
+			e.preventDefault();
+			if (progressTaskId == null) return;
+			const progress = Number(
+				document.getElementById("task-progress-range").value,
+			);
+			const note = document.getElementById("task-progress-note").value.trim();
+			try {
+				const res = await fetch("/api/tasks/progress", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ id: progressTaskId, progress, note }),
+				});
+				const data = await res.json();
+				if (data.success) {
+					closeModal(document.getElementById("modal-task-progress"));
+					progressTaskId = null;
+					fetchTasksList();
+				}
+			} catch (err) {
+				console.error(err);
+			}
+		});
+
+	async function toggleTaskCompletion(id, isChecked) {
+		try {
+			if (isChecked) {
+				await fetch("/api/tasks/complete", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ id }),
+				});
+			} else {
+				// 未完了へ戻す（v12: /update で status を open に）
+				await fetch("/api/tasks/update", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ id, status: "open" }),
+				});
+			}
+			fetchTasksList();
 		} catch (e) {
 			console.error(e);
 		}
 	}
 
 	async function handleDeleteTask(id) {
-		if (!confirm("本当にこのタスクを削除しますか？")) return;
+		if (
+			!confirm(
+				"本当にこのタスクを削除しますか？（サブタスクや進捗履歴も一緒に削除されます）",
+			)
+		)
+			return;
 		try {
 			await fetch("/api/tasks/delete", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ id }),
 			});
-			const activeFilter = document
-				.querySelector("[data-filter].active")
-				.getAttribute("data-filter");
-			fetchTasksList(activeFilter);
+			fetchTasksList();
 		} catch (e) {
 			console.error(e);
 		}
+	}
+
+	// ── ガントチャート（chart.js 水平フローティングバー） ──
+
+	/** ISO日付文字列をミリ秒へ（日付のみはローカル0時で解釈しTZズレを防ぐ） */
+	function parseDateMs(s) {
+		if (!s) return null;
+		if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+			const [y, m, d] = s.split("-").map(Number);
+			return new Date(y, m - 1, d).getTime();
+		}
+		const t = new Date(s).getTime();
+		return Number.isNaN(t) ? null : t;
+	}
+
+	/** 今日の0時(ms) */
+	function startOfTodayMs() {
+		const n = new Date();
+		return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+	}
+
+	const DAY_MS = 24 * 60 * 60 * 1000;
+
+	/** 1タスクをガント1行（start/end/色/進捗/ラベル）へ正規化。日付が全く無ければ null */
+	function toGanttRow(task, indent) {
+		const startMs = parseDateMs(task.start_date);
+		const dueMs = parseDateMs(task.due_date);
+		if (startMs == null && dueMs == null) return null;
+		const today = startOfTodayMs();
+		// 始端・終端の補完: 期限のみ→単日マイルストーン / 開始のみ→今日まで
+		let s = startMs != null ? startMs : dueMs;
+		let e = dueMs != null ? dueMs : Math.max(startMs, today);
+		if (e <= s) e = s + DAY_MS; // 最低1日分の幅を確保
+		const percent =
+			typeof task.effective_progress === "number"
+				? task.effective_progress
+				: task.status === "done"
+					? 100
+					: task.progress || 0;
+		const overdue = task.status !== "done" && dueMs != null && dueMs < today;
+		const color =
+			task.status === "done"
+				? "rgba(120,120,128,0.55)"
+				: overdue
+					? "rgba(237,66,69,0.65)"
+					: "rgba(187,134,252,0.55)";
+		return {
+			label: `${indent ? "↳ " : ""}${task.title}`,
+			range: [s, e],
+			color,
+			progress: percent,
+		};
+	}
+
+	async function renderGantt() {
+		const canvas = document.getElementById("tasks-gantt-canvas");
+		const emptyEl = document.getElementById("tasks-gantt-empty");
+		if (!canvas || typeof Chart === "undefined") return;
+		let tasks = [];
+		try {
+			const res = await fetch("/api/tasks/gantt");
+			const data = await res.json();
+			if (data.success) tasks = data.tasks;
+		} catch (e) {
+			console.error(e);
+		}
+
+		// 親→サブタスクの順に行を構築
+		const rows = [];
+		tasks.forEach((t) => {
+			const parentRow = toGanttRow(t, false);
+			if (parentRow) rows.push(parentRow);
+			(t.subtasks || []).forEach((s) => {
+				const r = toGanttRow(s, true);
+				if (r) rows.push(r);
+			});
+		});
+
+		if (ganttChart) {
+			ganttChart.destroy();
+			ganttChart = null;
+		}
+
+		if (rows.length === 0) {
+			emptyEl.style.display = "block";
+			canvas.style.display = "none";
+			return;
+		}
+		emptyEl.style.display = "none";
+		canvas.style.display = "block";
+
+		// 行数に応じて高さを確保
+		const scroll = document.getElementById("tasks-gantt-scroll");
+		scroll.style.height = `${rows.length * 36 + 70}px`;
+
+		const minMs = Math.min(...rows.map((r) => r.range[0]), startOfTodayMs());
+		const maxMs = Math.max(...rows.map((r) => r.range[1]), startOfTodayMs());
+		const pad = Math.max(DAY_MS, (maxMs - minMs) * 0.05);
+
+		// バー内に進捗分の塗りを重ねるプラグイン
+		const progressFill = {
+			id: "ganttProgressFill",
+			afterDatasetsDraw(chart) {
+				const { ctx } = chart;
+				const meta = chart.getDatasetMeta(0);
+				const progress = chart.data.datasets[0].progress || [];
+				meta.data.forEach((bar, i) => {
+					const pct = progress[i] || 0;
+					if (!pct) return;
+					const props = bar.getProps(["x", "base", "y", "height"], true);
+					const left = Math.min(props.base, props.x);
+					const width = Math.abs(props.x - props.base);
+					ctx.save();
+					ctx.fillStyle = "rgba(255,255,255,0.4)";
+					ctx.fillRect(
+						left,
+						props.y - props.height / 2,
+						width * (pct / 100),
+						props.height,
+					);
+					ctx.restore();
+				});
+			},
+		};
+
+		// 今日の縦線
+		const todayLine = {
+			id: "ganttTodayLine",
+			afterDraw(chart) {
+				const x = chart.scales.x;
+				const today = startOfTodayMs();
+				if (today < x.min || today > x.max) return;
+				const px = x.getPixelForValue(today);
+				const { top, bottom } = chart.chartArea;
+				const { ctx } = chart;
+				ctx.save();
+				ctx.strokeStyle = "rgba(237,66,69,0.9)";
+				ctx.lineWidth = 1.5;
+				ctx.setLineDash([4, 3]);
+				ctx.beginPath();
+				ctx.moveTo(px, top);
+				ctx.lineTo(px, bottom);
+				ctx.stroke();
+				ctx.restore();
+			},
+		};
+
+		ganttChart = new Chart(canvas, {
+			type: "bar",
+			data: {
+				labels: rows.map((r) => r.label),
+				datasets: [
+					{
+						data: rows.map((r) => r.range),
+						backgroundColor: rows.map((r) => r.color),
+						borderColor: "rgba(187,134,252,0.9)",
+						borderWidth: 1,
+						borderSkipped: false,
+						borderRadius: 4,
+						progress: rows.map((r) => r.progress),
+					},
+				],
+			},
+			options: {
+				indexAxis: "y",
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: {
+					x: {
+						type: "linear",
+						position: "top",
+						min: minMs - pad,
+						max: maxMs + pad,
+						ticks: {
+							callback: (v) => {
+								const d = new Date(v);
+								return `${d.getMonth() + 1}/${d.getDate()}`;
+							},
+							color: "rgba(160,160,170,0.9)",
+							maxRotation: 0,
+						},
+						grid: { color: "rgba(128,128,128,0.15)" },
+					},
+					y: {
+						ticks: { color: "rgba(200,200,210,0.95)", font: { size: 11 } },
+						grid: { display: false },
+					},
+				},
+				plugins: {
+					legend: { display: false },
+					tooltip: {
+						callbacks: {
+							label: (item) => {
+								const r = item.raw;
+								const s = new Date(r[0]);
+								const e = new Date(r[1]);
+								const pct = rows[item.dataIndex].progress;
+								return `${s.getMonth() + 1}/${s.getDate()} 〜 ${e.getMonth() + 1}/${e.getDate()}  進捗${pct}%`;
+							},
+						},
+					},
+				},
+			},
+			plugins: [progressFill, todayLine],
+		});
 	}
 
 	// F. SCHEDULES VIEW LOGIC (Fetch & CRUD)

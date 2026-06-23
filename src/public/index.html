@@ -923,15 +923,44 @@
         <section id="tab-tasks" class="tab-view">
           <div class="view-actions-card card">
             <div class="filters-group">
-              <button class="btn btn-filter active" data-filter="all">全て</button>
-              <button class="btn btn-filter" data-filter="pending">未完了</button>
-              <button class="btn btn-filter" data-filter="done">完了済み</button>
+              <!-- 表示モード切替（一覧 / ガント） -->
+              <button class="btn btn-filter active" data-task-view="list">📋 一覧</button>
+              <button class="btn btn-filter" data-task-view="gantt">📊 ガント</button>
             </div>
             <button id="btn-new-task" class="btn btn-primary">＋ タスク追加</button>
           </div>
 
-          <div class="list-container" id="tasks-list">
-            <!-- Generated dynamically -->
+          <!-- 一覧モード -->
+          <div id="tasks-list-mode">
+            <div class="view-actions-card card">
+              <div class="filters-group">
+                <button class="btn btn-filter active" data-filter="all">全て</button>
+                <button class="btn btn-filter" data-filter="pending">未完了</button>
+                <button class="btn btn-filter" data-filter="done">完了済み</button>
+              </div>
+            </div>
+
+            <div class="list-container" id="tasks-list">
+              <!-- Generated dynamically -->
+            </div>
+
+            <!-- いつかやる（開始日・期限とも未設定のタスク） -->
+            <div id="tasks-someday-section" style="margin-top: 1.5rem; display: none;">
+              <h3 style="font-size: 0.95rem; opacity: 0.8; margin-bottom: 0.5rem;">🕗 いつかやる（日付未設定）</h3>
+              <div class="list-container" id="tasks-someday-list"></div>
+            </div>
+          </div>
+
+          <!-- ガントモード -->
+          <div id="tasks-gantt-mode" style="display: none;">
+            <div class="card">
+              <div id="tasks-gantt-empty" class="glass" style="display: none;">
+                ガントに表示できるタスクがありません。タスクに開始日か期限を設定すると、ここに表示されます（日付のないタスクは「いつかやる」に並びます）。
+              </div>
+              <div id="tasks-gantt-scroll" style="overflow-x: auto;">
+                <canvas id="tasks-gantt-canvas"></canvas>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2511,20 +2540,78 @@
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label for="task-start">開始日</label>
+            <input type="date" id="task-start">
+          </div>
+          <div class="form-group">
             <label for="task-due">期限日</label>
             <input type="date" id="task-due">
           </div>
-          <div class="form-group">
-            <label for="task-priority">優先度</label>
-            <select id="task-priority">
-              <option value="">指定なし</option>
-              <option value="low">🔵 低</option>
-              <option value="medium">🟡 中</option>
-              <option value="high">🔴 高</option>
-            </select>
-          </div>
+        </div>
+        <div class="form-group">
+          <label for="task-priority">優先度</label>
+          <select id="task-priority">
+            <option value="">指定なし</option>
+            <option value="low">🔵 低</option>
+            <option value="medium">🟡 中</option>
+            <option value="high">🔴 高</option>
+          </select>
         </div>
         <button type="submit" class="btn btn-primary btn-block">タスク登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- サブタスク追加モーダル -->
+  <div id="modal-subtask" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>サブタスクの追加</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="subtask-form">
+        <p id="subtask-parent-label" style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.75rem;"></p>
+        <div class="form-group">
+          <label for="subtask-title">タイトル *</label>
+          <input type="text" id="subtask-title" required placeholder="サブタスク名">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="subtask-start">開始日</label>
+            <input type="date" id="subtask-start">
+          </div>
+          <div class="form-group">
+            <label for="subtask-due">期限日</label>
+            <input type="date" id="subtask-due">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">サブタスク登録</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 進捗更新モーダル -->
+  <div id="modal-task-progress" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>進捗を更新</h3>
+        <button class="btn-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="task-progress-form">
+        <p id="task-progress-label" style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.75rem;"></p>
+        <div class="form-group">
+          <label for="task-progress-range">進捗: <span id="task-progress-value">0</span>%</label>
+          <input type="range" id="task-progress-range" min="0" max="100" step="5" value="0" style="width: 100%;">
+        </div>
+        <div class="form-group">
+          <label for="task-progress-note">進捗メモ（任意）</label>
+          <textarea id="task-progress-note" placeholder="例: 設計フェーズ完了、実装に着手"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">進捗を保存</button>
       </form>
     </div>
   </div>
@@ -2898,6 +2985,8 @@
     </div>
   </div>
 
+  <!-- chart.js (self-host: CSP script-src 'self'。ガントチャート描画に使用) -->
+  <script src="/vendor/chart.umd.min.js"></script>
   <script src="/app.js"></script>
 </body>
 
