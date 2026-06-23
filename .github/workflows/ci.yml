@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+# 同一ブランチ/PR で新しい push があれば古い実行をキャンセル
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: Typecheck (tsgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      # better-sqlite3 等のネイティブビルドは typecheck/lint には不要。
+      # ビルドスクリプトを走らせず依存のみ取得する（pnpm 9 は既定でブロックするため --frozen-lockfile で十分）。
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  lint:
+    name: Lint (biome)
+    runs-on: ubuntu-latest
+    # NOTE: lint は現状 red（#11）のため当面 non-blocking。
+    #       #11 で green 化したら下の continue-on-error を削除して必須化する。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
