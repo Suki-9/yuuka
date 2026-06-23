@@ -20,6 +20,7 @@ import { credentialRoutes } from "./server/routes/credentialRoutes.js";
 import { deliveryRoutes } from "./server/routes/deliveryRoutes.js";
 import { deviceAuthRoutes } from "./server/routes/deviceAuthRoutes.js";
 import { deviceMgmtRoutes } from "./server/routes/deviceMgmtRoutes.js";
+import { desktopClientRoutes } from "./server/routes/desktopClientRoutes.js";
 import { financeRoutes } from "./server/routes/financeRoutes.js";
 import { integratedRoutes } from "./server/routes/integratedRoutes.js";
 import { mcpRoutes } from "./server/routes/mcpRoutes.js";
@@ -51,6 +52,7 @@ registerRoutes(webhookRoutes); // 外部Webhook受信（§3.13）
 registerRoutes(deliveryRoutes); // 朝報・日報・週報（§3.8, §3.9）
 registerRoutes(deviceAuthRoutes); // デスクトップ: OAuth デバイスフロー（desktop_client §1）
 registerRoutes(deviceMgmtRoutes); // デスクトップ: 接続端末管理（desktop_client §4）
+registerRoutes(desktopClientRoutes); // デスクトップ: Windows版バイナリ配布
 
 // ─── 静的ファイル配信 ────────────────────────────────────────────────────────
 

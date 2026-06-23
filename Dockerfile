@@ -23,6 +23,28 @@ COPY src/rust_synapse/src ./src
 RUN cargo build --release \
  && cp target/release/yuuka-synapse /yuuka-synapse
 
+# ---- stage 1b: Desktop client (Windows .exe をクロスコンパイル) --------------
+# Linux 上から x86_64-pc-windows-gnu ターゲットで Windows GUI バイナリを生成する。
+# C/asm 依存（ring 等）と最終リンクに mingw-w64 が必要。成果物はダッシュボードから
+# 配布（/api/desktop/download）。clients/desktop 変更時のみ再ビルドされる（層キャッシュ）。
+FROM rust:1-bookworm AS desktop-builder
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add x86_64-pc-windows-gnu
+WORKDIR /build/desktop
+COPY clients/desktop/Cargo.toml clients/desktop/Cargo.lock ./
+COPY clients/desktop/src ./src
+# /out は常に作成する。ビルドが失敗してもサーバーイメージのビルドは続行させ
+# （デプロイをブロックしない）、その場合ダッシュボードは「配布ビルド無し」を表示する。
+RUN mkdir -p /out \
+ && if cargo build --release --locked --target x86_64-pc-windows-gnu; then \
+      cp target/x86_64-pc-windows-gnu/release/yuuka-desktop.exe /out/yuuka-desktop.exe \
+      && sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n1 > /out/version.txt; \
+    else \
+      echo "WARNING: desktop client cross-build failed; shipping server without the Windows binary." >&2; \
+    fi
+
 # ---- stage 2: Node / TypeScript build ---------------------------------------
 FROM node:24-bookworm AS node-builder
 ENV PUPPETEER_SKIP_DOWNLOAD=true
@@ -47,6 +69,10 @@ RUN pnpm exec tsgo \
 # Rust バイナリを dist/bin へ配置（browserService / synapseEngine が参照）
 COPY --from=rust-builder /yuuka-crawler dist/bin/yuuka-crawler
 COPY --from=rust-builder /yuuka-synapse dist/bin/yuuka-synapse
+# デスクトップ版 exe を配布ディレクトリへ配置（desktopClientRoutes が参照）。
+# /out は desktop-builder で常に作られる（ビルド失敗時は空＝配布なし扱い）。
+RUN mkdir -p dist/downloads
+COPY --from=desktop-builder /out/ dist/downloads/
 # 本番依存だけに刈り込み（tsx / biome / typescript 等の devDeps を除去）
 RUN pnpm prune --prod
 

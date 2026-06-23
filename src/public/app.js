@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	// Override native fetch to auto-inject currentBotId
 	const originalFetch = window.fetch;
-	window.fetch = async function (resource, options) {
+	window.fetch = async (resource, options) => {
 		if (
 			typeof resource === "string" &&
 			resource.startsWith("/api/") &&
@@ -455,9 +455,9 @@ document.addEventListener("DOMContentLoaded", () => {
 			// クエリの code を退避（initAppSession 後の再ルートで window.location.pathname しか使われず
 			// クエリが失われるため、sessionStorage で確実に引き継ぐ）。
 			try {
-				const codeFromUrl = new URLSearchParams(
-					window.location.search,
-				).get("code");
+				const codeFromUrl = new URLSearchParams(window.location.search).get(
+					"code",
+				);
 				if (codeFromUrl) {
 					sessionStorage.setItem("pendingDeviceCode", codeFromUrl);
 				}
@@ -726,6 +726,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			fetchConfigSettings();
 		} else if (activeTab === "devices") {
 			fetchDevices();
+			fetchDesktopDownload();
 		}
 		// 統合管理 / 管理者用設定 は独立オーバーレイ（applyRoute で直接 fetch する）ため、ここでは扱わない。
 	}
@@ -2323,11 +2324,18 @@ document.addEventListener("DOMContentLoaded", () => {
 		const meta = document.createElement("div");
 		meta.className = "card-meta-row";
 		if (task.start_date)
-			meta.appendChild(buildMetaItem("event", `開始: ${fmtTaskDate(task.start_date)}`));
+			meta.appendChild(
+				buildMetaItem("event", `開始: ${fmtTaskDate(task.start_date)}`),
+			);
 		if (task.due_date)
-			meta.appendChild(buildMetaItem("calendar_today", `期限: ${fmtTaskDate(task.due_date)}`));
+			meta.appendChild(
+				buildMetaItem("calendar_today", `期限: ${fmtTaskDate(task.due_date)}`),
+			);
 		meta.appendChild(
-			buildMetaItem("priority_high", `優先度: ${PRIORITY_LABELS[task.priority] || "—"}`),
+			buildMetaItem(
+				"priority_high",
+				`優先度: ${PRIORITY_LABELS[task.priority] || "—"}`,
+			),
 		);
 		parseTaskTags(task.tags).forEach((tag) => {
 			const chip = document.createElement("span");
@@ -2378,7 +2386,9 @@ document.addEventListener("DOMContentLoaded", () => {
 		buttons.style.marginTop = "8px";
 		if (!hasSubtasks) {
 			buttons.appendChild(
-				buildMiniButton("trending_up", "進捗更新", () => openProgressModal(task)),
+				buildMiniButton("trending_up", "進捗更新", () =>
+					openProgressModal(task),
+				),
 			);
 		}
 		buttons.appendChild(
@@ -2426,7 +2436,9 @@ document.addEventListener("DOMContentLoaded", () => {
 			const res = await fetch(`/api/tasks?status=${filter}`);
 			const data = await res.json();
 			if (data.success && data.tasks.length > 0) {
-				data.tasks.forEach((task) => tasksList.appendChild(buildTaskCard(task)));
+				data.tasks.forEach((task) =>
+					tasksList.appendChild(buildTaskCard(task)),
+				);
 			} else {
 				const empty = document.createElement("div");
 				empty.className = "glass";
@@ -2508,8 +2520,14 @@ document.addEventListener("DOMContentLoaded", () => {
 		editingTaskId = task.id;
 		document.getElementById("task-title").value = task.title || "";
 		document.getElementById("task-description").value = task.description || "";
-		document.getElementById("task-start").value = (task.start_date || "").slice(0, 10);
-		document.getElementById("task-due").value = (task.due_date || "").slice(0, 10);
+		document.getElementById("task-start").value = (task.start_date || "").slice(
+			0,
+			10,
+		);
+		document.getElementById("task-due").value = (task.due_date || "").slice(
+			0,
+			10,
+		);
 		document.getElementById("task-priority").value = task.priority || "";
 		const h = modalTask.querySelector(".modal-header h3");
 		if (h) h.textContent = "タスクを編集";
@@ -2521,10 +2539,13 @@ document.addEventListener("DOMContentLoaded", () => {
 	taskForm.addEventListener("submit", async (e) => {
 		e.preventDefault();
 		const title = document.getElementById("task-title").value.trim();
-		const description = document.getElementById("task-description").value.trim();
+		const description = document
+			.getElementById("task-description")
+			.value.trim();
 		const startDate = document.getElementById("task-start").value;
 		const dueDate = document.getElementById("task-due").value;
-		const priority = document.getElementById("task-priority").value || undefined;
+		const priority =
+			document.getElementById("task-priority").value || undefined;
 		if (!title) return;
 
 		const isEdit = editingTaskId != null;
@@ -2559,34 +2580,36 @@ document.addEventListener("DOMContentLoaded", () => {
 		openModal(document.getElementById("modal-subtask"));
 	}
 
-	document.getElementById("subtask-form").addEventListener("submit", async (e) => {
-		e.preventDefault();
-		if (subtaskParentId == null) return;
-		const title = document.getElementById("subtask-title").value.trim();
-		const startDate = document.getElementById("subtask-start").value;
-		const dueDate = document.getElementById("subtask-due").value;
-		if (!title) return;
-		try {
-			const res = await fetch("/api/tasks/add", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					title,
-					startDate,
-					dueDate,
-					parentId: subtaskParentId,
-				}),
-			});
-			const data = await res.json();
-			if (data.success) {
-				closeModal(document.getElementById("modal-subtask"));
-				subtaskParentId = null;
-				fetchTasksList();
+	document
+		.getElementById("subtask-form")
+		.addEventListener("submit", async (e) => {
+			e.preventDefault();
+			if (subtaskParentId == null) return;
+			const title = document.getElementById("subtask-title").value.trim();
+			const startDate = document.getElementById("subtask-start").value;
+			const dueDate = document.getElementById("subtask-due").value;
+			if (!title) return;
+			try {
+				const res = await fetch("/api/tasks/add", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						title,
+						startDate,
+						dueDate,
+						parentId: subtaskParentId,
+					}),
+				});
+				const data = await res.json();
+				if (data.success) {
+					closeModal(document.getElementById("modal-subtask"));
+					subtaskParentId = null;
+					fetchTasksList();
+				}
+			} catch (err) {
+				console.error(err);
 			}
-		} catch (err) {
-			console.error(err);
-		}
-	});
+		});
 
 	// ── 進捗更新モーダル ──
 	function openProgressModal(task) {
@@ -2601,9 +2624,12 @@ document.addEventListener("DOMContentLoaded", () => {
 		openModal(document.getElementById("modal-task-progress"));
 	}
 
-	document.getElementById("task-progress-range").addEventListener("input", (e) => {
-		document.getElementById("task-progress-value").textContent = e.target.value;
-	});
+	document
+		.getElementById("task-progress-range")
+		.addEventListener("input", (e) => {
+			document.getElementById("task-progress-value").textContent =
+				e.target.value;
+		});
 
 	document
 		.getElementById("task-progress-form")
@@ -2700,7 +2726,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (startMs == null && dueMs == null) return null;
 		const today = startOfTodayMs();
 		// 始端・終端の補完: 期限のみ→単日マイルストーン / 開始のみ→今日まで
-		let s = startMs != null ? startMs : dueMs;
+		const s = startMs != null ? startMs : dueMs;
 		let e = dueMs != null ? dueMs : Math.max(startMs, today);
 		if (e <= s) e = s + DAY_MS; // 最低1日分の幅を確保
 		const percent =
@@ -3171,6 +3197,41 @@ document.addEventListener("DOMContentLoaded", () => {
 			err.className = "glass";
 			err.textContent = "端末一覧の取得に失敗しました。";
 			list.appendChild(err);
+		}
+	}
+
+	// デスクトップ版（Windows exe）の配布状況を取得し、ダウンロードボタンを構成する。
+	async function fetchDesktopDownload() {
+		const btn = document.getElementById("btn-desktop-download");
+		const meta = document.getElementById("desktop-download-meta");
+		if (!btn || !meta) return;
+		btn.disabled = true;
+		meta.textContent = "確認中…";
+		try {
+			const res = await originalFetch("/api/desktop/info");
+			const data = await res.json();
+			if (data.success && data.available) {
+				const mb = (data.size / (1024 * 1024)).toFixed(1);
+				const ver =
+					data.version && data.version !== "unknown"
+						? `v${data.version} ・ `
+						: "";
+				meta.textContent = `${ver}${mb} MB ・ Windows (x64)`;
+				btn.disabled = false;
+				btn.onclick = () => {
+					window.location.href = "/api/desktop/download";
+				};
+			} else {
+				meta.textContent =
+					"現在配布できるビルドがありません（デプロイ後に利用可能になります）。";
+				btn.disabled = true;
+				btn.onclick = null;
+			}
+		} catch (e) {
+			console.error(e);
+			meta.textContent = "配布情報の取得に失敗しました。";
+			btn.disabled = true;
+			btn.onclick = null;
 		}
 	}
 
