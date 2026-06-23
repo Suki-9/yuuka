@@ -23,27 +23,29 @@
 
 ## 2. タスク分解（チェックリスト）
 
-### Phase 0 — 認証基盤（バックエンド）
-- [ ] `db/migrations.ts`: `migrateToDesktopTokens`（v12→**v13**、`desktop_tokens` 冪等追加）
-- [ ] `db/desktopTokenRepo.ts`: 発行/検証(sha256)/スライディング更新/失効/一覧
-- [ ] `services/desktopAuthService.ts`: デバイスコード発行（Redis 一時保存）・承認・トークン交換・`verifyToken→SessionUser`
-- [ ] `config.ts`: `DESKTOP_TOKEN_TTL_DAYS`(90)・`DESKTOP_DEVICE_CODE_TTL_SEC`(600) を `getSetting` で読込（既定値あり・必須env無し）
-- [ ] `server/routes/deviceAuthRoutes.ts`: `/api/auth/device/{code,approve,token}`
-- [ ] `server/routes/deviceMgmtRoutes.ts`: `/api/devices`・`/api/devices/revoke`
-- [ ] `routeRegistry.ts`: `resolveUser` に **Bearer 解決**を追加（Cookie→Bearer）。Bearer 時は Origin チェック免除
-- [ ] `public/*`: `/device` 承認ページ + 「接続端末」管理 UI
-- [ ] パスワード変更時に当該ユーザーの desktop_tokens も失効（`destroyAllForUser` 連動）
-- [ ] 監査ログ（発行/失効。トークン本体は記録しない）
+### Phase 0 — 認証基盤（バックエンド）— ✅ 実装済み（2026-06-23、未デプロイ）
+- [x] `db/migrations.ts`: `migrateToDesktopTokens`（v12→**v13**、`desktop_tokens` 冪等追加）
+- [x] `db/desktopTokenRepo.ts`: 発行/検証(sha256)/スライディング更新/失効/一覧
+- [x] `services/desktopAuthService.ts`: デバイスコード発行（Redis 一時保存＋インメモリ fallback）・承認・トークン交換・`verifyToken→SessionUser`
+- [x] `config.ts`: `DESKTOP_TOKEN_TTL_DAYS`(90)・`DESKTOP_MAX_UPLOAD_MB`(20)・`DESKTOP_DEVICE_CODE_TTL_SEC`(600) を `getSetting` で読込（既定値あり・必須env無し）
+- [x] `server/routes/deviceAuthRoutes.ts`: `/api/auth/device/{code,approve,token}`
+- [x] `server/routes/deviceMgmtRoutes.ts`: `/api/devices`・`/api/devices/revoke`
+- [x] Bearer 解決を `dispatchRoute` へ注入（`httpHelpers.resolveRequestUser` = Cookie→Bearer）。ネイティブ Bearer は Origin 無しのため既存 CSRF 判定で自然に通る
+- [x] `public/*`: `/device` 承認ページ + 「接続端末」管理 UI
+- [x] パスワード変更時に当該ユーザーの desktop_tokens も失効（`revokeAllDesktopTokensForUser`。アカウント削除は FK CASCADE）
+- [x] 監査ログ（`desktop.token_issue` / `desktop.token_revoke` / `desktop.device_approve`。トークン本体は記録しない）
 
-### Phase 1 — WS チャット（バックエンド）
-- [x] WS ライブラリ採否の承認 → **`ws` 追加で確定**（2026-06-23。[backend_api.md §2.1](backend_api.md)）。`package.json` 追加＋architecture_v2 §0.6 依存リストへ追記
-- [ ] `server.ts`: `httpServer.on("upgrade")` で `/ws/chat` を Bearer 認証＋`?botId=` 所有/共有検証して受理（否なら 401/403）
-- [ ] `server/chatWebSocket.ts`: **botId 束縛**の接続管理・keepalive・1接続1ターン直列・**`DESKTOP_MAX_UPLOAD_MB`(既定20) 上限適用**（`ready.maxUploadMb` で配布・超過は `too_large`）・バックプレッシャ
-- [ ] `services/chatChannelService.ts`: `ChatMessage` 組立 → `processMessage(束縛botId, …)` → 進捗/結果を WS フレーム化（`onStatusChange→status`, `asyncDelivery→interim/push`）
-- [ ] `serializeRich`（EmbedBuilder.toJSON + files base64）
-- [ ] `userOwnsOrShares(userId, botId)`（接続束縛 botId の検証）・`ready` で `bot`/`bots` 返却・Gemini キー未設定の `no_gemini_key`
-- [ ] レート制限（`botRateLimit` 流用）・エラーモデル
-- [ ] デプロイ: リバースプロキシの WS upgrade 透過設定（[deployment.md](../../guide/deployment.md) 追記）
+### Phase 1 — WS チャット（バックエンド）— ✅ 実装済み（2026-06-23、未デプロイ）
+- [x] WS ライブラリ採否の承認 → **`ws` 追加で確定**（2026-06-23。[backend_api.md §2.1](backend_api.md)）。`package.json` 追加＋architecture_v2 §0.6 依存リストへ追記済
+- [x] `server.ts`: `httpServer.on("upgrade")` で `/ws/chat` を Bearer 認証＋`?botId=` 所有/共有検証して受理（否なら 401/403）
+- [x] `server/chatWebSocket.ts`: **botId 束縛**の接続管理・keepalive(ping/pong 30s)・1接続1ターン直列・**`DESKTOP_MAX_UPLOAD_MB`(既定20) 上限適用**（`ready.maxUploadMb` で配布・超過は `too_large`）・バックプレッシャ（未処理ターン上限）
+- [x] `services/chatChannelService.ts`: `ChatMessage` 組立 → `processMessage(束縛botId, …)` → 進捗/結果を WS フレーム化（`onStatusChange→status`, `asyncDelivery→interim/push`）
+- [x] `serializeRich`（EmbedBuilder.toJSON + files base64）
+- [x] `hasBotAccess(userId, botId)`（接続束縛 botId の検証）・`ready` で `bot`/`bots` 返却・Gemini キー未設定の `no_gemini_key`（`getUserGenAI` で事前判定）
+- [x] レート制限（`consumeRateLimit` 流用）・エラーモデル
+- [x] デプロイ: リバースプロキシの WS upgrade 透過設定（[deployment.md](../../guide/deployment.md) 追記）
+
+> **注**: バックエンド Phase 0/1 は `feature/desktop-client` に実装済み（tsgo クリーン・SQL 検証済み）。**未デプロイ・実クライアント未接続**。`primary` フラグはプライマリ Bot の概念が未導入のため `id === "system_default"` を暫定採用。
 
 ### Phase 2 — クライアント骨格
 - [ ] `clients/desktop/` Cargo プロジェクト・`profile.release` 最小化・URL 焼き込み

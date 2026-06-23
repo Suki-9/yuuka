@@ -81,6 +81,26 @@ chmod 600 deploy/prod/secret.key
 
 ホスト公開ポートは `HOST_PORT`、コンテナ内待受は固定で `7854` です。
 
+### WebSocket（`/ws/chat`）の透過設定
+
+デスクトップクライアント（`docs/design/desktop_client/`）は同一ポートの HTTP `upgrade` で `/ws/chat` を張ります。リバースプロキシは WebSocket upgrade を透過する必要があります。
+
+- **nginx**: 対象 location（または `/`）に以下を付与します。
+
+  ```nginx
+  location /ws/chat {
+      proxy_pass http://127.0.0.1:7854;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_read_timeout 3600s;   # アイドル接続をプッシュ受信のため長めに保持
+  }
+  ```
+
+- **Cloudflare Tunnel**: WebSocket は既定で透過されます（追加設定不要）。
+- 認証は `Authorization: Bearer <desktop token>`（Cookie 非依存）。プロキシで Authorization ヘッダを削らないこと。
+
 ---
 
 ## ロールバック
