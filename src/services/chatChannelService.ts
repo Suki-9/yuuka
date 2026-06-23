@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { EmbedBuilder } from "discord.js";
 import { clearContext } from "../db/messageLogRepo.js";
 import { type ChatMessage, processMessage } from "../gemini.js";
@@ -165,6 +166,9 @@ export async function handleChatMessage(
 		);
 		send({
 			type: "done",
+			// サーバ側メッセージID（クライアントの差分描画・返信チェーンのキー）。
+			// processMessage は ID を返さないため合成する。
+			messageId: randomUUID(),
 			...serializeRich(r),
 			deferred: r.deferred ?? false,
 		});
