@@ -13,7 +13,7 @@
 3. **認証情報はLLMに渡さない**: パスワードマネージャの復号値は `browserService` へ直接渡す。Function Call の戻り値・ログ・プロンプトに含めてはならない。
 4. **スキーマは前方移行する**: 現在の `SCHEMA_VERSION` は **"10"**。初版（v2 全面再構築）以降は破壊的再構築は行わず、`migrations.ts` の各 `migrate*` 関数が冪等な ALTER / 追加テーブルで段階移行する（v3〜v10 の概要は §2 末尾参照）。
 5. **コメント・ログは日本語**、既存コードのスタイル（セクション区切りコメント `// ─── ... ───`、絵文字ログ）を踏襲する。
-6. **TypeScript / ESM**: import は `.js` 拡張子付き相対パス。型は明示的に。新規依存の追加は原則禁止（導入済み: bcryptjs, @node-rs/argon2, rss-parser, @napi-rs/canvas, chart.js, cron-parser, archiver。lint/format は `@biomejs/biome`、型チェックは `tsgo`）。**シナプスエンジン（§13）は新規 npm 依存を追加せず**、ベクトル索引・埋め込みを独立した Rust crate（`src/rust_synapse/`、既存 crawler と同型）に閉じ込めることでこの原則を守る。
+6. **TypeScript / ESM**: import は `.js` 拡張子付き相対パス。型は明示的に。新規依存の追加は原則禁止（導入済み: bcryptjs, @node-rs/argon2, rss-parser, @napi-rs/canvas, chart.js, cron-parser, archiver, **ws**。lint/format は `@biomejs/biome`、型チェックは `tsgo`）。**シナプスエンジン（§13）は新規 npm 依存を追加せず**、ベクトル索引・埋め込みを独立した Rust crate（`src/rust_synapse/`、既存 crawler と同型）に閉じ込めることでこの原則を守る。**デスクトップクライアント（`docs/design/desktop_client/`）の `/ws/chat` WebSocket 受け口に限り、定番・transitive 依存ゼロの `ws` を意図的な例外として追加（2026-06-23 オーナー承認。代替のミニマル手実装よりフレーム/バックプレッシャ保守コストが小さい）。
 
 ---
 
