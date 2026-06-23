@@ -1,16 +1,16 @@
+import { EmbedBuilder } from "discord.js";
 import cron from "node-cron";
 import Parser from "rss-parser";
-import { EmbedBuilder } from "discord.js";
 import {
-	listEnabledBriefingConfigsAcrossUsers,
-	getBriefingConfig,
-	parseJsonArray,
 	type BriefingConfigRecord,
+	getBriefingConfig,
+	listEnabledBriefingConfigsAcrossUsers,
+	parseJsonArray,
 } from "../db/briefingConfigRepo.js";
+import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 import { generateAuxText } from "./llmClient.js";
 import { sendToUser } from "./notifier.js";
 import { cronMatchesNow } from "./reportService.js";
-import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 
 // ─── 朝報: 天気・ニュース定期配信（§3.9） ────────────────────────────────────
 // 天気: Open-Meteo API（無料枠・APIキー不要）

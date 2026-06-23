@@ -1,25 +1,25 @@
-import { SchemaType } from "@google/generative-ai";
 import type { FunctionDeclaration } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
 import { CronExpressionParser } from "cron-parser";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import * as expenseRepo from "../db/expenseRepo.js";
 import {
 	CATEGORIES,
 	type ExpenseRecord,
 	type ExpenseType,
 } from "../db/expenseRepo.js";
-import * as plannedPaymentRepo from "../db/plannedPaymentRepo.js";
 import type {
 	PlannedPaymentRecord,
 	PlannedPaymentStatus,
 } from "../db/plannedPaymentRepo.js";
-import * as todoRepo from "../db/todoRepo.js";
+import * as plannedPaymentRepo from "../db/plannedPaymentRepo.js";
 import * as reminderRepo from "../db/reminderRepo.js";
+import * as todoRepo from "../db/todoRepo.js";
 import { calcNextRecurringDueDate } from "../services/paymentRecurrenceService.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
 import {
+	currentMonthLabel,
 	formatCurrency,
 	formatDate,
-	currentMonthLabel,
 } from "../utils/formatters.js";
 
 // ─── 家計管理・支払い予定・消込 Function 群（§3.4） ──────────────────────────

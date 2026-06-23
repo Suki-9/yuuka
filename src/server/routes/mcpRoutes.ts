@@ -60,28 +60,28 @@ function revokeProxyTokensForServer(serverId: number): void {
 		if (v.serverId === serverId) proxyTokens.delete(k);
 	}
 }
+
+import { config } from "../../config.js";
+import { addAuditLog } from "../../db/auditRepo.js";
 import {
 	addServer,
+	deleteServer,
+	getServerById,
+	listBotIdsForServer,
 	listServersForOwner,
 	listSystemServers,
-	listBotIdsForServer,
-	getServerById,
-	setEnabled,
-	deleteServer,
-	parseToolsCache,
 	type McpServerRecord,
+	parseToolsCache,
+	setEnabled,
 } from "../../db/mcpRepo.js";
 import { getUserByDiscordId } from "../../db/userRepo.js";
 import {
-	refreshToolsCache,
-	probeMcpDashboard,
-	fetchMcpDashboardHtml,
-	fetchAkizakuraCss,
-	mcpOrigin,
 	buildAuthHeader,
+	fetchAkizakuraCss,
+	fetchMcpDashboardHtml,
+	probeMcpDashboard,
+	refreshToolsCache,
 } from "../../services/mcpClient.js";
-import { addAuditLog } from "../../db/auditRepo.js";
-import { config } from "../../config.js";
 import {
 	assertSafeOutboundUrl,
 	BlockedUrlError,

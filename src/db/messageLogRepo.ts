@@ -1,7 +1,7 @@
+import { config } from "../config.js";
 import { getDb } from "./database.js";
 import { getRedisClient } from "./redis.js";
 import { getSystemSetting, setSystemSetting } from "./systemSettingsRepo.js";
-import { config } from "../config.js";
 
 // ─── 会話履歴の永続化（§7）+ コンテキストキャッシュ（§3.1.4）+ 全文検索（§3.12） ─
 //

@@ -1,5 +1,5 @@
-import { getDb } from "./database.js";
 import { encryptText } from "../utils/crypto.js";
+import { getDb } from "./database.js";
 
 // ─── Google 複数アカウント連携（v5） ─────────────────────────────────────────
 // owner（user_id）単位で複数の Google アカウントを連携でき、Botごとに使うアカウントを選ぶ。

@@ -49,7 +49,7 @@ export interface AddReminderInput {
 
 // ─── 日時フォーマットヘルパー ────────────────────────────────────────────────
 
-function pad2(n: number): string {
+function _pad2(n: number): string {
 	return String(n).padStart(2, "0");
 }
 
@@ -61,8 +61,9 @@ function pad2(n: number): string {
  * @throws 日時として解釈できない場合
  */
 // 日時変換は utils/datetime.ts を正とし、後方互換のため再エクスポートする
-export { toDbDateTime, parseDbDateTime } from "../utils/datetime.js";
-import { toDbDateTime, parseDbDateTime } from "../utils/datetime.js";
+export { parseDbDateTime, toDbDateTime } from "../utils/datetime.js";
+
+import { toDbDateTime } from "../utils/datetime.js";
 
 // ─── CRUD ────────────────────────────────────────────────────────────────────
 

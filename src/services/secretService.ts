@@ -1,8 +1,8 @@
-import * as credentialRepo from "../db/credentialRepo.js";
-import type { CredentialIndexEntry } from "../db/credentialRepo.js";
-import { encryptForUser, decryptForUser } from "../utils/crypto.js";
-import { getUserSalt } from "../db/userRepo.js";
 import { addAuditLog } from "../db/auditRepo.js";
+import type { CredentialIndexEntry } from "../db/credentialRepo.js";
+import * as credentialRepo from "../db/credentialRepo.js";
+import { getUserSalt } from "../db/userRepo.js";
+import { decryptForUser, encryptForUser } from "../utils/crypto.js";
 
 // ─── パスワードマネージャ サービス層（§6） ───────────────────────────────────
 //

@@ -1,19 +1,19 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import cron from "node-cron";
-import type { FunctionModule, ToolContext } from "../types/contracts.js";
-import { isLikelyPublicHttpUrl } from "../utils/ssrfGuard.js";
 import {
 	getBriefingConfig,
-	upsertBriefingConfig,
 	parseJsonArray,
+	upsertBriefingConfig,
 } from "../db/briefingConfigRepo.js";
 import {
-	upsertReportConfig,
 	getReportConfigs,
 	type ReportType,
+	upsertReportConfig,
 } from "../db/reportConfigRepo.js";
 import { runBriefingForUser } from "../services/briefingService.js";
+import type { FunctionModule, ToolContext } from "../types/contracts.js";
+import { isLikelyPublicHttpUrl } from "../utils/ssrfGuard.js";
 
 // ─── 朝報・日報・週報の設定 Function（§3.8.3, §3.9） ─────────────────────────
 // チャットから配信設定を変更できるようにする（Web管理画面と同じ設定を操作）。

@@ -1,40 +1,40 @@
 import crypto from "node:crypto";
-import type { RouteDef } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
-import { botViewSchema } from "../../types/apiViews.js";
+import {
+	customClients,
+	client as defaultBotClient,
+	sendShareInviteDM,
+	stopCustomBot,
+} from "../../bot.js";
+import { addAuditLog } from "../../db/auditRepo.js";
+import type { BotRecord } from "../../db/botRepo.js";
 import {
 	createBot,
-	getBotById,
-	listBotsForUser,
-	hasBotAccess,
+	createShareInvite,
 	deleteBot,
+	getBotById,
+	hasBotAccess,
+	listBotsForUser,
+	listSharesForBot,
+	revokeShare,
 	updateBotDiscordProfile,
 	updateBotProfile,
-	createShareInvite,
-	revokeShare,
-	listSharesForBot,
 } from "../../db/botRepo.js";
-import { getUserByDiscordId, isAdmin } from "../../db/userRepo.js";
 import { getPersonaById } from "../../db/personaRepo.js";
-import { addAuditLog } from "../../db/auditRepo.js";
+import { getUserByDiscordId, isAdmin } from "../../db/userRepo.js";
 import {
-	BOT_PRESETS,
 	applyBotPreset,
-	parseCapabilities,
-	presetIdForCapabilities,
+	BOT_PRESETS,
+	type BotPresetId,
 	getPresetDisplayName,
 	invalidateBotCapabilitiesCache,
 	isGuildAssistantBot,
-	type BotPresetId,
+	parseCapabilities,
+	presetIdForCapabilities,
 } from "../../services/botCapabilities.js";
-import type { BotRecord } from "../../db/botRepo.js";
+import { botViewSchema } from "../../types/apiViews.js";
+import type { RouteDef } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
 import { decryptText } from "../../utils/crypto.js";
-import {
-	stopCustomBot,
-	client as defaultBotClient,
-	customClients,
-	sendShareInviteDM,
-} from "../../bot.js";
 
 // ─── Botインスタンス管理・共有 HTTPルート（§5.1, §5.2） ───────────────────────
 

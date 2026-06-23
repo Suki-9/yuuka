@@ -1,61 +1,60 @@
 import { google } from "googleapis";
-import type { RouteDef, RouteRequestCtx } from "../../types/contracts.js";
-import { sendJson } from "../../types/contracts.js";
+import { restartDefaultBot, startCustomBot, stopCustomBot } from "../../bot.js";
 import { config } from "../../config.js";
-import { getDb } from "../../db/database.js";
-import { setSessionCookie, getSessionToken } from "../httpHelpers.js";
-import {
-	createSession,
-	destroySession,
-	destroyAllSessionsForUser,
-} from "../../services/sessionService.js";
-import { validatePassword } from "../../services/passwordPolicy.js";
-import {
-	getUserByDiscordId,
-	updateUsername,
-	updatePassword,
-	verifyPassword,
-	isAdmin,
-	countAdmins,
-	deleteUser,
-	getUserGeminiConfig,
-	updateUserGeminiSettings,
-	getUserGoogleConfig,
-	updateUserGoogleSettings,
-	getUserBackupConfig,
-	updateUserBackupSettings,
-	updateUserSettings,
-	getUserRichReplyEnabled,
-	getUserRemindDefaultMinutes,
-	getUserNotifyTarget,
-} from "../../db/userRepo.js";
-import { getActivePersonaIdForBot } from "../../db/personaRepo.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 import {
 	getBotById,
 	getBotDiscordConfig,
-	updateBotDiscordToken,
 	hasBotAccess,
 	isBotSuspended,
 	listAllBots,
+	updateBotDiscordToken,
 } from "../../db/botRepo.js";
-import { startCustomBot, stopCustomBot, restartDefaultBot } from "../../bot.js";
-import { encryptText, decryptText } from "../../utils/crypto.js";
-import {
-	getCachedCalendars,
-	invalidateCalendarCache,
-	invalidateCalendarCacheForAccount,
-} from "../../services/googleCalendarService.js";
+import { getDb } from "../../db/database.js";
 import {
 	addGoogleAccount,
 	getPrimaryGoogleAccount,
 	listGoogleAccountsSafe,
 } from "../../db/googleAccountRepo.js";
-import { extractDriveFolderId } from "../../services/googleDriveService.js";
+import { getActivePersonaIdForBot } from "../../db/personaRepo.js";
 import {
-	createOAuthState,
+	countAdmins,
+	deleteUser,
+	getUserBackupConfig,
+	getUserByDiscordId,
+	getUserGeminiConfig,
+	getUserNotifyTarget,
+	getUserRemindDefaultMinutes,
+	getUserRichReplyEnabled,
+	isAdmin,
+	updatePassword,
+	updateUserBackupSettings,
+	updateUserGeminiSettings,
+	updateUserGoogleSettings,
+	updateUsername,
+	updateUserSettings,
+	verifyPassword,
+} from "../../db/userRepo.js";
+import {
+	getCachedCalendars,
+	invalidateCalendarCache,
+	invalidateCalendarCacheForAccount,
+} from "../../services/googleCalendarService.js";
+import { extractDriveFolderId } from "../../services/googleDriveService.js";
+import { validatePassword } from "../../services/passwordPolicy.js";
+import {
+	createSession,
+	destroyAllSessionsForUser,
+	destroySession,
+} from "../../services/sessionService.js";
+import type { RouteDef, RouteRequestCtx } from "../../types/contracts.js";
+import { sendJson } from "../../types/contracts.js";
+import { decryptText, encryptText } from "../../utils/crypto.js";
+import {
 	consumeOAuthState,
+	createOAuthState,
 } from "../../utils/oauthStateStore.js";
+import { getSessionToken, setSessionCookie } from "../httpHelpers.js";
 
 // ─── ユーザー設定・ステータス HTTPルート ─────────────────────────────────────
 
@@ -770,7 +769,7 @@ export const settingsRoutes: RouteDef[] = [
 				ctx.body as Record<string, unknown>;
 
 			// フォルダ指定はフォルダID単体・Google DriveのフォルダURLのどちらも受け付ける
-			let normalizedFolderId: string | undefined = undefined;
+			let normalizedFolderId: string | undefined;
 			if (typeof folderId === "string" && folderId.trim()) {
 				const extracted = extractDriveFolderId(folderId);
 				if (!extracted) {

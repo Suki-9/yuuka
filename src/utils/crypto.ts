@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { hashRawSync, Algorithm } from "@node-rs/argon2";
+import { Algorithm, hashRawSync } from "@node-rs/argon2";
 import { config } from "../config.js";
 
 // ─── システム鍵（APIキー・トークン・Webhookシークレット等の保存時暗号化） ────

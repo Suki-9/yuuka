@@ -1,8 +1,8 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import { EmbedBuilder } from "discord.js";
+import { type ChartType, renderChart } from "../services/chartService.js";
 import type { FunctionModule, ToolContext } from "../types/contracts.js";
-import { renderChart, type ChartType } from "../services/chartService.js";
 
 // ─── グラフ・チャート表示 Function（§3.0.3） ─────────────────────────────────
 

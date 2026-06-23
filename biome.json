@@ -18,6 +18,26 @@
 			"preset": "recommended"
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["src/public/**"],
+			"linter": {
+				"rules": {
+					"a11y": {
+						"useButtonType": "warn",
+						"noLabelWithoutControl": "warn",
+						"noSvgWithoutTitle": "warn",
+						"useValidAnchor": "warn"
+					},
+					"suspicious": {
+						"useIterableCallbackReturn": "warn",
+						"noDuplicateProperties": "warn",
+						"noShorthandPropertyOverrides": "warn"
+					}
+				}
+			}
+		}
+	],
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"

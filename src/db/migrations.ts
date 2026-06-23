@@ -662,11 +662,11 @@ function migrateToSynapseEngine(db: ReturnType<typeof getDb>): void {
     CREATE INDEX IF NOT EXISTS idx_synapses_topic ON synapses(user_id, bot_id, topic_id);
   `);
 
-  // 既存DB（v10 以前で synapses 作成済み）向けに不足列を追加（冪等）。
-  ensureColumns(db, "synapses", [
-    { name: "ctx_tod", ddl: "ctx_tod INTEGER" },
-    { name: "ctx_dow", ddl: "ctx_dow INTEGER" },
-  ]);
+	// 既存DB（v10 以前で synapses 作成済み）向けに不足列を追加（冪等）。
+	ensureColumns(db, "synapses", [
+		{ name: "ctx_tod", ddl: "ctx_tod INTEGER" },
+		{ name: "ctx_dow", ddl: "ctx_dow INTEGER" },
+	]);
 }
 
 export async function runMigrations(): Promise<void> {

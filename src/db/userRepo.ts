@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
-import { getDb } from "./database.js";
 import { config } from "../config.js";
 import { generateUserSalt } from "../utils/crypto.js";
+import { getDb } from "./database.js";
 
 /**
  * users テーブル（スキーマv2）のリポジトリ（仕様§5.3, §5.4, §4.2）。

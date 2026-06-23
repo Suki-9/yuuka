@@ -4,7 +4,7 @@ import * as browserService from "../services/browserService.js";
  * 動的なウェブページのテキスト内容を取得するツール関数
  */
 export async function fetchDynamicPage(
-	userId: string,
+	_userId: string,
 	args: { url: string },
 ): Promise<string> {
 	try {
@@ -30,7 +30,7 @@ export async function fetchDynamicPage(
  * ウェブページのスクリーンショットを撮影するツール関数
  */
 export async function takePageScreenshot(
-	userId: string,
+	_userId: string,
 	args: { url: string },
 ): Promise<string> {
 	try {
@@ -53,7 +53,7 @@ export async function takePageScreenshot(
  * インターネット上の最新情報を検索するツール関数
  */
 export async function searchWeb(
-	userId: string,
+	_userId: string,
 	args: { query: string },
 ): Promise<string> {
 	try {

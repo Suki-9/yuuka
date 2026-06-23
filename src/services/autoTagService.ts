@@ -1,5 +1,5 @@
-import { getUserGenAI, generateAuxText } from "./llmClient.js";
 import { getTodoById, listAllTags, updateTodoTags } from "../db/todoRepo.js";
+import { generateAuxText, getUserGenAI } from "./llmClient.js";
 
 // ─── タグ自動付与サービス（§3.2.4） ──────────────────────────────────────────
 //
