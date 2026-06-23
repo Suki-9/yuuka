@@ -63,6 +63,7 @@ thiserror = "2"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
+    "Win32_Security",               # SECURITY_ATTRIBUTES（CreateMutexW のゲート要件）
     "Win32_System_Threading",       # CreateMutexW（単一インスタンス）
     "Win32_UI_WindowsAndMessaging",  # SetWindowPos / WS_EX_LAYERED 等
     "Win32_Graphics_Gdi",
