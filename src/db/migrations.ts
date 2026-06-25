@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "13";
+const SCHEMA_VERSION = "14";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -727,6 +727,33 @@ function migrateToDesktopTokens(db: ReturnType<typeof getDb>): void {
   `);
 }
 
+/**
+ * v13→v14: ギルド利用メンバーの利用申請（bot_member_requests）。
+ * Discordユーザーが (bot, guild) 単位で利用を申請し、Botオーナーが承認/却下する。
+ * UNIQUE(bot_id, guild_id, user_id) で同一ユーザーの重複申請を防ぐ（再申請は status を pending に戻す）。
+ */
+function migrateToMemberRequests(db: ReturnType<typeof getDb>): void {
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_member_requests (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id      TEXT NOT NULL,
+      guild_id    TEXT NOT NULL,
+      user_id     TEXT NOT NULL,                  -- 申請者の Discord ユーザーID
+      status      TEXT NOT NULL DEFAULT 'pending',-- pending / approved / rejected
+      note        TEXT,                           -- 申請メッセージ（任意）
+      decided_by  TEXT,                           -- 承認/却下を行ったユーザー（owner/Admin）
+      created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      UNIQUE (bot_id, guild_id, user_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_member_requests_bot_status
+      ON bot_member_requests(bot_id, status);
+    CREATE INDEX IF NOT EXISTS idx_member_requests_user
+      ON bot_member_requests(user_id);
+  `);
+}
+
 export async function runMigrations(): Promise<void> {
 	const db = getDb();
 
@@ -1429,6 +1456,7 @@ export async function runMigrations(): Promise<void> {
 	// ─── v13: デスクトップクライアント用トークン表（desktop_tokens） ──
 	// 新規テーブルのみの冪等追加（破壊的再構築なし）。既存テーブル不変。
 	migrateToDesktopTokens(db);
+	migrateToMemberRequests(db);
 
 	// スキーマバージョンを記録
 	db.prepare(

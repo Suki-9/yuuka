@@ -4299,6 +4299,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 			renderAssistantGuilds(botId, data.guilds || []);
 			renderAssistantMembers(botId, data.members || [], data.guilds || []);
+			renderAssistantRequests(botId);
 
 			// 共有ノートのギルド選択
 			const noteGuildSelect = document.getElementById(
@@ -4426,6 +4427,82 @@ document.addEventListener("DOMContentLoaded", () => {
 			row.appendChild(removeBtn);
 			list.appendChild(row);
 		});
+	}
+
+	/** 承認待ちの利用申請一覧を読み込んで描画する（owner用） */
+	async function renderAssistantRequests(botId) {
+		const list = document.getElementById("assistant-request-list");
+		if (!list) return;
+		list.innerHTML = `<span class="field-sub">読み込み中…</span>`;
+		let requests = [];
+		try {
+			const res = await originalFetch(
+				`/api/bots/member-requests?status=pending&botId=${encodeURIComponent(botId)}`,
+			);
+			const data = await res.json();
+			requests = (data && data.requests) || [];
+		} catch (e) {
+			list.innerHTML = `<span class="field-sub">申請の読み込みに失敗しました。</span>`;
+			return;
+		}
+
+		list.innerHTML = "";
+		if (requests.length === 0) {
+			list.innerHTML = `<span class="field-sub">承認待ちの利用申請はありません。</span>`;
+			return;
+		}
+
+		requests.forEach((r) => {
+			const row = document.createElement("div");
+			row.style.cssText =
+				"display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;";
+			const label = document.createElement("span");
+			label.className = "field-sub";
+			const noteHtml = r.note
+				? `<br><span style="opacity:0.8;">📝 ${escapeHtml(r.note)}</span>`
+				: "";
+			label.innerHTML = `<span style="font-family:var(--font-family-mono);">${escapeHtml(r.user_id)}</span> @ ギルド ${escapeHtml(r.guild_id)}${noteHtml}`;
+
+			const actions = document.createElement("div");
+			actions.style.cssText = "display:flex; gap:8px;";
+			const approveBtn = document.createElement("button");
+			approveBtn.className = "btn btn-primary btn-sm";
+			approveBtn.textContent = "承認";
+			approveBtn.addEventListener("click", () =>
+				decideMemberRequest(botId, r.id, "approved"),
+			);
+			const rejectBtn = document.createElement("button");
+			rejectBtn.className = "btn btn-secondary btn-sm";
+			rejectBtn.textContent = "却下";
+			rejectBtn.addEventListener("click", () =>
+				decideMemberRequest(botId, r.id, "rejected"),
+			);
+			actions.appendChild(approveBtn);
+			actions.appendChild(rejectBtn);
+
+			row.appendChild(label);
+			row.appendChild(actions);
+			list.appendChild(row);
+		});
+	}
+
+	/** 利用申請を承認/却下し、設定を再読み込みする */
+	async function decideMemberRequest(botId, requestId, decision) {
+		try {
+			const res = await originalFetch(
+				`/api/bots/member-requests/${encodeURIComponent(requestId)}/decide`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ decision }),
+				},
+			);
+			const data = await res.json();
+			if (!data.success) alert(data.message || "操作に失敗しました。");
+		} catch (e) {
+			alert("通信エラーが発生しました。");
+		}
+		await loadAssistantConfig(botId);
 	}
 
 	/** 汎用モード設定のPOST + 再読み込みの共通処理 */

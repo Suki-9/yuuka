@@ -24,6 +24,7 @@ import { desktopClientRoutes } from "./server/routes/desktopClientRoutes.js";
 import { financeRoutes } from "./server/routes/financeRoutes.js";
 import { integratedRoutes } from "./server/routes/integratedRoutes.js";
 import { mcpRoutes } from "./server/routes/mcpRoutes.js";
+import { memberRequestRoutes } from "./server/routes/memberRequestRoutes.js";
 import { personalRoutes } from "./server/routes/personalRoutes.js";
 import { personaRoutes } from "./server/routes/personaRoutes.js";
 import { playbookRoutes } from "./server/routes/playbookRoutes.js";
@@ -37,6 +38,7 @@ registerRoutes(authRoutes); // 認証・登録（§5.4）
 registerRoutes(settingsRoutes); // ユーザー設定・ステータス・Google OAuth
 registerRoutes(botRoutes); // Botインスタンス・共有（§5.1, §5.2）
 registerRoutes(botAttributeRoutes); // Bot属性・汎用モード設定（bot_attributes_requirements.md）
+registerRoutes(memberRequestRoutes); // ギルド利用メンバーの利用申請・承認
 registerRoutes(todoRoutes); // ToDo（§3.2）
 registerRoutes(scheduleRoutes); // 予定（§3.2）
 registerRoutes(financeRoutes); // 家計・予算・支払い予定（§3.4）
