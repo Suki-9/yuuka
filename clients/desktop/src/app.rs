@@ -53,6 +53,11 @@ pub enum UiIntent {
     Reset,
     /// Bot 切替（WS 再接続）。
     SwitchBot { bot_id: String },
+    /// ボタン押下（コンポーネント・インタラクション。ws_components.md §6）。
+    Interaction {
+        message_id: String,
+        custom_id: String,
+    },
 }
 
 /// UI 側が保持する全状態。各ビュー関数はこれを介して読み書きする。
@@ -221,9 +226,11 @@ impl YuukaApp {
                 self.state.history.push(ChatEntry::assistant(delta));
             }
             ServerFrame::Done {
+                message_id,
                 text,
                 embeds,
                 files,
+                components,
                 ..
             } => {
                 self.state.status = None;
@@ -232,13 +239,17 @@ impl YuukaApp {
                     text,
                     embeds,
                     files,
+                    message_id: Some(message_id),
+                    components,
                 });
                 self.bump_unread_if_collapsed();
             }
             ServerFrame::Push {
+                message_id,
                 text,
                 embeds,
                 files,
+                components,
             } => {
                 // 重い処理の完了プッシュ（モーダル閉でも通知。FR-9）。
                 self.state.history.push(ChatEntry {
@@ -246,8 +257,32 @@ impl YuukaApp {
                     text,
                     embeds,
                     files,
+                    message_id,
+                    components,
                 });
                 self.bump_unread_if_collapsed();
+            }
+            ServerFrame::Update {
+                message_id,
+                text,
+                components,
+                ..
+            } => {
+                // 履歴中の該当メッセージを探し、存在するフィールドのみ差し替える
+                // （components:[] でボタン除去。ws_components.md §2）。
+                if let Some(entry) = self
+                    .state
+                    .history
+                    .iter_mut()
+                    .find(|e| e.message_id.as_deref() == Some(message_id.as_str()))
+                {
+                    if let Some(text) = text {
+                        entry.text = text;
+                    }
+                    if let Some(components) = components {
+                        entry.components = components;
+                    }
+                }
             }
             ServerFrame::Error { code, message } => {
                 use crate::model::ErrorCode;
@@ -281,6 +316,13 @@ impl YuukaApp {
             UiIntent::SendText(text) => UiEvent::Send(crate::model::ClientFrame::text(text)),
             UiIntent::Reset => UiEvent::Send(crate::model::ClientFrame::Reset),
             UiIntent::SwitchBot { bot_id } => UiEvent::SwitchBot { bot_id },
+            UiIntent::Interaction {
+                message_id,
+                custom_id,
+            } => UiEvent::Send(crate::model::ClientFrame::Interaction {
+                message_id,
+                custom_id,
+            }),
         };
         // UI スレッドからは try_send（満杯時は取りこぼすより警告）。
         if let Err(e) = self.ui_tx.try_send(event) {

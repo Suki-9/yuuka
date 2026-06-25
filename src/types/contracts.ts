@@ -1,6 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FunctionDeclaration } from "@google/generative-ai";
-import type { EmbedBuilder } from "discord.js";
+import type {
+	ActionRowBuilder,
+	APIActionRowComponent,
+	APIComponentInMessageActionRow,
+	ButtonBuilder,
+	EmbedBuilder,
+} from "discord.js";
 
 // ─── Function Call 実行コンテキスト ──────────────────────────────────────────
 
@@ -38,6 +44,10 @@ export interface TurnAsyncDelivery {
 		content: string;
 		embeds: EmbedBuilder[];
 		files: { attachment: Buffer; name: string }[];
+		components?: (
+			| ActionRowBuilder<ButtonBuilder>
+			| APIActionRowComponent<APIComponentInMessageActionRow>
+		)[];
 	}) => Promise<void>;
 }
 

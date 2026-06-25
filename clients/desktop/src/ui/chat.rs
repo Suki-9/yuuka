@@ -45,7 +45,9 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
         .stick_to_bottom(true)
         .show(ui, |ui| {
             for entry in &state.history {
-                message_bubble(entry, ui, &mut state.commonmark_cache);
+                if let Some(i) = message_bubble(entry, ui, &mut state.commonmark_cache) {
+                    intent = Some(i);
+                }
             }
 
             // ステータス行（考え中…/入力中…）。
@@ -145,11 +147,14 @@ fn connection_label(conn: &ConnectionState, ui: &mut egui::Ui) {
 }
 
 /// 1 メッセージの気泡描画（role で色分け、assistant は MD）。
+///
+/// ボタン押下があれば [`UiIntent::Interaction`] を返す（ws_components.md §6）。
 fn message_bubble(
     entry: &super::ChatEntry,
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
-) {
+) -> Option<UiIntent> {
+    let mut intent: Option<UiIntent> = None;
     let (align, frame_fill) = match entry.role {
         Role::User => (egui::Align::Max, egui::Color32::from_rgb(60, 90, 140)),
         Role::Assistant => (egui::Align::Min, egui::Color32::from_rgb(45, 45, 55)),
@@ -183,9 +188,74 @@ fn message_bubble(
                         entry.files.len()
                     ));
                 }
+
+                // 対話コンポーネント（action row）= 横並びのボタン列。
+                for row in &entry.components {
+                    if let Some(i) = action_row(row, entry.message_id.as_deref(), ui) {
+                        intent = Some(i);
+                    }
+                }
             });
     });
     ui.add_space(4.0);
+    intent
+}
+
+/// 1 つの action row を横並びのボタン列として描画する（ws_components.md §6）。
+fn action_row(
+    row: &crate::model::ActionRow,
+    message_id: Option<&str>,
+    ui: &mut egui::Ui,
+) -> Option<UiIntent> {
+    use crate::model::Component;
+    let mut intent: Option<UiIntent> = None;
+    ui.horizontal_wrapped(|ui| {
+        for comp in &row.components {
+            // 行内に現れるのはボタンのみ想定。Row/Unknown は描画しない。
+            let Component::Button {
+                style,
+                label,
+                custom_id,
+                url,
+                disabled,
+            } = comp
+            else {
+                continue;
+            };
+
+            let text = label.clone().unwrap_or_default();
+            let button = egui::Button::new(text).fill(button_color(*style));
+            let resp = ui.add_enabled(!*disabled, button);
+
+            if resp.clicked() {
+                if *style == 5 {
+                    // Link ボタン: 既定ブラウザで URL を開く（送信しない）。
+                    if let Some(url) = url {
+                        let _ = open::that_detached(url);
+                    }
+                } else if let (Some(message_id), Some(custom_id)) = (message_id, custom_id) {
+                    // 非 Link ボタン: interaction を発火（message_id と custom_id 必須）。
+                    intent = Some(UiIntent::Interaction {
+                        message_id: message_id.to_string(),
+                        custom_id: custom_id.clone(),
+                    });
+                }
+            }
+        }
+    });
+    intent
+}
+
+/// Discord スタイル番号を気泡ボタンの塗り色へ対応づける（ws_components.md §1）。
+/// 1=Primary(青) 2=Secondary(灰) 3=Success(緑) 4=Danger(赤) 5=Link(リンク表示)。
+fn button_color(style: u8) -> egui::Color32 {
+    match style {
+        1 => egui::Color32::from_rgb(60, 110, 200),  // Primary 青
+        3 => egui::Color32::from_rgb(60, 160, 90),   // Success 緑
+        4 => egui::Color32::from_rgb(200, 70, 70),   // Danger 赤
+        5 => egui::Color32::from_rgb(70, 90, 130),   // Link リンク調
+        _ => egui::Color32::from_rgb(90, 90, 100),   // Secondary 灰（既定）
+    }
 }
 
 /// Embed カードの最低限描画（タイトル/本文/色帯/フィールド）。

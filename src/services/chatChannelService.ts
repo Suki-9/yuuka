@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { EmbedBuilder } from "discord.js";
+import {
+	ActionRowBuilder,
+	type APIActionRowComponent,
+	type APIComponentInMessageActionRow,
+	ButtonBuilder,
+	ButtonStyle,
+	type EmbedBuilder,
+} from "discord.js";
+import { config } from "../config.js";
 import { clearContext } from "../db/messageLogRepo.js";
 import { type ChatMessage, processMessage } from "../gemini.js";
 import type { SessionUser, TurnAsyncDelivery } from "../types/contracts.js";
@@ -28,9 +36,30 @@ export type OutboundFrame =
 			embeds: unknown[];
 			files: SerializedFile[];
 			deferred: boolean;
+			/** 対話コンポーネント（Discord API JSON の action row 群。ws_components.md §1-2） */
+			components?: SerializedComponents;
 	  }
-	| { type: "push"; text: string; embeds: unknown[]; files: SerializedFile[] }
+	| {
+			type: "push";
+			text: string;
+			embeds: unknown[];
+			files: SerializedFile[];
+			/** components を含む場合は突合キーとして必須（ws_components.md §2）。 */
+			messageId?: string;
+			components?: SerializedComponents;
+	  }
+	| {
+			// interaction の結果として履歴中の該当メッセージを書き換える（ws_components.md §2）。
+			type: "update";
+			messageId: string;
+			text?: string;
+			embeds?: unknown[];
+			components?: SerializedComponents;
+	  }
 	| { type: "error"; code: ChatErrorCode; message: string };
+
+/** 直列化済みの対話コンポーネント（= Discord API JSON の action row 配列）。 */
+export type SerializedComponents = APIActionRowComponent<APIComponentInMessageActionRow>[];
 
 export interface BotInfo {
 	id: string;
@@ -72,7 +101,17 @@ export function serializeRich(r: {
 	text: string;
 	embeds: EmbedBuilder[];
 	files: { attachment: Buffer; name: string }[];
-}): { text: string; embeds: unknown[]; files: SerializedFile[] } {
+	/** ActionRowBuilder（.toJSON() で API JSON 化）または既に API JSON の action row。 */
+	components?: (
+		| ActionRowBuilder<ButtonBuilder>
+		| APIActionRowComponent<APIComponentInMessageActionRow>
+	)[];
+}): {
+	text: string;
+	embeds: unknown[];
+	files: SerializedFile[];
+	components?: SerializedComponents;
+} {
 	return {
 		text: r.text,
 		embeds: r.embeds.map((e) => e.toJSON()),
@@ -81,7 +120,20 @@ export function serializeRich(r: {
 			mime: "image/png",
 			data: f.attachment.toString("base64"),
 		})),
+		...(r.components ? { components: serializeComponents(r.components) } : {}),
 	};
+}
+
+/** ActionRowBuilder / API JSON 混在の action row 群を Discord API JSON へ統一する。 */
+export function serializeComponents(
+	rows: (
+		| ActionRowBuilder<ButtonBuilder>
+		| APIActionRowComponent<APIComponentInMessageActionRow>
+	)[],
+): SerializedComponents {
+	return rows.map((row) =>
+		row instanceof ActionRowBuilder ? row.toJSON() : row,
+	);
 }
 
 /** 例外をクライアント向けエラーコードへ分類する。 */
@@ -104,6 +156,30 @@ export async function handleChatMessage(
 	msg: IncomingMsg,
 ): Promise<void> {
 	const userId = user.discordId;
+
+	// 往復実証用デモ（ws_components.md §5）: フラグ ON かつ本文完全一致なら、
+	// Gemini を介さず即座にボタン付き done を返す（コンポーネント基盤の純粋な疎通確認）。
+	if (config.desktopDemoComponents && (msg.text ?? "") === "/__demo_buttons") {
+		const nonce = randomUUID().slice(0, 8);
+		const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+			new ButtonBuilder()
+				.setCustomId(`demo_echo:${nonce}`)
+				.setLabel("確認")
+				.setStyle(ButtonStyle.Primary),
+		);
+		send({
+			type: "done",
+			messageId: randomUUID(),
+			...serializeRich({
+				text: "デモ: 下のボタンを押してください。",
+				embeds: [],
+				files: [],
+				components: [row.toJSON()],
+			}),
+			deferred: false,
+		});
+		return;
+	}
 
 	// Gemini キー未設定の事前判定（processMessage は no-key 時も例外を投げず ⚠️ テキストを返すため）。
 	if (!getUserGenAI(userId)) {
@@ -147,10 +223,13 @@ export async function handleChatMessage(
 		deliverFinal: async (payload) => {
 			send({
 				type: "push",
+				// components を載せる場合は突合キーとして messageId が必須（ws_components.md §2）。
+				...(payload.components ? { messageId: randomUUID() } : {}),
 				...serializeRich({
 					text: payload.content,
 					embeds: payload.embeds,
 					files: payload.files,
+					components: payload.components,
 				}),
 			});
 		},
@@ -164,12 +243,32 @@ export async function handleChatMessage(
 			onStatusChange,
 			asyncDelivery,
 		);
+		// サーバ側メッセージID（クライアントの差分描画・返信チェーン・interaction 突合のキー）。
+		// processMessage は ID を返さないため合成する。
+		const messageId = randomUUID();
+
+		// processMessage が付与した components（通常は無し）。
+		let components = r.components;
+
+		// 往復実証用デモ（ws_components.md §5。フラグ ON かつ本文が完全一致のときのみ）。
+		if (
+			config.desktopDemoComponents &&
+			(msg.text ?? "") === "/__demo_buttons"
+		) {
+			const nonce = randomUUID().slice(0, 8);
+			const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+				new ButtonBuilder()
+					.setCustomId(`demo_echo:${nonce}`)
+					.setLabel("確認")
+					.setStyle(ButtonStyle.Primary),
+			);
+			components = [row.toJSON()];
+		}
+
 		send({
 			type: "done",
-			// サーバ側メッセージID（クライアントの差分描画・返信チェーンのキー）。
-			// processMessage は ID を返さないため合成する。
-			messageId: randomUUID(),
-			...serializeRich(r),
+			messageId,
+			...serializeRich({ ...r, components }),
 			deferred: r.deferred ?? false,
 		});
 	} catch (e) {

@@ -22,6 +22,10 @@ pub struct ChatEntry {
     pub embeds: Vec<crate::model::Embed>,
     /// 付随ファイル（インライン画像表示用。done/push 由来）。
     pub files: Vec<crate::model::FilePayload>,
+    /// サーバ側メッセージ ID（interaction/update の突合キー。components 付き応答のみ）。
+    pub message_id: Option<String>,
+    /// 対話コンポーネント（action row）。interaction 押下対象（ws_components.md §6）。
+    pub components: Vec<crate::model::ActionRow>,
 }
 
 impl ChatEntry {
@@ -31,6 +35,8 @@ impl ChatEntry {
             text: text.into(),
             embeds: Vec::new(),
             files: Vec::new(),
+            message_id: None,
+            components: Vec::new(),
         }
     }
 
@@ -40,6 +46,8 @@ impl ChatEntry {
             text: text.into(),
             embeds: Vec::new(),
             files: Vec::new(),
+            message_id: None,
+            components: Vec::new(),
         }
     }
 }

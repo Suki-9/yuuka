@@ -175,4 +175,11 @@ export const config = {
 		getSetting("DESKTOP_DEVICE_CODE_TTL_SEC", "600"),
 		10,
 	),
+
+	/**
+	 * WS 往復実証用のデモコンポーネント（ws_components.md §5）。既定 OFF。
+	 * ON 時のみ、ユーザー本文が `/__demo_buttons` と一致したら done にデモボタンを付与する。
+	 */
+	desktopDemoComponents:
+		getSetting("DESKTOP_DEMO_COMPONENTS", "false") === "true",
 };

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 import { config } from "../config.js";
 import { listBotsForUser } from "../db/botRepo.js";
@@ -8,6 +9,10 @@ import {
 	type IncomingMsg,
 	type OutboundFrame,
 } from "../services/chatChannelService.js";
+import {
+	dispatchComponentInteraction,
+	type InteractionResponder,
+} from "../services/componentInteractionService.js";
 import type { SessionUser } from "../types/contracts.js";
 
 // ─── /ws/chat 接続管理（desktop_client backend_api.md §2/§3） ─────────────────
@@ -164,6 +169,63 @@ export function handleChatConnection(
 					.finally(() => {
 						queued--;
 					});
+				return;
+			}
+			case "interaction": {
+				// ボタン押下（ws_components.md §3-4）。チャネル中立ディスパッチャへ渡す。
+				const messageId =
+					typeof parsed.messageId === "string" ? parsed.messageId : "";
+				const customId =
+					typeof parsed.customId === "string" ? parsed.customId : "";
+				if (!customId) return;
+
+				// WS 用 responder: update → 元メッセージ書き換え、reply/followUp → 新規 push。
+				const responder: InteractionResponder = {
+					update: async (opts) => {
+						send({
+							type: "update",
+							messageId,
+							...(opts.content !== undefined ? { text: opts.content } : {}),
+							...(opts.components !== undefined
+								? { components: opts.components }
+								: {}),
+						});
+					},
+					reply: async (opts) => {
+						send({
+							type: "push",
+							text: opts.content ?? "",
+							embeds: [],
+							files: [],
+							messageId: randomUUID(),
+							...(opts.components !== undefined
+								? { components: opts.components }
+								: {}),
+						});
+					},
+					followUp: async (opts) => {
+						send({
+							type: "push",
+							text: opts.content ?? "",
+							embeds: [],
+							files: [],
+							messageId: randomUUID(),
+							...(opts.components !== undefined
+								? { components: opts.components }
+								: {}),
+						});
+					},
+				};
+				chain = chain
+					.then(() =>
+						dispatchComponentInteraction({
+							userId: user.discordId,
+							customId,
+							guildId: null,
+							responder,
+						}),
+					)
+					.catch((e) => console.error("[ws/chat] interaction failed:", e));
 				return;
 			}
 			default:
