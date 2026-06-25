@@ -5,6 +5,7 @@
 #
 #   独自コマンド:
 #     update    退避(yuuka:prev-<名>) → ビルド → 再作成 → ヘルスチェック（推奨デプロイ手順）
+#               既定はレイヤキャッシュ有効で高速。`update --no-cache` でフル再構築。
 #     rollback  退避イメージへ戻して再作成
 #     verify    ヘルスチェックのみ（HTTP/Botログイン/エラー件数）
 #   それ以外は docker compose のサブコマンドへそのまま委譲:
@@ -86,8 +87,17 @@ case "$CMD" in
     if docker image inspect yuuka:latest >/dev/null 2>&1; then
       docker tag yuuka:latest "yuuka:prev-$INST" && echo "🏷  現行イメージを退避: yuuka:prev-$INST"
     fi
-    echo "🔨 ビルド（rust + tsgo / キャッシュ無効 --no-cache）..."
-    dc build --no-cache
+    # 既定はレイヤキャッシュ有効（変更の無い層＝重い Rust クロスコンパイル等は再利用＝高速）。
+    # Dockerfile は Cargo.toml/lock・package.json を src より先に COPY する構造のため、
+    # ソース未変更ならその重いステージはキャッシュヒットする。
+    # apt のベース更新まで含めてクリーン再構築したい時だけ: `update --no-cache`。
+    if [ "${2:-}" = "--no-cache" ]; then
+      echo "🔨 ビルド（--no-cache フルリビルド）..."
+      dc build --no-cache
+    else
+      echo "🔨 ビルド（レイヤキャッシュ有効。フル再構築は 'update --no-cache'）..."
+      dc build
+    fi
     echo "♻️  コンテナ再作成..."
     dc up -d
     health_check
