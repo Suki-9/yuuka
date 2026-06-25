@@ -59,6 +59,11 @@ function isSnowflake(value: string): boolean {
 	return /^\d{5,25}$/.test(value);
 }
 
+/** Gemini APIキーの形式検証（"AIza" 始まり・英数記号。誤値保存の防止用） */
+export function isLikelyGeminiKey(value: string): boolean {
+	return /^AIza[0-9A-Za-z_-]{30,}$/.test(value);
+}
+
 /**
  * リクエストから botId を解決し、owner（または Admin）であることを検証する。
  * 失敗時はレスポンス送信済みのため null を返す（要件 §6: 設定変更は owner / Admin のみ）。
@@ -268,6 +273,15 @@ export const botAttributeRoutes: RouteDef[] = [
 				return sendJson(ctx.res, 200, {
 					success: true,
 					message: "APIキーは変更されていません。",
+				});
+			}
+
+			// キー形式の検証（誤った値の保存を防ぐ。Gemini APIキーは "AIza" で始まる）
+			if (!isLikelyGeminiKey(apiKey.trim())) {
+				return sendJson(ctx.res, 400, {
+					success: false,
+					message:
+						"Gemini APIキーの形式が正しくありません。「AIza」で始まるキーを入力してください（Google AI Studio で取得）。",
 				});
 			}
 

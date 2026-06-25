@@ -56,6 +56,7 @@ import {
 	createOAuthState,
 } from "../../utils/oauthStateStore.js";
 import { getSessionToken, setSessionCookie } from "../httpHelpers.js";
+import { isLikelyGeminiKey } from "./botAttributeRoutes.js";
 
 // ─── ユーザー設定・ステータス HTTPルート ─────────────────────────────────────
 
@@ -477,6 +478,14 @@ export const settingsRoutes: RouteDef[] = [
 			let tag: string | null;
 
 			if (apiKey && !apiKey.startsWith("****")) {
+				// キー形式の検証（誤った値の保存を防ぐ。Gemini APIキーは "AIza" で始まる）
+				if (!isLikelyGeminiKey(apiKey.trim())) {
+					return sendJson(ctx.res, 400, {
+						success: false,
+						message:
+							"Gemini APIキーの形式が正しくありません。「AIza」で始まるキーを入力してください（Google AI Studio で取得）。",
+					});
+				}
 				const enc = encryptText(apiKey.trim());
 				encrypted = enc.encrypted;
 				iv = enc.iv;
