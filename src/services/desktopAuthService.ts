@@ -128,12 +128,25 @@ async function updateRecord(
 				KEEPTTL: true,
 			});
 			return;
-		} catch {
-			// フォールバックへ
+		} catch (e) {
+			// Redis 書き込み失敗。レコードは Redis 側にあり memory には無いのが通常なので、
+			// ここで黙ってメモリ no-op に逃げると「approve は成功扱いだが承認が永続化されない
+			// →poll が永遠に authorization_pending」という split-brain になる（実機の連携不達の主因）。
+			// memory に当該レコードがある場合のみメモリ更新で救済し、無ければ失敗を伝播する。
+			const entry = memoryStore.get(hash);
+			if (entry) {
+				entry.rec = rec;
+				return;
+			}
+			throw e;
 		}
 	}
 	const entry = memoryStore.get(hash);
-	if (entry) entry.rec = rec;
+	if (!entry) {
+		// Redis 未使用なのにメモリにも無い＝更新対象が存在しない（永続化できていない）。
+		throw new Error(`device-auth record not found for update: ${hash}`);
+	}
+	entry.rec = rec;
 }
 
 async function deleteRecord(hash: string, userCode: string): Promise<void> {
@@ -212,7 +225,7 @@ export async function createDeviceCode(
 
 export type ApproveResult =
 	| { ok: true; deviceName: string | null }
-	| { ok: false; reason: "not_found" | "expired" };
+	| { ok: false; reason: "not_found" | "expired" | "persist_failed" };
 
 /** §1.2: ブラウザ（ログイン済み本人）が user_code を承認する（auth: user）。 */
 export async function approveDeviceCode(
@@ -227,7 +240,13 @@ export async function approveDeviceCode(
 
 	rec.status = "approved";
 	rec.approvedUser = approvedUser;
-	await updateRecord(hash, rec);
+	try {
+		await updateRecord(hash, rec);
+	} catch (e) {
+		// 永続化に失敗したら成功扱いにしない（さもないと poll が永遠に pending）。
+		console.error("[desktopAuth] 承認の永続化に失敗しました:", e);
+		return { ok: false, reason: "persist_failed" };
+	}
 	addAuditLog(
 		approvedUser,
 		"desktop.device_approve",

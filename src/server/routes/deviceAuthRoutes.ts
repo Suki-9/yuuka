@@ -42,6 +42,14 @@ export const deviceAuthRoutes: RouteDef[] = [
 			}
 			const result = await approveDeviceCode(userCode, ctx.user!.discordId);
 			if (!result.ok) {
+				if (result.reason === "persist_failed") {
+					// 承認は受理したが永続化に失敗（一時的な Redis 障害等）。再試行を促す。
+					return sendJson(ctx.res, 503, {
+						success: false,
+						message:
+							"承認の保存に一時的に失敗しました。少し待ってからもう一度お試しください。",
+					});
+				}
 				const code = result.reason === "expired" ? 410 : 404;
 				return sendJson(ctx.res, code, {
 					success: false,
