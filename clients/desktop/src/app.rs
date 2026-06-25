@@ -15,6 +15,49 @@ use crate::model::{BotInfo, ServerFrame, StatusState};
 use crate::net::{ConnectionState, LoginEvent, NetEvent, UiEvent};
 use crate::ui::{self, ChatEntry};
 
+/// egui に日本語フォントを登録する（eframe 起動時に一度だけ呼ぶ）。
+///
+/// egui の既定フォント（`default_fonts`）はラテン系のみで CJK グリフを持たないため、
+/// 何もしないと日本語は豆腐（□）になる。OS の日本語フォントを実行時に読み込み、
+/// Proportional / Monospace の先頭へ差し込む。配布サイズを増やさない方針（NFR-1）。
+pub fn install_fonts(ctx: &egui::Context) {
+    // OS 標準の日本語フォント候補（最初に読めたものを使う）。
+    // .ttc（フォントコレクション）も egui::FontData が index 0 で扱える。
+    #[cfg(windows)]
+    const CANDIDATES: &[&str] = &[
+        r"C:\Windows\Fonts\YuGothM.ttc",  // 游ゴシック Medium
+        r"C:\Windows\Fonts\YuGothR.ttc",  // 游ゴシック Regular
+        r"C:\Windows\Fonts\meiryo.ttc",   // メイリオ
+        r"C:\Windows\Fonts\msgothic.ttc", // MS ゴシック
+    ];
+    #[cfg(not(windows))]
+    const CANDIDATES: &[&str] = &[
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-JP-Regular.otf",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+    ];
+
+    for path in CANDIDATES {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let mut fonts = egui::FontDefinitions::default();
+        fonts
+            .font_data
+            .insert("jp".to_owned(), egui::FontData::from_owned(bytes).into());
+        // 先頭へ差し込む＝日本語を最優先で解決し、欠落グリフは既定フォントへフォールバック。
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts.families.entry(family).or_default().insert(0, "jp".to_owned());
+        }
+        ctx.set_fonts(fonts);
+        log::info!("loaded Japanese font: {path}");
+        return;
+    }
+    log::warn!("no Japanese font found on this system; CJK text may render as tofu (□)");
+}
+
 /// ログイン UI のステート（ui/login.rs と共有）。
 #[derive(Debug, Clone)]
 pub enum LoginUiState {

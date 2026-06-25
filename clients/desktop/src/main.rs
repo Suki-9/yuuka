@@ -96,7 +96,11 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Yuuka Desktop",
         native_options,
-        Box::new(move |_cc| Ok(Box::new(app::YuukaApp::new(settings, ui_tx, net_rx)))),
+        Box::new(move |cc| {
+            // 日本語フォントを登録（未登録だと CJK が豆腐 □ になる）。
+            app::install_fonts(&cc.egui_ctx);
+            Ok(Box::new(app::YuukaApp::new(settings, ui_tx, net_rx)))
+        }),
     )
 }
 

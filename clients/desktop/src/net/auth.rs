@@ -99,6 +99,17 @@ struct TokenResp {
     user: Option<crate::model::UserInfo>,
 }
 
+/// URL から `scheme://host[:port]`（オリジン）を取り出す。簡易パーサ
+/// （`https://h/p?x` → `https://h`）。解釈できなければ `None`。
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("{scheme}://{host}"))
+}
+
 // ===========================================================================
 // デバイスフロー本体
 // ===========================================================================
@@ -129,6 +140,19 @@ pub async fn run_device_flow(
         .await?;
 
     progress.on_code(&code.user_code, &code.verification_uri_complete);
+
+    // 承認先（verification_uri = サーバの BASE_URL 由来）とポーリング先（api_base）の
+    // オリジンが食い違うと、ユーザーは別バックエンドで承認し、こちらは永遠に
+    // authorization_pending を引き続ける（=「承認しても進まない」）。設定不整合として警告する。
+    if let (Some(v), Some(b)) = (origin_of(&code.verification_uri), origin_of(&base)) {
+        if !v.eq_ignore_ascii_case(&b) {
+            log::warn!(
+                "verification origin ({v}) != api_base origin ({b}); \
+                 ブラウザの承認先とアプリのポーリング先が別バックエンドです。\
+                 配布ビルドの YUUKA_API_BASE とサーバの BASE_URL を一致させてください。"
+            );
+        }
+    }
 
     // 2) 既定ブラウザで承認ページを開く（失敗しても致命ではない — UI に URL を出す）。
     if let Err(e) = open::that_detached(&code.verification_uri_complete) {
