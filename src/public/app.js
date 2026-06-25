@@ -4944,6 +4944,37 @@ document.addEventListener("DOMContentLoaded", () => {
 		});
 	}
 
+	// 共有ノート編集モーダルの開閉
+	const modalAssistantNote = document.getElementById("modal-assistant-note");
+	const btnOpenAssistantNote = document.getElementById(
+		"btn-open-assistant-note",
+	);
+	if (btnOpenAssistantNote && modalAssistantNote) {
+		btnOpenAssistantNote.addEventListener("click", async () => {
+			const guildSelect = document.getElementById(
+				"assistant-note-guild-select",
+			);
+			const guildId = guildSelect ? guildSelect.value : "";
+			if (!guildId) {
+				alert("先に応答許可ギルドを追加してください。");
+				return;
+			}
+			const guildLabel = document.getElementById("assistant-note-modal-guild");
+			if (guildLabel) guildLabel.textContent = `ギルド ${guildId}`;
+			// 最新のノートを読み込んでからモーダルを表示
+			await loadAssistantGuildNote(window.currentBotId, guildId);
+			modalAssistantNote.classList.add("active");
+		});
+	}
+	const btnCloseAssistantNote = document.getElementById(
+		"btn-close-assistant-note",
+	);
+	if (btnCloseAssistantNote && modalAssistantNote) {
+		btnCloseAssistantNote.addEventListener("click", () =>
+			modalAssistantNote.classList.remove("active"),
+		);
+	}
+
 	const btnSaveAssistantNote = document.getElementById(
 		"btn-save-assistant-note",
 	);
@@ -4969,6 +5000,9 @@ document.addEventListener("DOMContentLoaded", () => {
 					}),
 				});
 				const data = await res.json();
+				if (data.success && modalAssistantNote) {
+					modalAssistantNote.classList.remove("active");
+				}
 				alert(
 					data.message ||
 						(data.success ? "保存しました。" : "保存に失敗しました。"),

@@ -1631,12 +1631,11 @@
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">
               <summary>共有ノート（ギルドノート）</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
-              <div style="display: flex; gap: 12px; margin-bottom: 8px;">
+              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。ギルドを選んで「編集」を押すとモーダルで編集できます。</p>
+              <div style="display: flex; gap: 12px;">
                 <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
-                <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+                <button type="button" id="btn-open-assistant-note" class="btn btn-primary" style="white-space: nowrap;">編集</button>
               </div>
-              <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
             </details>
           </details>
 
@@ -2588,6 +2587,23 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">保存する</button>
       </form>
+    </div>
+  </div>
+
+  <!-- 共有ノート（ギルドノート）編集モーダル -->
+  <div id="modal-assistant-note" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>共有ノートの編集</h3>
+        <button class="btn-close" id="btn-close-assistant-note">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <p class="field-sub" id="assistant-note-modal-guild" style="margin-bottom: 8px;"></p>
+      <div class="form-group">
+        <textarea id="assistant-guild-note" rows="14" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
+      </div>
+      <button type="button" id="btn-save-assistant-note" class="btn btn-primary btn-block">保存する</button>
     </div>
   </div>
 
