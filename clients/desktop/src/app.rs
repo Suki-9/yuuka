@@ -70,6 +70,8 @@ pub enum LoginUiState {
         user_code: String,
         verification_uri: String,
     },
+    /// 認証成功。Bot 解決 + WS 接続中（`ready` 受領でオーバーレイへ遷移）。
+    Connecting,
     /// エラー表示。
     Error(String),
 }
@@ -223,8 +225,11 @@ impl YuukaApp {
             }
             // 承認待ち。AwaitingApproval のスピナー表示を継続するだけ。
             LoginEvent::Pending => {}
-            // 承認完了。WS 接続 → `ready` 受領でオーバーレイへ遷移する（apply_frame）。
-            LoginEvent::Succeeded => {}
+            // 承認完了。Bot 解決 + WS 接続中の表示にする（`ready` 受領で apply_frame が
+            // オーバーレイへ遷移）。これが無いと成功後も「承認待ち」のまま見えてしまう。
+            LoginEvent::Succeeded => {
+                self.state.login = LoginUiState::Connecting;
+            }
             LoginEvent::Failed(msg) => {
                 self.state.login = LoginUiState::Error(msg);
                 self.state.view = View::Login;
