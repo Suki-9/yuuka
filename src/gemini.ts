@@ -7,7 +7,13 @@ import {
 	type Part,
 	type ToolConfig,
 } from "@google/generative-ai";
-import type { EmbedBuilder } from "discord.js";
+import type {
+	ActionRowBuilder,
+	APIActionRowComponent,
+	APIComponentInMessageActionRow,
+	ButtonBuilder,
+	EmbedBuilder,
+} from "discord.js";
 import { config } from "./config.js";
 import { getBotGuildNote, getBotUserNote } from "./db/botNoteRepo.js";
 import { type BotRecord, getBotById } from "./db/botRepo.js";
@@ -744,6 +750,11 @@ export interface ProcessResult {
 	text: string;
 	embeds: EmbedBuilder[];
 	files: { attachment: Buffer; name: string }[];
+	/** Discord 対話コンポーネント（action row）。WS では Discord API JSON へ直列化して配布する。 */
+	components?: (
+		| ActionRowBuilder<ButtonBuilder>
+		| APIActionRowComponent<APIComponentInMessageActionRow>
+	)[];
 	/** 重い処理を非同期化したため、text は一時応答であり最終結果は別途配信される。 */
 	deferred?: boolean;
 }
