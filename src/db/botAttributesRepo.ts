@@ -134,3 +134,85 @@ export function countBotMembers(botId: string, guildId: string): number {
 		.get(botId, guildId) as { cnt: number };
 	return row.cnt;
 }
+
+// ─── 利用可能ロール（bot_roles。許可ロール保有者は利用メンバー扱い） ───────────
+
+export interface BotRoleRecord {
+	bot_id: string;
+	guild_id: string;
+	role_id: string;
+	role_name: string | null;
+	added_by: string;
+	created_at: string;
+}
+
+export function addAllowedRole(
+	botId: string,
+	guildId: string,
+	roleId: string,
+	addedBy: string,
+	roleName?: string,
+): boolean {
+	const db = getDb();
+	return (
+		db
+			.prepare(
+				`INSERT INTO bot_roles (bot_id, guild_id, role_id, role_name, added_by)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(bot_id, guild_id, role_id)
+         DO UPDATE SET role_name = COALESCE(excluded.role_name, role_name)`,
+			)
+			.run(botId, guildId, roleId, roleName ?? null, addedBy).changes > 0
+	);
+}
+
+export function removeAllowedRole(
+	botId: string,
+	guildId: string,
+	roleId: string,
+): boolean {
+	const db = getDb();
+	return (
+		db
+			.prepare(
+				"DELETE FROM bot_roles WHERE bot_id = ? AND guild_id = ? AND role_id = ?",
+			)
+			.run(botId, guildId, roleId).changes > 0
+	);
+}
+
+export function listAllowedRoles(
+	botId: string,
+	guildId?: string,
+): BotRoleRecord[] {
+	const db = getDb();
+	if (guildId) {
+		return db
+			.prepare(
+				"SELECT * FROM bot_roles WHERE bot_id = ? AND guild_id = ? ORDER BY created_at ASC",
+			)
+			.all(botId, guildId) as BotRoleRecord[];
+	}
+	return db
+		.prepare(
+			"SELECT * FROM bot_roles WHERE bot_id = ? ORDER BY guild_id, created_at ASC",
+		)
+		.all(botId) as BotRoleRecord[];
+}
+
+/** 利用者の保有ロール群のいずれかが許可ロールに含まれるか（利用メンバー判定の OR 条件） */
+export function isAnyRoleAllowed(
+	botId: string,
+	guildId: string,
+	roleIds: string[],
+): boolean {
+	if (roleIds.length === 0) return false;
+	const db = getDb();
+	const placeholders = roleIds.map(() => "?").join(",");
+	return !!db
+		.prepare(
+			`SELECT 1 FROM bot_roles
+       WHERE bot_id = ? AND guild_id = ? AND role_id IN (${placeholders}) LIMIT 1`,
+		)
+		.get(botId, guildId, ...roleIds);
+}

@@ -10,7 +10,11 @@ import {
 	type Message,
 	Partials,
 } from "discord.js";
-import { isBotMember, isGuildAllowed } from "./db/botAttributesRepo.js";
+import {
+	isAnyRoleAllowed,
+	isBotMember,
+	isGuildAllowed,
+} from "./db/botAttributesRepo.js";
 import {
 	acceptShareInvite,
 	getBotById,
@@ -33,6 +37,10 @@ import {
 import { isGuildAssistantBot } from "./services/botCapabilities.js";
 import { consumeRateLimit, rateLimitMessage } from "./services/botRateLimit.js";
 import { getBotGenAI } from "./services/llmClient.js";
+import {
+	decideMemberRequestById,
+	submitMemberRequest,
+} from "./services/memberRequest.js";
 import { sendToUser } from "./services/notifier.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import type { TurnAsyncDelivery } from "./types/contracts.js";
@@ -82,6 +90,62 @@ export function getBotClientForUser(botId: string): Client {
 		return custom;
 	}
 	return client;
+}
+
+export interface GuildOption {
+	id: string;
+	name: string;
+}
+
+export interface GuildOptions {
+	/** ロールはGuildsインテントで完全取得できる（@everyone / Bot管理ロールは除外） */
+	roles: GuildOption[];
+	/** メンバーはキャッシュ済みのみ（GuildMembers特権インテント未使用のため不完全な場合あり） */
+	members: GuildOption[];
+	/** メンバー一覧が完全と見なせるか（基本 false。UIでID手入力フォールバックを促す） */
+	members_complete: boolean;
+	/** Botがオンラインで当該ギルドに参加しているか */
+	available: boolean;
+}
+
+/**
+ * プルダウン用に、対象Botのクライアントからギルドのロール/メンバー候補を取得する。
+ * ロールは Guilds インテントで完全に取得可能。メンバーは GuildMembers 特権インテントが
+ * 無いためキャッシュ済み（会話・参加で観測済み）のみを返す（不足分はUIのID手入力で補う）。
+ */
+export async function getGuildOptionsForBot(
+	botId: string,
+	guildId: string,
+): Promise<GuildOptions> {
+	const empty: GuildOptions = {
+		roles: [],
+		members: [],
+		members_complete: false,
+		available: false,
+	};
+	const botClient = getBotClientForUser(botId);
+	if (!botClient.readyAt) return empty;
+	const guild = await botClient.guilds.fetch(guildId).catch(() => null);
+	if (!guild) return empty;
+
+	let roles: GuildOption[] = [];
+	try {
+		const fetched = await guild.roles.fetch();
+		roles = fetched
+			.filter((r) => r.id !== guild.id && !r.managed) // @everyone と Bot管理ロールを除外
+			.map((r) => ({ id: r.id, name: r.name }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	} catch (err) {
+		console.error("[Discord Bot] ロール一覧の取得に失敗しました:", err);
+	}
+
+	// メンバーはキャッシュ済みのみ（Bot自身・人間以外を除外）
+	const members: GuildOption[] = guild.members.cache
+		.filter((m) => !m.user.bot)
+		.map((m) => ({ id: m.id, name: m.displayName }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+
+	return { roles, members, members_complete: false, available: true };
 }
 
 export function setBotStatus(
@@ -210,6 +274,78 @@ export async function sendShareInviteDM(
 }
 
 /**
+ * 利用申請が発生したことを、BotオーナーへデフォルトBotからDMで通知する（承認/却下ボタン付き）。
+ * オーナーが独自Botを持っていても、申請通知は常に共有のデフォルトBotから届ける（オーナーは必ず登録済みのため）。
+ */
+export async function sendMemberRequestDM(
+	requestId: number,
+	ownerId: string,
+	botName: string,
+	applicantLabel: string,
+	guildLabel: string,
+	note?: string | null,
+): Promise<boolean> {
+	try {
+		if (!client.isReady()) return false;
+		const user = await client.users.fetch(ownerId);
+		const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+			new ButtonBuilder()
+				.setCustomId(`memreq_approve:${requestId}`)
+				.setLabel("承認する")
+				.setStyle(ButtonStyle.Success),
+			new ButtonBuilder()
+				.setCustomId(`memreq_reject:${requestId}`)
+				.setLabel("却下する")
+				.setStyle(ButtonStyle.Danger),
+		);
+		const noteLine =
+			note && note.trim() ? `\n\n📝 申請メッセージ:\n> ${note.trim()}` : "";
+		await user.send({
+			content:
+				`🙋 Bot「**${botName}**」への利用申請が届きました。\n\n` +
+				`申請者: ${applicantLabel}\n` +
+				`ギルド: ${guildLabel}${noteLine}\n\n` +
+				`下のボタンから承認/却下できます（管理画面の「利用申請」からも操作できます）。`,
+			components: [row],
+		});
+		return true;
+	} catch (err) {
+		console.error(
+			`[Discord Bot] 利用申請DMの送信に失敗しました (owner: ${ownerId}):`,
+			(err as Error).message,
+		);
+		return false;
+	}
+}
+
+/**
+ * 利用申請の承認/却下結果を、申請者へデフォルトBotからDMで通知する。
+ * 申請者はBotとサーバーを共有しているはずだが、DMが閉じている等で失敗しても致命的ではない。
+ */
+export async function sendMemberDecisionDM(
+	applicantId: string,
+	botName: string,
+	approved: boolean,
+): Promise<boolean> {
+	try {
+		if (!client.isReady()) return false;
+		const user = await client.users.fetch(applicantId);
+		await user.send({
+			content: approved
+				? `✅ Bot「**${botName}**」の利用申請が承認されました。メンションや返信で利用できます。`
+				: `🙇 Bot「**${botName}**」の利用申請は承認されませんでした。`,
+		});
+		return true;
+	} catch (err) {
+		console.error(
+			`[Discord Bot] 利用申請結果のDM送信に失敗しました (user: ${applicantId}):`,
+			(err as Error).message,
+		);
+		return false;
+	}
+}
+
+/**
  * 登録時の本人確認コードを、主張された Discord ID 宛にデフォルトBotからDMする（G1: DMチャレンジ方式）。
  * Botがユーザーとサーバーを共有していない／DMが閉じている場合は false。コードはログに出さない。
  */
@@ -241,8 +377,68 @@ export async function sendRegistrationCodeDM(
 async function handleInteraction(interaction: Interaction): Promise<void> {
 	if (!interaction.isButton()) return;
 
-	const [action, idStr] = interaction.customId.split(":");
+	const [action, idStr, extra] = interaction.customId.split(":");
 	try {
+		// ── 利用申請（メンバー外ユーザーがボタンから申請） ──
+		if (action === "memreq_apply") {
+			const botId = idStr;
+			const guildId = extra;
+			if (!botId || !guildId) {
+				await interaction.reply({
+					content: "申請情報が不正です。",
+					ephemeral: true,
+				});
+				return;
+			}
+			// 申請者名・ギルド名を解決してオーナーDMの可読性を上げる
+			const applicantLabel = interaction.guild
+				? (await interaction.guild.members
+						.fetch(interaction.user.id)
+						.then((m) => m.displayName)
+						.catch(() => interaction.user.username)) ||
+					interaction.user.username
+				: interaction.user.username;
+			const guildLabel = interaction.guild?.name;
+
+			const result = await submitMemberRequest(
+				botId,
+				guildId,
+				interaction.user.id,
+				undefined,
+				applicantLabel,
+				guildLabel,
+			);
+			await interaction.reply({
+				content: result.ok
+					? "✅ 利用申請を送信しました。Bot作成者の承認をお待ちください。"
+					: `⚠️ ${result.message}`,
+				ephemeral: true,
+			});
+			return;
+		}
+
+		// ── 利用申請の承認/却下（BotオーナーがDMボタンから操作） ──
+		if (action === "memreq_approve" || action === "memreq_reject") {
+			const decision = action === "memreq_approve" ? "approved" : "rejected";
+			const result = await decideMemberRequestById(
+				parseInt(idStr, 10),
+				decision,
+				interaction.user.id,
+			);
+			if (!result.ok) {
+				await interaction.reply({ content: result.message, ephemeral: true });
+				return;
+			}
+			await interaction.update({
+				content:
+					result.status === "approved"
+						? `✅ Bot「**${result.botName}**」の利用申請を承認しました。`
+						: `🚫 Bot「**${result.botName}**」の利用申請を却下しました。`,
+				components: [],
+			});
+			return;
+		}
+
 		if (action === "share_accept" || action === "share_decline") {
 			const share = getShareById(parseInt(idStr, 10));
 			if (!share || share.shared_user_id !== interaction.user.id) {
@@ -423,10 +619,28 @@ async function sendNonMemberGuidance(
 	if (last && Date.now() - last < GUIDANCE_THROTTLE_MS) return;
 	guidanceThrottle.set(throttleKey, Date.now());
 
-	await safeReply(
-		message,
-		"👋 このBotは利用メンバー制です。既存の利用メンバーかBot作成者に「メンバーに追加して」と依頼してもらうと利用できます。",
-	);
+	// ギルド内のみ申請ボタンを提示（DMでは guild_id が無く申請対象を特定できない）
+	const guildId = message.guild?.id;
+	const components = guildId
+		? [
+				new ActionRowBuilder<ButtonBuilder>().addComponents(
+					new ButtonBuilder()
+						.setCustomId(`memreq_apply:${botId}:${guildId}`)
+						.setLabel("利用申請する")
+						.setStyle(ButtonStyle.Primary),
+				),
+			]
+		: [];
+
+	try {
+		await message.reply({
+			content:
+				"👋 このBotは利用メンバー制です。下のボタンから利用申請するとBot作成者へ承認依頼が届きます。",
+			components,
+		});
+	} catch (err) {
+		console.error("[Discord Bot] 利用案内の送信に失敗しました:", err);
+	}
 }
 
 /** ギルド内の表示名を解決する（ニックネーム → グローバル表示名 → ユーザー名） */
@@ -484,8 +698,14 @@ async function handleAssistantMessage(
 	const userId = message.author.id;
 
 	if (!isDM) {
-		// ── 利用メンバー判定（owner は常に暗黙メンバー §4.3.3） ──
-		const isMember = userId === ownerId || isBotMember(botId, guildId!, userId);
+		// ── 利用メンバー判定（owner は常に暗黙メンバー §4.3.3。許可ロール保有者も利用可） ──
+		const memberRoleIds = message.member
+			? Array.from(message.member.roles.cache.keys())
+			: [];
+		const isMember =
+			userId === ownerId ||
+			isBotMember(botId, guildId!, userId) ||
+			isAnyRoleAllowed(botId, guildId!, memberRoleIds);
 		if (!isMember) {
 			await sendNonMemberGuidance(botId, message);
 			return;

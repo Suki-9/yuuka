@@ -1602,23 +1602,40 @@
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">
               <summary>利用メンバー</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバーを管理します。あなた（owner）は常に利用できます。プルダウンから選ぶか、一覧に無い場合はユーザーIDを直接入力してください。削除ボタンはShiftを押しながらで確認なしに削除できます。</p>
               <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
-                <input type="text" id="assistant-member-input" placeholder="ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
+                <select id="assistant-member-select" style="min-width: 180px;"><option value="">（メンバーを選択）</option></select>
+                <input type="text" id="assistant-member-input" placeholder="または ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
                 <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
               </div>
               <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
             </details>
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">
-              <summary>共有ノート（ギルドノート）</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。</p>
-              <div style="display: flex; gap: 12px; margin-bottom: 8px;">
-                <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
-                <button type="button" id="btn-save-assistant-note" class="btn btn-primary" style="white-space: nowrap;">保存</button>
+              <summary>利用可能ロール</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">許可したDiscordロールの保有者は、個別追加なしで利用できます（判定はメッセージ受信時に行われます）。ギルドを選ぶとロール一覧を取得します。削除ボタンはShiftを押しながらで確認なしに削除できます。</p>
+              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <select id="assistant-role-guild-select" style="min-width: 180px;"></select>
+                <select id="assistant-role-select" style="min-width: 180px; flex-grow: 1;"><option value="">（ロールを選択）</option></select>
+                <button type="button" id="btn-add-assistant-role" class="btn btn-primary" style="white-space: nowrap;">追加</button>
               </div>
-              <textarea id="assistant-guild-note" rows="6" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
+              <div id="assistant-role-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用申請（承認待ち）</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">ユーザーからの利用申請を承認/却下します。承認すると利用メンバーへ追加され、申請者へ通知されます。新規申請はデフォルトBotからDMでも届きます。</p>
+              <div id="assistant-request-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>共有ノート（ギルドノート）</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルド共有の知識ベース（ルール・用語・運用手順）です。利用メンバーは会話からも参照・編集できます。ギルドを選んで「編集」を押すとモーダルで編集できます。</p>
+              <div style="display: flex; gap: 12px;">
+                <select id="assistant-note-guild-select" style="flex-grow: 1;"></select>
+                <button type="button" id="btn-open-assistant-note" class="btn btn-primary" style="white-space: nowrap;">編集</button>
+              </div>
             </details>
           </details>
 
@@ -2570,6 +2587,23 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">保存する</button>
       </form>
+    </div>
+  </div>
+
+  <!-- 共有ノート（ギルドノート）編集モーダル -->
+  <div id="modal-assistant-note" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>共有ノートの編集</h3>
+        <button class="btn-close" id="btn-close-assistant-note">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <p class="field-sub" id="assistant-note-modal-guild" style="margin-bottom: 8px;"></p>
+      <div class="form-group">
+        <textarea id="assistant-guild-note" rows="14" placeholder="共有ノートの内容（10,000文字まで）" style="width: 100%; resize: vertical;"></textarea>
+      </div>
+      <button type="button" id="btn-save-assistant-note" class="btn btn-primary btn-block">保存する</button>
     </div>
   </div>
 
