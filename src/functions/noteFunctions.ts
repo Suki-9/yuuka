@@ -14,17 +14,18 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "appendContextNote",
 		description:
-			"ユーザーから「〜を覚えておいて」と指示された長期的な属性・背景知識（例:「乳製品アレルギー」「仕事はエンジニア」「締め切りは毎週金曜」）を" +
-			"コンテキストノートへ1行追記します。ノートは毎回の会話でシステムプロンプトに注入されるため、本当に長期的な情報のみを保存してください。" +
-			"短期的な一時メモは addClipboardEntry、複数ステップの操作手順は savePlaybook を使うこと。" +
-			"既存ノートと重複・矛盾する情報に気づいた場合は、ユーザーに確認した上で setContextNote で全体を整理して更新してください（§3.7.3）。",
+			"ユーザーが「ずっと覚えておいて」と頼んだ、長く変わらない情報をメモ帳に1行書き足す。\n" +
+			"・会話のたび自動で読み込まれる大切な情報だけを保存する（例:「乳製品アレルギー」「仕事はエンジニア」「締切は毎週金曜」）。\n" +
+			"・今日だけの一時メモ → 代わりに addClipboardEntry を使う。\n" +
+			"・操作の手順（複数ステップ）→ 代わりに savePlaybook を使う。\n" +
+			"・同じ内容や食い違う内容が既にある時は、ユーザーに確認してから setContextNote で全文を整理し直す。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				content: {
 					type: SchemaType.STRING,
 					description:
-						"記憶する短い1行の文章（例: 'ユーザーは乳製品アレルギー'）",
+						"覚えておく短い1行の文章（例: 'ユーザーは乳製品アレルギー'）",
 				},
 			},
 			required: ["content"],
@@ -33,20 +34,22 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "getContextNote",
 		description:
-			"コンテキストノートの現在の全文を取得します。ノートの整理・重複確認・「何を覚えてる？」への回答時に呼び出します。",
+			"今メモ帳に書いてある内容を全部読み出す。\n" +
+			"・「何を覚えてる？」に答える時や、整理・重複チェックの前に今の中身を確認したい時に使う。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 	{
 		name: "setContextNote",
 		description:
-			"コンテキストノートを全文置換します。重複・矛盾の整理や「〇〇を忘れて」への対応時に、整理後の全文を渡してください。" +
-			"必ず事前に getContextNote で現在の内容を確認し、置換後の内容をユーザーに提示して承認を得てから呼び出すこと（誤消去防止）。",
+			"メモ帳の中身を、渡した全文でまるごと書き換える（古い内容は消える）。\n" +
+			"・「〇〇を忘れて」や、重複・矛盾を整理したい時に使う。\n" +
+			"・誤って消さないため、先に getContextNote で今の中身を読み、書き換え後の全文をユーザーに見せて承認を得てから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				content: {
 					type: SchemaType.STRING,
-					description: `整理後のノート全文（${CONTEXT_NOTE_MAX_LENGTH.toLocaleString()}文字以内。改行区切りの箇条書き推奨）`,
+					description: `書き換え後のメモ帳の全文（${CONTEXT_NOTE_MAX_LENGTH.toLocaleString()}文字まで。改行で区切った箇条書きがおすすめ）`,
 				},
 			},
 			required: ["content"],

@@ -34,38 +34,38 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addContact",
 		description:
-			"人物の連絡先・メモ（氏名・誕生日・関係性・連絡先情報・特記事項）を登録します。" +
-			"「田中さんの誕生日は5月3日」「同僚の佐藤さんはコーヒー好き」のような人物情報を記録する際に呼び出します。" +
-			"誕生日が登録されると前日に自動でリマインド通知されます（§3.11）。",
+			"知り合いの連絡先やメモ（名前・誕生日・関係・連絡先・覚え書き）を新しく登録する。\n" +
+			"・例:「田中さんの誕生日は5月3日」「同僚の佐藤さんはコーヒー好き」のように人の情報を記録したい時に使う。\n" +
+			"・誕生日を入れておくと、その前日に自動でお知らせが届く。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				name: {
 					type: SchemaType.STRING,
-					description: "氏名・呼称（例: '田中太郎', '佐藤さん'）",
+					description: "名前や呼び方（例: '田中太郎', '佐藤さん'）",
 				},
 				birthday: {
 					type: SchemaType.STRING,
 					description:
-						"誕生日。YYYY-MM-DD形式。年が不明な場合は --MM-DD 形式（例: '--05-03'）（任意）",
+						"誕生日。形式: YYYY-MM-DD。年がわからない時は --MM-DD（例: '--05-03'）。省略可。",
 				},
 				relationship: {
 					type: SchemaType.STRING,
-					description: "関係性（例: '同僚', '家族', '友人'）（任意）",
+					description: "どんな関係か（例: '同僚', '家族', '友人'）。省略可。",
 				},
 				contact_info: {
 					type: SchemaType.STRING,
-					description: "電話・メール等の連絡先（任意）",
+					description: "電話番号やメールなどの連絡先。省略可。",
 				},
 				notes: {
 					type: SchemaType.STRING,
-					description: "自由記述メモ（好み・特記事項など）（任意）",
+					description: "自由なメモ（好みや覚えておきたいことなど）。省略可。",
 				},
 				tags: {
 					type: SchemaType.ARRAY,
 					items: { type: SchemaType.STRING },
 					description:
-						"分類タグ（例: ['仕事', 'ミレニアム']）（任意。内容から適切に付与）",
+						"分類用のタグ（例: ['仕事', 'ミレニアム']）。省略可。内容を見て合うものを付ける。",
 				},
 			},
 			required: ["name"],
@@ -74,14 +74,15 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "searchContacts",
 		description:
-			"氏名・関係性・メモの部分一致で連絡先を検索します。会話で特定の人物に言及されたとき（例:「田中さんの好みを教えて」）、" +
-			"その人物の情報が必要なら本関数で動的に取得してください（連絡先はコンテキストに常時注入されません §3.11.3）。",
+			"名前・関係・メモの一部から連絡先を探す。\n" +
+			"・例:「田中さんの好みを教えて」のように、会話に出た人の情報が必要になった時に使う。\n" +
+			"・連絡先は普段読み込まれていないので、その人の情報がいる時はこれで取り出す。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				query: {
 					type: SchemaType.STRING,
-					description: "検索キーワード（氏名・呼称・属性の一部）",
+					description: "探す手がかりの言葉（名前・呼び方・特徴の一部）",
 				},
 			},
 			required: ["query"],
@@ -90,45 +91,48 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listContacts",
 		description:
-			"登録済みの連絡先一覧を取得します。「連絡先を見せて」などの依頼時に呼び出します。",
+			"登録ずみの連絡先をすべて一覧で取り出す。\n" +
+			"・例:「連絡先を見せて」「登録した人を全部出して」と言われた時に使う。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 	{
 		name: "updateContact",
 		description:
-			"既存の連絡先情報を更新します。searchContacts でIDを確認してから、変更するフィールドのみ指定してください。",
+			"すでにある連絡先の情報を書き換える。\n" +
+			"・先に searchContacts でその人のIDを調べてから呼ぶ。\n" +
+			"・変えたい項目だけを渡す（触らない項目は指定しなくてよい）。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				contact_id: {
 					type: SchemaType.NUMBER,
-					description: "更新する連絡先のID",
+					description: "書き換えたい連絡先のID（searchContacts で調べる）",
 				},
 				name: {
 					type: SchemaType.STRING,
-					description: "氏名（変更する場合のみ）",
+					description: "名前。変える時だけ指定する。",
 				},
 				birthday: {
 					type: SchemaType.STRING,
-					description: "誕生日 YYYY-MM-DD または --MM-DD（変更する場合のみ）",
+					description: "誕生日。形式: YYYY-MM-DD または --MM-DD。変える時だけ指定する。",
 				},
 				relationship: {
 					type: SchemaType.STRING,
-					description: "関係性（変更する場合のみ）",
+					description: "どんな関係か。変える時だけ指定する。",
 				},
 				contact_info: {
 					type: SchemaType.STRING,
-					description: "連絡先情報（変更する場合のみ）",
+					description: "電話番号やメールなどの連絡先。変える時だけ指定する。",
 				},
 				notes: {
 					type: SchemaType.STRING,
 					description:
-						"メモ（変更する場合のみ。既存メモに追記する場合は既存内容も含めた全文を渡す）",
+						"メモ。変える時だけ指定する。今のメモに書き足す時は、元の内容も含めた全文を渡す（渡した文で丸ごと置き換わるため）。",
 				},
 				tags: {
 					type: SchemaType.ARRAY,
 					items: { type: SchemaType.STRING },
-					description: "タグ（変更する場合のみ）",
+					description: "分類用のタグ。変える時だけ指定する。",
 				},
 			},
 			required: ["contact_id"],
@@ -136,13 +140,15 @@ const declarations: FunctionDeclaration[] = [
 	},
 	{
 		name: "deleteContact",
-		description: "連絡先を削除します。削除前にユーザーへ対象を確認すること。",
+		description:
+			"連絡先を削除する（元に戻せない）。\n" +
+			"・消す前に、どの人を消すのかをユーザーに確認してから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				contact_id: {
 					type: SchemaType.NUMBER,
-					description: "削除する連絡先のID",
+					description: "削除したい連絡先のID（searchContacts で調べる）",
 				},
 			},
 			required: ["contact_id"],

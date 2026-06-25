@@ -10,46 +10,47 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "sendChart",
 		description:
-			"数値データをグラフ画像（PNG）として生成し、返信に添付して視覚的に表示します。データの視覚化が有用なときに積極的に呼び出してください。" +
-			"使用例: 家計サマリのカテゴリ別内訳(pie)、月次収支の推移(line)、タスク完了率(doughnut)、予算消化率(horizontalBar)、気温の推移(line)、項目比較(bar)。" +
-			"second_values を指定すると2系列の比較グラフ（例: 収入と支出、最高気温と最低気温）になります。" +
-			"グラフはダークテーマで描画され、Embedの画像として添付されます。1回の返信につき1枚までにしてください。",
+			"数値データをグラフ画像にして、返信に貼り付けて見せる。\n" +
+			"・数字を見て分かりやすくしたい時に使う（例: カテゴリ別の支出内訳、月ごとの収支の動き、タスクの完了率、予算の消化ぐあい、気温の移り変わり、項目の比べっこ）。\n" +
+			"・グラフの形は type で選ぶ: 構成比は pie、完了率などは doughnut、項目比較は bar、プログレスバー風は horizontalBar、時系列の推移は line。\n" +
+			"・2つのデータを並べて比べたい時は second_values を渡す（例: 収入と支出、最高気温と最低気温）。\n" +
+			"・グラフは暗い色合いで描かれ、画像として添付される。1回の返信に貼れるのは1枚まで。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				type: {
 					type: SchemaType.STRING,
 					description:
-						"グラフ種別: pie（円・構成比）, doughnut（ドーナツ・完了率など）, bar（縦棒・項目比較）, horizontalBar（横棒・予算消化率のプログレスバー風）, line（折れ線・時系列推移）",
+						"グラフの形を選ぶ。pie=円グラフ（構成比）, doughnut=ドーナツ（完了率など）, bar=縦棒（項目の比較）, horizontalBar=横棒（予算消化率のプログレスバー風）, line=折れ線（時系列の推移）。",
 				},
 				title: {
 					type: SchemaType.STRING,
-					description: "グラフのタイトル（例: '6月のカテゴリ別支出'）",
+					description: "グラフの見出し（例: '6月のカテゴリ別支出'）。",
 				},
 				labels: {
 					type: SchemaType.ARRAY,
 					items: { type: SchemaType.STRING },
 					description:
-						"各データ点のラベル（例: ['食費','日用品','娯楽'] や ['1月','2月','3月']）",
+						"各データの名前を並べた配列（例: ['食費','日用品','娯楽'] や ['1月','2月','3月']）。",
 				},
 				values: {
 					type: SchemaType.ARRAY,
 					items: { type: SchemaType.NUMBER },
-					description: "labelsと同じ順序・同じ件数の数値データ",
+					description: "labels と同じ並び順・同じ件数の数値データ。",
 				},
 				series_label: {
 					type: SchemaType.STRING,
-					description: "values系列の名前（例: '支出'）（任意）",
+					description: "values のデータ系列につける名前（例: '支出'）。省略してよい。",
 				},
 				second_values: {
 					type: SchemaType.ARRAY,
 					items: { type: SchemaType.NUMBER },
 					description:
-						"比較用の第2系列データ（任意。例: 収入系列）。pie/doughnutでは使用不可",
+						"並べて比べるための2本目の数値データ（省略可。例: 収入の系列）。pie と doughnut では使えない。",
 				},
 				second_label: {
 					type: SchemaType.STRING,
-					description: "第2系列の名前（例: '収入'）（任意）",
+					description: "2本目のデータ系列につける名前（例: '収入'）。省略してよい。",
 				},
 			},
 			required: ["type", "title", "labels", "values"],

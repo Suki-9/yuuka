@@ -108,29 +108,33 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addReminder",
 		description:
-			"指定日時にDiscordへ通知を送るリマインドを登録します。「明日の15時に〜を思い出させて」「30分後に教えて」などの依頼で呼び出してください（相対時刻は現在日時を基準にISO 8601へ変換）。「毎週月曜9時に〜」「毎日21時に〜」のような繰り返しリマインドは repeat_rule にcron式（例: 毎週月曜9時 = '0 9 * * 1'、毎日21時 = '0 21 * * *'）を設定し、trigger_at には初回の送信日時を指定してください。単発のリマインドでは repeat_rule を指定してはいけません。送信先はユーザーが明示した場合のみ target を指定します（省略時はユーザー設定の既定送信先）。",
+			"決めた日時にDiscordへお知らせを送るリマインドを登録する。\n" +
+				"・例:「明日の15時に〜を思い出させて」「30分後に教えて」。「30分後」などは今の時刻を基準に日時へ直す。\n" +
+				"・毎週・毎日など繰り返したい時は repeat_rule にcron式を入れ（例: 毎週月曜9時='0 9 * * 1'、毎日21時='0 21 * * *'）、trigger_at には1回目の日時を入れる。\n" +
+				"・1回だけのリマインドでは repeat_rule を入れない。\n" +
+				"・送り先 target はユーザーがはっきり指定した時だけ入れる。省略するとユーザー設定の既定の送り先に届く。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				message: {
 					type: SchemaType.STRING,
 					description:
-						"リマインドで通知するメッセージ本文（例: '会議の資料を準備する'）",
+						"お知らせで届ける本文（例: '会議の資料を準備する'）。",
 				},
 				trigger_at: {
 					type: SchemaType.STRING,
 					description:
-						"送信日時 (ISO 8601形式: YYYY-MM-DDTHH:MM:SS)。「明日の朝」等の自然言語は現在日時を基準に変換して指定。繰り返しの場合は初回の送信日時",
+						"送る日時。形式: YYYY-MM-DDTHH:MM:SS（例 2026-06-27T09:00:00）。「明日の朝」などの言葉は今の時刻を基準に日時へ直して入れる。繰り返しの時は1回目の日時。",
 				},
 				repeat_rule: {
 					type: SchemaType.STRING,
 					description:
-						"繰り返しリマインドの場合のみ指定するcron式（分 時 日 月 曜日。例: '0 9 * * 1' = 毎週月曜9時）。単発なら省略（任意）",
+						"繰り返す時だけ入れるcron式（並びは 分 時 日 月 曜日。例 '0 9 * * 1' = 毎週月曜9時）。1回だけなら省略する。",
 				},
 				target: {
 					type: SchemaType.STRING,
 					description:
-						"送信先: 'dm'（ダイレクトメッセージ）| 'channel'（チャンネル）。ユーザーが明示した場合のみ指定（任意。省略時はユーザー設定の既定送信先）",
+						"送り先。'dm'＝ダイレクトメッセージ、'channel'＝チャンネル。ユーザーがはっきり指定した時だけ入れる。省略するとユーザー設定の既定の送り先になる。",
 				},
 			},
 			required: ["message", "trigger_at"],
@@ -139,14 +143,17 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listReminders",
 		description:
-			"登録済みリマインドの一覧を取得します。「リマインド見せて」「設定中の通知は？」などの依頼で呼び出してください。通常は送信待ち（pending）のみ返します。送信済み・キャンセル済みも見たい場合は include_all を true にしてください。キャンセルに必要なIDもこの結果で確認できます。",
+			"登録してあるリマインドの一覧を見せる。\n" +
+				"・例:「リマインド見せて」「設定中の通知は？」。\n" +
+				"・ふだんは送信待ちのものだけ返す。送信済み・キャンセル済みも見たい時は include_all を true にする。\n" +
+				"・キャンセルに使うIDもこの一覧で分かる。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				include_all: {
 					type: SchemaType.BOOLEAN,
 					description:
-						"送信済み・キャンセル済みのリマインドも含めるか（デフォルト false = 送信待ちのみ）",
+						"送信済み・キャンセル済みのリマインドも一覧に含めるか。省略=false=送信待ちのものだけ。",
 				},
 			},
 		},
@@ -154,13 +161,16 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "cancelReminder",
 		description:
-			"登録済みリマインドをキャンセルします。「#3のリマインドやめて」「さっきのリマインド取り消して」などの依頼で呼び出してください。繰り返しリマインドもキャンセルすると以後送信されなくなります。IDが不明な場合は先に listReminders で確認してください。",
+			"登録してあるリマインドを取り消す。\n" +
+				"・例:「#3のリマインドやめて」「さっきのリマインド取り消して」。\n" +
+				"・繰り返しのリマインドも取り消すと、それ以降は送られなくなる。\n" +
+				"・IDが分からない時は、先に listReminders で確認してから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				reminder_id: {
 					type: SchemaType.NUMBER,
-					description: "キャンセルするリマインドのID（#番号）",
+					description: "取り消すリマインドのID（#のあとの番号）。",
 				},
 			},
 			required: ["reminder_id"],

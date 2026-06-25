@@ -115,32 +115,36 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addTodo",
 		description:
-			"新しいToDo（タスク）をユーザーのToDoリストに追加します。「〜をやることに追加して」「〜しなきゃ」などタスク登録の依頼で呼び出してください。タグは登録後にバックグラウンドで自動付与されるため指定不要です。優先度はユーザーが明示した場合のみ指定してください（未指定なら省略）。※特定タスクの「サブタスク」として登録したい場合は addTodo ではなく addSubtask を使ってください。",
+			"新しいタスク（やること）をToDoリストに1件追加する。\n" +
+			"・例:「〜をやることに追加して」「〜しなきゃ」などの登録依頼で呼ぶ。\n" +
+			"・タグは追加後に自動で付くので指定しなくてよい。\n" +
+			"・優先度はユーザーがはっきり言った時だけ指定する（言わなければ省略）。\n" +
+			"・あるタスクの中の「サブタスク」として登録したい時 → 代わりに addSubtask を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				title: {
 					type: SchemaType.STRING,
-					description: "ToDoのタイトル（簡潔な体言止め推奨）",
+					description: "タスクのタイトル（短い体言止めがおすすめ）",
 				},
 				description: {
 					type: SchemaType.STRING,
-					description: "ToDoの詳細説明（任意）",
+					description: "タスクの詳しい説明（任意）",
 				},
 				due_date: {
 					type: SchemaType.STRING,
 					description:
-						"期限 (ISO 8601形式。日付のみなら YYYY-MM-DD、時刻ありなら YYYY-MM-DDTHH:MM:SS。「明日まで」等の自然言語は現在日時を基準に変換して指定)（任意）",
+						"締め切り。形式: 日付だけなら YYYY-MM-DD、時刻ありなら YYYY-MM-DDTHH:MM:SS。「明日まで」などは今の日時を基準に変換して入れる（任意）",
 				},
 				start_date: {
 					type: SchemaType.STRING,
 					description:
-						"開始日 (ISO 8601形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS)。ガントチャートのバー始端になります。「来週から始める」等の着手予定がある場合に指定（任意）",
+						"始める日。形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS。ガントチャートのバーの始まりになる。「来週から始める」など着手予定がある時に入れる（任意）",
 				},
 				priority: {
 					type: SchemaType.STRING,
 					description:
-						"優先度: 'high'（高）| 'medium'（中）| 'low'（低）。ユーザーが明示した場合のみ指定（任意）",
+						"優先度: 'high'（高）| 'medium'（中）| 'low'（低）。ユーザーがはっきり言った時だけ指定（任意）",
 				},
 			},
 			required: ["title"],
@@ -149,31 +153,34 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addSubtask",
 		description:
-			"既存のタスクに紐づく「サブタスク」を追加します。「#3のサブタスクに〜を追加」「○○タスクの中に△△という手順を入れて」など、あるタスクを分解した小タスクを登録する依頼で呼び出してください。親タスクの進捗は『完了サブタスク数 / 全サブタスク数』で自動算出されます。サブタスクはさらに孫サブタスクを持てません（1階層のみ）。",
+			"あるタスクの中の小さな手順（サブタスク）を1件追加する。\n" +
+			"・例:「#3のサブタスクに〜を追加」「○○タスクの中に△△という手順を入れて」のように、タスクを分解した小タスクを登録する依頼で呼ぶ。\n" +
+			"・親タスクの進捗は『完了したサブタスク数 ÷ 全サブタスク数』で自動計算される。\n" +
+			"・サブタスクの下にさらにサブタスクは作れない（1段までしか入れ子にできない）。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				parent_todo_id: {
 					type: SchemaType.NUMBER,
-					description: "親タスクのID（#番号）",
+					description: "どのタスクの下に入れるか。親タスクのID（#番号）",
 				},
 				title: {
 					type: SchemaType.STRING,
-					description: "サブタスクのタイトル（簡潔な体言止め推奨）",
+					description: "サブタスクのタイトル（短い体言止めがおすすめ）",
 				},
 				description: {
 					type: SchemaType.STRING,
-					description: "サブタスクの詳細説明（任意）",
+					description: "サブタスクの詳しい説明（任意）",
 				},
 				due_date: {
 					type: SchemaType.STRING,
 					description:
-						"サブタスクの期限 (ISO 8601形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS)（任意）",
+						"サブタスクの締め切り。形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS（任意）",
 				},
 				start_date: {
 					type: SchemaType.STRING,
 					description:
-						"サブタスクの開始日 (ISO 8601形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS)（任意）",
+						"サブタスクを始める日。形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS（任意）",
 				},
 			},
 			required: ["parent_todo_id", "title"],
@@ -182,19 +189,23 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listTodos",
 		description:
-			"ToDo一覧を取得します。「タスク見せて」「業務タスクを見せて」などの依頼で呼び出してください。tag を指定すると特定タグ（グループ）のToDoのみに絞り込めます（§3.2.4 グループ別表示。タグ名が不明な場合は先に listTodoTags で確認）。結果は親タスクごとにサブタスク（subtasks）と算出進捗（effective_progress）が入れ子で含まれます。タグごとにまとめる・進捗やサブタスクの達成度に触れるなど、ユーザーが見やすい形に整理して提示してください。個別タスクのサブタスク詳細や進捗履歴が必要なら getTaskDetail を使ってください。",
+			"タスクの一覧を取り出す。「タスク見せて」「業務タスクを見せて」などで呼ぶ。\n" +
+			"・tag を指定するとそのタグ（グループ）のタスクだけに絞れる。タグ名が分からない時は先に listTodoTags で確認する。\n" +
+			"・結果は親タスクごとに、サブタスク（subtasks）と計算後の進捗（effective_progress）が入れ子で入る。\n" +
+			"・タグごとにまとめる、進捗やサブタスクの達成度に触れるなど、ユーザーが見やすい形に整えて見せる。\n" +
+			"・1つのタスクのサブタスク詳細や進捗の履歴が知りたい時 → 代わりに getTaskDetail を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				status: {
 					type: SchemaType.STRING,
 					description:
-						"フィルタするステータス: 'open'（未完了）| 'done'（完了済み）| 'all'（全て）。デフォルト 'open'",
+						"絞り込む状態: 'open'（未完了）| 'done'（完了済み）| 'all'（すべて）。省略='open'",
 				},
 				tag: {
 					type: SchemaType.STRING,
 					description:
-						"絞り込むタグ名（例: '業務', '買い物'）。指定タグを持つToDoのみ返します（任意）",
+						"絞り込むタグ名（例: '業務', '買い物'）。そのタグが付いたタスクだけ返す（任意）",
 				},
 			},
 		},
@@ -202,13 +213,14 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "completeTodo",
 		description:
-			"ToDoを完了（done）にします。「〜終わった」「#3完了にして」などの報告で呼び出してください。",
+			"タスクを完了（done）にする。\n" +
+			"・例:「〜終わった」「#3完了にして」などの報告で呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				todo_id: {
 					type: SchemaType.NUMBER,
-					description: "完了にするToDoのID（#番号）",
+					description: "完了にするタスクのID（#番号）",
 				},
 			},
 			required: ["todo_id"],
@@ -217,13 +229,15 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "deleteTodo",
 		description:
-			"ToDoをリストから削除します。完了ではなく取り消し・不要になった場合に呼び出してください（完了の場合は completeTodo を使用）。",
+			"タスクをリストから削除する（消すと元に戻せない）。\n" +
+			"・終わったのではなく、取り消したい・もう不要になった時に呼ぶ。\n" +
+			"・終わった報告の時 → 代わりに completeTodo を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				todo_id: {
 					type: SchemaType.NUMBER,
-					description: "削除するToDoのID（#番号）",
+					description: "削除するタスクのID（#番号）",
 				},
 			},
 			required: ["todo_id"],
@@ -232,13 +246,17 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "updateTodo",
 		description:
-			"既存ToDoの内容を変更します（タイトル・説明・期限・開始日・優先度・ステータス）。「#2の期限を金曜にして」などの依頼で呼び出してください。変更するフィールドのみ指定します。タイトルや説明を変更するとタグはバックグラウンドで自動的に付け直されます。※進捗（何%まで進んだか）の更新は updateTaskProgress を使ってください。",
+			"既にあるタスクの中身を変える（タイトル・説明・締め切り・開始日・優先度・状態）。\n" +
+			"・例:「#2の期限を金曜にして」などの依頼で呼ぶ。\n" +
+			"・変える項目だけを指定する。\n" +
+			"・タイトルや説明を変えると、タグは自動で付け直される。\n" +
+			"・進捗（何%まで進んだか）を変えたい時 → 代わりに updateTaskProgress を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				todo_id: {
 					type: SchemaType.NUMBER,
-					description: "変更するToDoのID（#番号）",
+					description: "変えるタスクのID（#番号）",
 				},
 				title: {
 					type: SchemaType.STRING,
@@ -246,26 +264,27 @@ const declarations: FunctionDeclaration[] = [
 				},
 				description: {
 					type: SchemaType.STRING,
-					description: "新しい詳細説明（任意）",
+					description: "新しい説明文（任意）",
 				},
 				due_date: {
 					type: SchemaType.STRING,
 					description:
-						"新しい期限 (ISO 8601形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS)。空文字で期限をクリア（任意）",
+						"新しい締め切り。形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS。空文字を渡すと締め切りを消す（任意）",
 				},
 				start_date: {
 					type: SchemaType.STRING,
 					description:
-						"新しい開始日 (ISO 8601形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS)。空文字で開始日をクリア（任意）",
+						"新しい開始日。形式: YYYY-MM-DD または YYYY-MM-DDTHH:MM:SS。空文字を渡すと開始日を消す（任意）",
 				},
 				priority: {
 					type: SchemaType.STRING,
-					description: "新しい優先度: 'high' | 'medium' | 'low'（任意）",
+					description:
+						"新しい優先度: 'high'（高）| 'medium'（中）| 'low'（低）（任意）",
 				},
 				status: {
 					type: SchemaType.STRING,
 					description:
-						"新しいステータス: 'open'（未完了に戻す）| 'done'（完了）（任意）",
+						"新しい状態: 'open'（未完了に戻す）| 'done'（完了）（任意）",
 				},
 			},
 			required: ["todo_id"],
@@ -274,7 +293,11 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "updateTaskProgress",
 		description:
-			"タスクの進捗（0〜100%）を更新し、進捗メモを履歴として保存します（§3.2 進捗管理）。「○○は半分終わった」「設計が完了したので60%くらい」など、どこまで進んだかの報告で呼び出してください。100を指定すると自動的に完了になります。note には『何が終わったか』を簡潔に残すと後から経緯を追えます。※サブタスクを持つ親タスクの進捗は『完了サブタスク数/全体』で自動算出されるため、この関数では更新できません（その場合は該当サブタスクを完了/進捗更新してください）。",
+			"タスクの進み具合（0〜100%）を更新し、メモを履歴に残す。\n" +
+			"・例:「○○は半分終わった」「設計が終わったので60%くらい」など、どこまで進んだかの報告で呼ぶ。\n" +
+			"・100にすると自動で完了になる。\n" +
+			"・note に『何が終わったか』を短く書くと、後から経緯を見返せる。\n" +
+			"・サブタスクを持つ親タスクは進捗が『完了サブタスク数÷全体』で自動計算されるため、ここでは更新できない。その時は中のサブタスクを完了/進捗更新する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
@@ -284,12 +307,12 @@ const declarations: FunctionDeclaration[] = [
 				},
 				progress: {
 					type: SchemaType.NUMBER,
-					description: "進捗率 0〜100（整数）。100で完了扱い",
+					description: "進み具合 0〜100の整数（%）。100にすると完了扱い",
 				},
 				note: {
 					type: SchemaType.STRING,
 					description:
-						"進捗メモ（例: '設計フェーズ完了、実装着手'）。履歴に残ります（任意）",
+						"進捗メモ（例: '設計フェーズ完了、実装着手'）。履歴に残る（任意）",
 				},
 			},
 			required: ["todo_id", "progress"],
@@ -298,13 +321,14 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "getTaskDetail",
 		description:
-			"特定タスクの詳細（サブタスク一覧・算出進捗・進捗更新履歴）を取得します。「#3の進捗の経緯を見せて」「○○タスクの中身を詳しく」などの依頼で呼び出してください。",
+			"1つのタスクの詳しい中身を取り出す（サブタスク一覧・計算後の進捗・進捗の更新履歴）。\n" +
+			"・例:「#3の進捗の経緯を見せて」「○○タスクの中身を詳しく」などの依頼で呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				todo_id: {
 					type: SchemaType.NUMBER,
-					description: "詳細を見るタスクのID（#番号）",
+					description: "詳しく見るタスクのID（#番号）",
 				},
 			},
 			required: ["todo_id"],
@@ -313,7 +337,9 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listTodoTags",
 		description:
-			"未完了ToDoに付いているタグの一覧と各タグの件数を取得します。「どんなタグがある？」「タスクをグループごとに見せて」などの依頼や、listTodos のタグ絞り込みに使うタグ名を確認したい場合に呼び出してください（§3.2.4 グループ表示）。",
+			"未完了タスクに付いているタグの一覧と、それぞれの件数を取り出す。\n" +
+			"・例:「どんなタグがある？」「タスクをグループごとに見せて」などの依頼で呼ぶ。\n" +
+			"・listTodos でタグ絞り込みに使うタグ名を確かめたい時にも使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {},
@@ -322,7 +348,10 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "organizeTaskPriorities",
 		description:
-			"タスク優先度整理（§3.2.3）の第一段階。「タスクを整理して」「優先順位をつけて」と依頼された際に呼び出し、未完了ToDoの全件（期限・タグ・現在の優先度付き）を取得します。あなたはこの結果を期限の近さ・タイトルや説明から読み取れる重要度・タグを考慮して分析し、各ToDoの優先度（high/medium/low）の【提案】をユーザーに提示して承認を得てください。承認を得てから applyTaskPriorities を呼んで確定すること。提案のみで勝手に確定しないこと（§3.2.3）。",
+			"優先度の整理の1段目。未完了タスク全部を、期限・タグ・今の優先度つきで取り出す。\n" +
+			"・例:「タスクを整理して」「優先順位をつけて」と頼まれた時に呼ぶ。\n" +
+			"・取り出した結果から、期限の近さ・タイトルや説明から分かる大事さ・タグを見て、各タスクの優先度（high/medium/low）を【提案】としてユーザーに見せ、OKをもらう。\n" +
+			"・承認をもらってから applyTaskPriorities を呼んで確定する。提案だけにとどめ、勝手に確定しない。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {},
@@ -331,21 +360,23 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "applyTaskPriorities",
 		description:
-			"タスク優先度整理（§3.2.3）の第二段階（確定処理）。organizeTaskPriorities の結果から提案した優先順位をユーザーが承認した後にのみ呼び出し、複数ToDoの優先度を一括で確定保存します。ユーザーの承認なしに呼び出してはいけません。",
+			"優先度の整理の2段目（確定）。複数タスクの優先度をまとめて保存する。\n" +
+			"・organizeTaskPriorities で出した提案を、ユーザーが承認した後だけ呼ぶ。\n" +
+			"・ユーザーの承認がないうちは絶対に呼ばない。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				items: {
 					type: SchemaType.ARRAY,
-					description:
-						"確定する優先度のリスト（承認された提案内容と一致させること）",
+					description: "確定する優先度のリスト。承認された提案の内容とそろえる",
 					items: {
 						type: SchemaType.OBJECT,
 						properties: {
-							todo_id: { type: SchemaType.NUMBER, description: "対象ToDoのID" },
+							todo_id: { type: SchemaType.NUMBER, description: "対象タスクのID" },
 							priority: {
 								type: SchemaType.STRING,
-								description: "確定する優先度: 'high' | 'medium' | 'low'",
+								description:
+									"確定する優先度: 'high'（高）| 'medium'（中）| 'low'（低）",
 							},
 						},
 						required: ["todo_id", "priority"],

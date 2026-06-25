@@ -131,41 +131,44 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addExpense",
 		description:
-			`収入または支出を家計簿に記録します。「〇〇円使った」「ランチ1200円」「給料が振り込まれた」などの報告や、レシートOCRの内容をユーザーが承認した時に呼び出してください。支出のカテゴリは: ${CATEGORY_LIST}。` +
-			`記録結果には予算の消化状況と、対応しそうな支払い予定（消込候補）が含まれます。消込候補が見つかった場合は「この支払い予定を消込しますか？」とユーザーに確認し、承認されたら settlePlannedPayment を呼んでください（§3.4.3 消込フロー）。`,
+			`収入や支出を家計簿に1件記録する。\n` +
+			`・例:「1200円使った」「ランチ1200円」「給料が振り込まれた」、レシート読み取りの内容をユーザーがOKした時。\n` +
+			`・支出のカテゴリは次から選ぶ: ${CATEGORY_LIST}。\n` +
+			`・記録すると予算の使用状況と、対応しそうな支払い予定（消込候補）も一緒に返る。\n` +
+			`・消込候補が出たら「この支払い予定を消込しますか？」と確認し、OKをもらってから settlePlannedPayment を呼ぶ。`,
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				amount: {
 					type: SchemaType.NUMBER,
-					description: "金額（円、1以上の整数）",
+					description: "金額。円単位の1以上の整数（例: 1200）",
 				},
 				category: {
 					type: SchemaType.STRING,
-					description: `カテゴリ。支出の場合: ${CATEGORY_LIST} のいずれか。収入の場合は内容に合う名称（例: 給与, 賞与, 副収入）`,
+					description: `カテゴリ。支出なら次のどれか: ${CATEGORY_LIST}。収入なら内容に合う名前（例: 給与, 賞与, 副収入）`,
 				},
 				type: {
 					type: SchemaType.STRING,
 					description:
-						"収支区分: 'expense'（支出、デフォルト）| 'income'（収入）",
+						"収入か支出か。'expense'=支出（既定）/ 'income'=収入",
 				},
 				memo: {
 					type: SchemaType.STRING,
-					description: "メモ（店名・品目・用途など。任意）",
+					description: "メモ。店名・品目・用途など（任意）",
 				},
 				date: {
 					type: SchemaType.STRING,
-					description: "日付 (YYYY-MM-DD形式。省略時は今日)",
+					description: "日付。形式 YYYY-MM-DD。省略=今日",
 				},
 				time: {
 					type: SchemaType.STRING,
 					description:
-						"時刻 (HH:MM:SS形式。レシートに記載がある場合など。任意)",
+						"時刻。形式 HH:MM:SS。レシートに時刻がある時など（任意）",
 				},
 				source: {
 					type: SchemaType.STRING,
 					description:
-						"記録元: 'manual'（デフォルト）| 'receipt_ocr'（レシート画像からの自動記帳時のみ指定）",
+						"記録元。'manual'=手入力（既定）/ 'receipt_ocr'=レシート画像からの自動記帳の時だけ指定",
 				},
 			},
 			required: ["amount", "category"],
@@ -174,17 +177,20 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "getMonthlySummary",
 		description:
-			"指定月の収支サマリー（収入合計・支出合計・収支差・支出のカテゴリ別内訳）を取得します。「今月いくら使った？」「先月の収支は？」などの質問で呼び出してください。年月省略時は今月です。",
+			"指定した月の収支まとめ（収入合計・支出合計・差額・支出のカテゴリ別内訳）を返す。\n" +
+			"・例:「今月いくら使った？」「先月の収支は？」。\n" +
+			"・年と月を省くと今月のまとめを返す。\n" +
+			"・カテゴリごとの細かい内訳だけ見たい時 → 代わりに getCategoryBreakdown を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				year: {
 					type: SchemaType.NUMBER,
-					description: "年（例: 2026。省略時は今年）",
+					description: "年。4桁（例: 2026）。省略=今年",
 				},
 				month: {
 					type: SchemaType.NUMBER,
-					description: "月（1〜12。省略時は今月）",
+					description: "月。1〜12の数字。省略=今月",
 				},
 			},
 		},
@@ -192,19 +198,22 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "getCategoryBreakdown",
 		description:
-			"指定月のカテゴリ別内訳（金額・件数・構成比）を取得します。「カテゴリ別に見せて」「何に一番使ってる？」などの質問で呼び出してください。type で支出（デフォルト）と収入を切り替えられます。",
+			"指定した月のカテゴリ別の内訳（金額・件数・割合）を返す。\n" +
+			"・例:「カテゴリ別に見せて」「何に一番使ってる？」。\n" +
+			"・type で支出（既定）か収入かを切り替える。\n" +
+			"・収入と支出の合計や差額も見たい時 → 代わりに getMonthlySummary を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				year: { type: SchemaType.NUMBER, description: "年（省略時は今年）" },
+				year: { type: SchemaType.NUMBER, description: "年。4桁（例: 2026）。省略=今年" },
 				month: {
 					type: SchemaType.NUMBER,
-					description: "月（1〜12。省略時は今月）",
+					description: "月。1〜12の数字。省略=今月",
 				},
 				type: {
 					type: SchemaType.STRING,
 					description:
-						"集計対象: 'expense'（支出、デフォルト）| 'income'（収入）",
+						"集計する対象。'expense'=支出（既定）/ 'income'=収入",
 				},
 			},
 		},
@@ -212,18 +221,21 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listRecentExpenses",
 		description:
-			"直近の収支記録を新しい順に取得します。「最近の支出見せて」「記録一覧」などの依頼で呼び出してください。type で支出のみ・収入のみに絞り込めます。",
+			"最近の収支記録を新しい順に一覧で返す。\n" +
+			"・例:「最近の支出見せて」「記録一覧」。\n" +
+			"・type で支出だけ・収入だけに絞り込める。\n" +
+			"・月ごとの合計や内訳が知りたい時 → 代わりに getMonthlySummary を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				count: {
 					type: SchemaType.NUMBER,
-					description: "取得件数（デフォルト10件）",
+					description: "取得する件数。省略=10件",
 				},
 				type: {
 					type: SchemaType.STRING,
 					description:
-						"絞り込み: 'expense'（支出のみ）| 'income'（収入のみ）。省略時は両方",
+						"絞り込み。'expense'=支出だけ / 'income'=収入だけ。省略=両方",
 				},
 			},
 		},
@@ -233,7 +245,9 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "getBudgetLimits",
 		description:
-			"カテゴリごとの月次予算上限と今月の消化状況（使用額・消化率）を取得します。「予算どれくらい残ってる？」「予算設定を見せて」などの依頼で呼び出してください。",
+			"カテゴリごとの毎月の予算上限と、今月の使用額・使用率を返す。\n" +
+			"・例:「予算どれくらい残ってる？」「予算設定を見せて」。\n" +
+			"・予算を新しく決めたり変えたい時 → 代わりに setBudgetLimit を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {},
@@ -241,17 +255,21 @@ const declarations: FunctionDeclaration[] = [
 	},
 	{
 		name: "setBudgetLimit",
-		description: `カテゴリの月次予算上限を設定・更新します。「食費の予算を3万円にして」などの依頼で呼び出してください。カテゴリは: ${CATEGORY_LIST}。`,
+		description:
+			`カテゴリの毎月の予算上限を決める、または変える。\n` +
+			`・例:「食費の予算を3万円にして」。\n` +
+			`・カテゴリは次から選ぶ: ${CATEGORY_LIST}。\n` +
+			`・今の予算や残りを見るだけ → 代わりに getBudgetLimits を使う。`,
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				category: {
 					type: SchemaType.STRING,
-					description: `予算を設定するカテゴリ（${CATEGORY_LIST} のいずれか）`,
+					description: `予算を決めるカテゴリ。次のどれか: ${CATEGORY_LIST}`,
 				},
 				limit_amount: {
 					type: SchemaType.NUMBER,
-					description: "月次予算上限（円、1以上の整数）",
+					description: "毎月の予算上限。円単位の1以上の整数（例: 30000）",
 				},
 			},
 			required: ["category", "limit_amount"],
@@ -260,13 +278,15 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "deleteBudgetLimit",
 		description:
-			"カテゴリの月次予算上限を削除します。「食費の予算設定を消して」などの依頼で呼び出してください。",
+			"カテゴリの毎月の予算上限を消す。\n" +
+			"・例:「食費の予算設定を消して」。\n" +
+			"・金額を変えたいだけ（消すのではなく） → 代わりに setBudgetLimit を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				category: {
 					type: SchemaType.STRING,
-					description: "予算上限を削除するカテゴリ",
+					description: "予算上限を消すカテゴリ",
 				},
 			},
 			required: ["category"],
@@ -277,14 +297,18 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listPlannedPayments",
 		description:
-			"支払い予定の一覧を取得します。「今月の支払い予定は？」「未払いある？」などの質問で呼び出してください。デフォルトでは未消込（pending）のみを期日の近い順に返し、期日超過の予定には⚠️が付きます。",
+			"支払い予定の一覧を返す。\n" +
+			"・例:「今月の支払い予定は？」「未払いある？」。\n" +
+			"・既定ではまだ払っていない予定だけを、期日が近い順に返す。\n" +
+			"・期日を過ぎた予定には注意マークが付く。\n" +
+			"・新しい支払い予定を登録したい時 → 代わりに addPlannedPayment を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				status: {
 					type: SchemaType.STRING,
 					description:
-						"フィルタするステータス: 'pending'（未消込、デフォルト）| 'settled'（消込済み）| 'cancelled'（キャンセル済み）| 'all'（全て）",
+						"絞り込む状態。'pending'=まだ払っていない（既定）/ 'settled'=消込済み / 'cancelled'=キャンセル済み / 'all'=全部",
 				},
 			},
 		},
@@ -292,33 +316,35 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addPlannedPayment",
 		description:
-			`支払い予定を登録します（§3.4.3）。「27日に家賃8万円の支払いがある」などの自然言語から title/amount/category/due_date を構造化して登録してください。カテゴリは: ${CATEGORY_LIST}。` +
-			`家賃・サブスク等の繰り返し支払いは repeat_rule（cron式、例: '0 0 27 * *' = 毎月27日）を指定すると、期日経過後・消込後に次回予定が自動生成されます。` +
-			`【重要】登録後は必ず「ToDoとして追加する？」「リマインドを設定する？」をユーザーに確認し、希望されたら linkPlannedPaymentTodo / linkPlannedPaymentReminder を呼ぶこと（§3.4.3）。`,
+			`これから払う予定（支払い予定）を1件登録する。\n` +
+			`・例:「27日に家賃8万円の支払いがある」。話し言葉から title/amount/category/due_date を読み取って登録する。\n` +
+			`・カテゴリは次から選ぶ: ${CATEGORY_LIST}。\n` +
+			`・家賃やサブスクのような毎回くり返す支払いは repeat_rule（cron式。例 '0 0 27 * *' = 毎月27日）を指定すると、期日が過ぎたり消込した後に次回分が自動で作られる。\n` +
+			`・大事: 登録した後は必ず「ToDoに追加する？」「リマインドを設定する？」とユーザーに確認し、希望されたら linkPlannedPaymentTodo / linkPlannedPaymentReminder を呼ぶ。`,
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				title: {
 					type: SchemaType.STRING,
-					description: "支払いの概要（例: 家賃, Netflix, 自動車税）",
+					description: "支払いの名前（例: 家賃, Netflix, 自動車税）",
 				},
 				amount: {
 					type: SchemaType.NUMBER,
-					description: "予定金額（円、1以上の整数）",
+					description: "予定の金額。円単位の1以上の整数（例: 80000）",
 				},
 				category: {
 					type: SchemaType.STRING,
-					description: `カテゴリ（${CATEGORY_LIST} のいずれか）`,
+					description: `カテゴリ。次のどれか: ${CATEGORY_LIST}`,
 				},
 				due_date: {
 					type: SchemaType.STRING,
-					description: "支払い期日 (YYYY-MM-DD形式)",
+					description: "支払いの期日。形式 YYYY-MM-DD",
 				},
 				memo: { type: SchemaType.STRING, description: "メモ（任意）" },
 				repeat_rule: {
 					type: SchemaType.STRING,
 					description:
-						"繰り返し支払いの周期（cron式。例: '0 0 27 * *' = 毎月27日、'0 0 1 4 *' = 毎年4月1日）。単発の支払いでは指定しない（任意）",
+						"くり返す支払いの周期。cron式で書く（例 '0 0 27 * *' = 毎月27日、'0 0 1 4 *' = 毎年4月1日）。1回だけの支払いでは指定しない（任意）",
 				},
 			},
 			required: ["title", "amount", "category", "due_date"],
@@ -327,18 +353,23 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "settlePlannedPayment",
 		description:
-			"支払い予定を消込（settled に）します（§3.4.3 消込フロー）。必ずユーザーの承認を得てから呼び出してください。expense_id を指定すると既存の支出記録と紐付けて消込し、省略すると予定の金額・カテゴリで新しい支出を自動記帳して消込します。予定に紐付いたToDoは自動的に完了になり、繰り返し予定（repeat_rule付き）は次回の予定が自動生成されます。",
+			"支払い予定を「払い済み」にする（消込する）。\n" +
+			"・先にユーザーの承認をもらってから呼ぶ。\n" +
+			"・expense_id を渡すと、その既存の支出記録とひも付けて消込する。\n" +
+			"・expense_id を省くと、予定の金額・カテゴリで新しい支出を自動で記録して消込する。\n" +
+			"・予定にひも付いたToDoは自動で完了になり、くり返し予定なら次回分が自動で作られる。\n" +
+			"・まだ払っていない予定を取り消したいだけ → 代わりに cancelPlannedPayment を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				plan_id: {
 					type: SchemaType.NUMBER,
-					description: "消込する支払い予定のID（#番号）",
+					description: "消込する支払い予定のID（#のあとの番号）",
 				},
 				expense_id: {
 					type: SchemaType.NUMBER,
 					description:
-						"紐付ける既存の支出記録のID（addExpense や findSettlementCandidates の結果から取得）。省略時は予定の内容で支出を新規記帳して消込します（任意）",
+						"ひも付ける既存の支出記録のID。addExpense や findSettlementCandidates の結果から取る。省略=予定の内容で支出を新しく記録して消込する（任意）",
 				},
 			},
 			required: ["plan_id"],
@@ -347,13 +378,17 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "cancelPlannedPayment",
 		description:
-			"支払い予定をキャンセルします。不要になった・誤登録の場合に呼び出してください（実際に支払った場合はキャンセルではなく settlePlannedPayment を使用）。繰り返し予定をキャンセルすると以後の自動生成も止まります。紐付いた期日前リマインドは自動的にキャンセルされます。",
+			"支払い予定を取り消す（キャンセルする）。\n" +
+			"・いらなくなった時や、間違えて登録した時に使う。\n" +
+			"・実際に支払った時はキャンセルではなく → 代わりに settlePlannedPayment を使う。\n" +
+			"・くり返し予定を取り消すと、これから先の自動作成も止まる。\n" +
+			"・ひも付いた期日前リマインドも自動で取り消される。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				plan_id: {
 					type: SchemaType.NUMBER,
-					description: "キャンセルする支払い予定のID（#番号）",
+					description: "取り消す支払い予定のID（#のあとの番号）",
 				},
 			},
 			required: ["plan_id"],
@@ -362,21 +397,24 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "findSettlementCandidates",
 		description:
-			"実際の支払い記録（金額・カテゴリ・日付）に対応しそうな未消込の支払い予定（消込候補）を検索します。照合条件は金額±10%・同カテゴリ・期日±7日です（§3.4.3 消込フロー手順2: 自動照合）。レシートOCRや手動記帳の後に消込候補を探す際に呼び出し、候補が見つかったら「この予定を消込しますか？」とユーザーに確認して、承認されたら settlePlannedPayment を呼んでください。",
+			"実際の支払い（金額・カテゴリ・日付）に合いそうな、まだ払っていない支払い予定（消込候補）を探す。\n" +
+			"・探す条件は、金額が前後10%以内・同じカテゴリ・期日が前後7日以内。\n" +
+			"・レシート読み取りや手入力の記録の後に、消込できる予定を探す時に使う。\n" +
+			"・候補が見つかったら「この予定を消込しますか？」と確認し、OKをもらってから settlePlannedPayment を呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				amount: {
 					type: SchemaType.NUMBER,
-					description: "実際の支払い金額（円、整数）",
+					description: "実際に払った金額。円単位の整数",
 				},
 				category: {
 					type: SchemaType.STRING,
-					description: "実際の支払いのカテゴリ",
+					description: "実際に払ったもののカテゴリ",
 				},
 				date: {
 					type: SchemaType.STRING,
-					description: "実際の支払い日 (YYYY-MM-DD形式。省略時は今日)",
+					description: "実際に払った日。形式 YYYY-MM-DD。省略=今日",
 				},
 			},
 			required: ["amount", "category"],
@@ -385,13 +423,16 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "linkPlannedPaymentTodo",
 		description:
-			"支払い予定からToDoを生成して紐付けます（§3.4.3 ToDo連携）。addPlannedPayment の登録後にユーザーが「ToDoとして追加して」と希望した場合に呼び出してください。ToDoには期日（支払い期日）とタグ（「支払い」+ カテゴリ名）が自動付与され、予定の消込時にToDoも自動的に完了になります。",
+			"支払い予定からToDoを作って、その予定にひも付ける。\n" +
+			"・addPlannedPayment で登録した後、ユーザーが「ToDoとして追加して」と言った時に使う。\n" +
+			"・ToDoには支払い期日と、タグ（「支払い」とカテゴリ名）が自動で付く。\n" +
+			"・その予定を消込すると、このToDoも自動で完了になる。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				plan_id: {
 					type: SchemaType.NUMBER,
-					description: "ToDoを生成する支払い予定のID（#番号）",
+					description: "ToDoを作る対象の支払い予定のID（#のあとの番号）",
 				},
 			},
 			required: ["plan_id"],
@@ -400,18 +441,20 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "linkPlannedPaymentReminder",
 		description:
-			"支払い予定の期日前リマインドを設定して紐付けます（§3.4.3 リマインド連携）。addPlannedPayment の登録後にユーザーが「リマインドして」と希望した場合に呼び出してください。days_before で期日の何日前に通知するか指定できます（デフォルト1日前の朝9時に通知）。",
+			"支払い予定の期日前リマインドを設定して、その予定にひも付ける。\n" +
+			"・addPlannedPayment で登録した後、ユーザーが「リマインドして」と言った時に使う。\n" +
+			"・days_before で期日の何日前に知らせるか決める（既定は1日前の朝9時に通知）。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				plan_id: {
 					type: SchemaType.NUMBER,
-					description: "リマインドを設定する支払い予定のID（#番号）",
+					description: "リマインドを付ける支払い予定のID（#のあとの番号）",
 				},
 				days_before: {
 					type: SchemaType.NUMBER,
 					description:
-						"期日の何日前に通知するか（0=期日当日の朝。デフォルト1）",
+						"期日の何日前に知らせるか。0=期日当日の朝。省略=1（前日）",
 				},
 			},
 			required: ["plan_id"],

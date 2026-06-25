@@ -32,13 +32,15 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "fetchDynamicPage",
 		description:
-			"JavaScriptで動的に生成されるSPAなどのウェブページを開き、不要なタグ（スクリプト、スタイル、ナビゲーション、フッター、画像、メタデータ等）を完全に除去して超軽量化したHTMLを取得します（ヘッドレスブラウザを使用）。これにより、トークン消費を最小限に抑えつつ構造化データを正確に把握できます。",
+			"指定したURLのページを開いて、本文だけを軽くまとめたHTMLを取り出す。\n" +
+				"・JavaScriptで作られるページ（SPAなど）にも対応する。\n" +
+				"・スクリプト・スタイル・ナビ・フッター・画像・メタ情報などの不要部分を取り除くので、中身を正確に読みやすい。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				url: {
 					type: SchemaType.STRING,
-					description: "アクセスするウェブページのURL",
+					description: "開きたいウェブページのURL",
 				},
 			},
 			required: ["url"],
@@ -47,13 +49,13 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "takePageScreenshot",
 		description:
-			"指定されたURLのウェブページ全体のスクリーンショットを撮影し、画像としてサーバーに保存します（ヘッドレスブラウザを使用）。",
+			"指定したURLのページ全体のスクリーンショットを撮り、画像としてサーバーに保存する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				url: {
 					type: SchemaType.STRING,
-					description: "スクリーンショットを撮影するウェブページのURL",
+					description: "スクリーンショットを撮るウェブページのURL",
 				},
 			},
 			required: ["url"],
@@ -62,13 +64,16 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "searchWeb",
 		description:
-			"インターネットでキーワード検索を行い、関連するウェブページのタイトル、URL、説明（スニペット）の一覧を取得します。現在の天気、最新ニュース、事実確認など、リアルタイムの情報を取得する最初のステップとして非常に有効です。必要に応じて、得られたURLから fetchDynamicPage を使って詳細なページ情報をさらに取得・巡回（クロール）し、複数回検索や巡回を繰り返して情報を比較精査することを推奨します。",
+			"インターネットでキーワード検索し、関連ページのタイトル・URL・説明文の一覧を取り出す。\n" +
+				"・例: 今の天気、最新ニュース、事実確認など、その時々の新しい情報を調べたい時の最初の一歩に使う。\n" +
+				"・もっと詳しく知りたい時は、得られたURLを fetchDynamicPage に渡してページ本文を読む。\n" +
+				"・検索とページ閲覧を何度か繰り返し、複数の情報を見比べて確かめるとよい。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				query: {
 					type: SchemaType.STRING,
-					description: "検索に入力するキーワード（例: '東京 明日の天気'）",
+					description: "検索キーワード（例: '東京 明日の天気'）",
 				},
 			},
 			required: ["query"],
@@ -77,13 +82,14 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "browserInteractiveOpen",
 		description:
-			"インタラクティブブラウザの永続セッションを開始または再利用し、指定されたURLを開きます。ログインや操作を行いたい特定のWebページの最初の手順として呼び出します。",
+			"操作用ブラウザのセッションを開始（または再利用）して、指定したURLを開く。\n" +
+				"・ログインやページ操作を代行したい時の、いちばん最初の手順として呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				url: {
 					type: SchemaType.STRING,
-					description: "アクセスするウェブページのURL",
+					description: "操作ブラウザで開きたいウェブページのURL",
 				},
 			},
 			required: ["url"],
@@ -92,14 +98,17 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "browserInteractiveClick",
 		description:
-			"インタラクティブブラウザのアクティブなページ上で、指定された要素をクリックします。画面上の操作可能な要素には [ID: 数値] または [Button ID: 数値] のように一意の数値IDがマークダウン内に付与されているため、最優先でその数値ID（例: '3'）を selector 引数に直接指定してください。CSSセレクタやテキストでの指定も可能ですが、数値IDが最も確実で推奨されます。",
+			"操作用ブラウザで今開いているページ上の、指定した要素をクリックする。\n" +
+				"・操作できる要素には [ID: 数値] や [Button ID: 数値] のように番号が振ってある。\n" +
+				"・selector には、まずその数値ID（例: '3'）をそのまま入れるのが一番確実。\n" +
+				"・CSSセレクタや要素内のテキストでも指定できるが、数値IDを優先する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				selector: {
 					type: SchemaType.STRING,
 					description:
-						"クリック対象の一意の数値ID（最推奨、例: '3'）、またはCSSセレクタ/要素内のテキスト",
+						"クリックする要素の数値ID（最優先、例: '3'）。またはCSSセレクタ／要素内のテキストでも可",
 				},
 			},
 			required: ["selector"],
@@ -108,16 +117,20 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "browserInteractiveType",
 		description:
-			"インタラクティブブラウザのアクティブなページ上の指定された入力フィールドにテキストを入力します。画面上の入力フィールドには [Input (text) ID: 数値] のように一意の数値IDがマークダウン内に付与されているため、最優先でその数値ID（例: '2'）を selector 引数に直接指定してください。CSSセレクタやプレースホルダー名での指定も可能ですが、数値IDが最も確実で推奨されます。※パスワードの入力には本関数を使わず、browserFillCredential を使用してください。",
+			"操作用ブラウザで今開いているページの、指定した入力欄に文字を打ち込む。\n" +
+				"・入力欄には [Input (text) ID: 数値] のように番号が振ってある。\n" +
+				"・selector には、まずその数値ID（例: '2'）をそのまま入れるのが一番確実。\n" +
+				"・CSSセレクタやプレースホルダー名でも指定できるが、数値IDを優先する。\n" +
+				"・パスワードの入力にはこれを使わず、必ず browserFillCredential を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				selector: {
 					type: SchemaType.STRING,
 					description:
-						"入力対象の一意の数値ID（最推奨、例: '2'）、またはCSSセレクタ/プレースホルダー名/name属性の一部",
+						"文字を入れる入力欄の数値ID（最優先、例: '2'）。またはCSSセレクタ／プレースホルダー名／name属性の一部でも可",
 				},
-				text: { type: SchemaType.STRING, description: "入力するテキスト内容" },
+				text: { type: SchemaType.STRING, description: "打ち込む文字の内容" },
 			},
 			required: ["selector", "text"],
 		},
@@ -125,17 +138,18 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "browserInteractiveWait",
 		description:
-			"インタラクティブブラウザのアクティブなページ上で、指定された時間（ミリ秒）待機するか、特定のCSSセレクタを持つ要素がDOM上に出現するまで待機します。",
+			"操作用ブラウザで今開いているページの読み込みや表示を待つ。\n" +
+				"・指定したミリ秒だけ待つか、指定したCSSセレクタの要素が画面に出るまで待つ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				selector: {
 					type: SchemaType.STRING,
-					description: "出現を待つCSSセレクタ（任意）",
+					description: "出現を待ちたい要素のCSSセレクタ（省略可）",
 				},
 				timeoutMs: {
 					type: SchemaType.NUMBER,
-					description: "待機時間（ミリ秒、デフォルト5000ms、任意）",
+					description: "待つ時間（ミリ秒）。省略=5000ミリ秒（5秒）",
 				},
 			},
 		},
@@ -143,7 +157,8 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "browserInteractiveStatus",
 		description:
-			"現在のインタラクティブブラウザのアクティブな状態（現在のURL、タイトル、最新スクリーンショット画像パス、およびクリーンアップした最新マークダウンコンテンツ）を取得します。クリックやテキスト入力を行った後、画面の反応や遷移結果を確認するために必ず呼び出してください。",
+			"操作用ブラウザの今の状態を取り出す（今のURL・タイトル・最新スクショ画像のパス・読みやすく整えた本文）。\n" +
+				"・クリックや文字入力をした後は、画面がどう変わったか確認するために必ずこれを呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {},
@@ -152,7 +167,8 @@ const browserDeclarations: FunctionDeclaration[] = [
 	{
 		name: "browserInteractiveClose",
 		description:
-			"インタラクティブブラウザの永続セッションを終了し、ブラウザを完全にクローズしてリソースを解放します。一連の操作代行がすべて完了した際に最後に呼び出します。",
+			"操作用ブラウザのセッションを終了し、ブラウザを完全に閉じてリソースを解放する。\n" +
+				"・一連の操作の代行がすべて終わったら、最後にこれを呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {},
@@ -199,32 +215,35 @@ const richContentModule: FunctionModule = {
 		{
 			name: "showRichContent",
 			description:
-				"天気・ニュース・株価・路線情報・一覧データなどを視覚的に整理してDiscordのEmbed（色付きカード形式）で表示します。データの一覧・サマリ・確認プロンプト・エラー通知など、テキストだけで返すより読みやすく伝えたい場合に積極的に呼び出してください。このツールはEmbedをキューに積むだけで、返信テキストと一緒にDiscordへ送信されます。グラフ画像が有用な数値データは sendChart を使ってください。",
+				"天気・ニュース・株価・路線情報・一覧などを、色付きカード（DiscordのEmbed）に整えて見せる。\n" +
+				"・一覧やまとめ、確認のお願い、エラー通知など、文章だけより見やすく伝えたい時に積極的に使う。\n" +
+				"・このツールはカードを送信待ちに積むだけで、あとで返信の文章と一緒にDiscordへ届く。\n" +
+				"・グラフ画像にした方がよい数値データ → 代わりに sendChart を使う。",
 			parameters: {
 				type: SchemaType.OBJECT,
 				properties: {
 					title: {
 						type: SchemaType.STRING,
-						description: "Embedのタイトル（例: '🌤️ 東京の今日の天気'）",
+						description: "カードの見出し（例: '🌤️ 東京の今日の天気'）",
 					},
 					description: {
 						type: SchemaType.STRING,
-						description: "タイトル直下に表示する概要テキスト（任意）",
+						description: "見出しのすぐ下に出す説明文（省略可）",
 					},
 					color: {
 						type: SchemaType.STRING,
 						description:
-							"カラーテーマ: default（ブルー・通常情報）, success（グリーン・完了）, warning（イエロー・注意）, error（レッド・失敗）, weather（スカイブルー・天気/朝報）, finance（ゴールド・家計/支払い）, task（パープル・タスク/スケジュール）, info（水色）, news（オレンジ）, data（紫）",
+							"カードの色（内容に合わせて選ぶ）: default=青・ふつうの情報, success=緑・完了, warning=黄・注意, error=赤・失敗, weather=空色・天気/朝の知らせ, finance=金色・家計/支払い, task=紫・タスク/予定, info=水色, news=オレンジ, data=紫",
 					},
 					fields: {
 						type: SchemaType.ARRAY,
-						description: "表示するフィールドの配列（名前・値のペア、最大25件）",
+						description: "カードに並べる項目の配列。各項目は名前と値のペア。最大25件まで",
 						items: {
 							type: SchemaType.OBJECT,
 							properties: {
 								name: {
 									type: SchemaType.STRING,
-									description: "フィールドのラベル",
+									description: "項目の見出し（ラベル）",
 								},
 								value: {
 									type: SchemaType.STRING,

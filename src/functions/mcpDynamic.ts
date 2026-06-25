@@ -235,7 +235,7 @@ async function buildMcpFunctionModule(
 
 			const confirmNote =
 				server.requires_confirmation === 1
-					? "【重要】この外部ツールを実行する前に、必ず実行内容（ツール名・引数）をユーザーへ提示して承認を得てから呼び出すこと。"
+					? "【重要】この外部ツールを実行する前に、必ず「何をするか（ツール名と渡す引数）」をユーザーに見せて、OK（承認）をもらってから呼ぶこと。"
 					: "";
 
 			const baseDescription = tool.description || tool.name;

@@ -18,36 +18,38 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "savePlaybook",
 		description:
-			"一連の操作手順をマクロ（Playbook）として永続保存します。ユーザーから「この手順を覚えておいて」「『〜〜』という名前で保存して」と指示された際に呼び出します。" +
-			"保存前に必ず呼び出し名・説明・手順の内容をユーザーに提示して承認を得てください（§3.6.2）。" +
-			"手順を説明された場合（説明ベース登録）はその内容を構造化し、直前にBotが実行した操作を覚える場合（実行ベース登録）は先に getRecentActionHistory で操作履歴を取得してから手順に要約してください。",
+			"操作の手順をマクロ（Playbook）として保存し、あとで呼び出せるようにする。\n" +
+			"・例:「この手順を覚えておいて」「『〜〜』という名前で保存して」。\n" +
+			"・保存する前に、呼び出し名・説明・手順の内容をユーザーに見せて承認を得てから呼ぶ。\n" +
+			"・ユーザーが手順を言葉で説明した時は、その内容を整理して保存する。\n" +
+			"・直前にBotがやった操作を覚える時は、先に getRecentActionHistory で操作履歴を取得し、それを手順にまとめてから保存する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				name: {
 					type: SchemaType.STRING,
 					description:
-						"マクロの英数字ファイル名 (例: 'example_login', 'morning_check')",
+						"マクロの英数字のファイル名。例: 'example_login', 'morning_check'。",
 				},
 				title: {
 					type: SchemaType.STRING,
 					description:
-						"マクロの分かりやすい日本語タイトル（呼び出し名。例: '朝の確認', 'サンプルサイトのログインと請求書取得'）",
+						"マクロの分かりやすい日本語タイトル（呼び出し名）。例: '朝の確認', 'サンプルサイトのログインと請求書取得'。",
 				},
 				keywords: {
 					type: SchemaType.ARRAY,
 					items: { type: SchemaType.STRING },
 					description:
-						"次回呼び出し時にヒットさせたい関連キーワードのリスト (例: ['朝', '確認', 'ニュース'])",
+						"次に呼び出す時に見つけやすくする関連キーワードのリスト。例: ['朝', '確認', 'ニュース']。",
 				},
 				description: {
 					type: SchemaType.STRING,
-					description: "このマクロが何を行うものかの簡単な説明",
+					description: "このマクロが何をするものかの簡単な説明。",
 				},
 				steps: {
 					type: SchemaType.STRING,
 					description:
-						"Markdown形式の具体的な操作手順。使用する具体的なツール名（browserInteractiveOpen, browserFillCredential 等）や判定ロジックを含めると再実行の精度が上がります。",
+						"Markdown形式の具体的な操作手順。使うツール名（browserInteractiveOpen, browserFillCredential など）や判断の条件を書いておくと、後で再実行する時の正確さが上がる。",
 				},
 			},
 			required: ["name", "title", "keywords", "description", "steps"],
@@ -56,17 +58,17 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "findPlaybooks",
 		description:
-			"登録済みマクロ（Playbook）の一覧、またはキーワード部分一致での検索結果（中身の手順を含む）を取得します。" +
-			"ブラウザ自動化や操作自動化を指示された際、対応するマクロが既に登録されていないか確認する目的で最初に呼び出します。" +
-			"また、ユーザーがマクロの呼び出し名らしき短いフレーズ（例:「朝の確認」）を送った場合もまず本関数でマッチングし、" +
-			"見つかったら実行内容を要約してユーザーに確認し、承認を得てから runPlaybook で実行してください（§3.6.3）。",
+			"登録済みマクロ（Playbook）を一覧、またはキーワードで検索する（手順の中身も返る）。\n" +
+			"・ブラウザ操作や作業の自動化を頼まれた時、使えるマクロが既にないか最初に確認する目的で使う。\n" +
+			"・ユーザーが呼び出し名っぽい短い言葉（例:「朝の確認」）を送った時も、まずこれで探す。\n" +
+			"・見つかったら実行内容を要約してユーザーに確認し、承認を得てから runPlaybook で実行する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				query: {
 					type: SchemaType.STRING,
 					description:
-						"検索したいキーワードや部分一致の文字列 (例: 'ログイン', 'でんき')。省略した場合は全マクロの一覧を返します。",
+						"検索するキーワードや一部の文字列。例: 'ログイン', 'でんき'。省略=全マクロの一覧を返す。",
 				},
 			},
 		},
@@ -74,24 +76,25 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "getRecentActionHistory",
 		description:
-			"このユーザーとの会話で直近に実行したツール操作（Function Call）の履歴を取得します（実行ベースのマクロ登録 §3.6.2）。" +
-			"ユーザーが「今の操作を覚えておいて」「これを記憶して」と言ったら本関数で履歴を取得し、" +
-			"手順をMarkdownに要約してマクロ候補（呼び出し名・説明・手順）をユーザーに提示し、承認を得てから savePlaybook で保存してください。",
+			"このユーザーとの会話で直近にやったツール操作の履歴を取得する（操作をマクロ化する準備に使う）。\n" +
+			"・例:「今の操作を覚えておいて」「これを記憶して」。\n" +
+			"・取得した履歴を手順としてMarkdownにまとめ、マクロ候補（呼び出し名・説明・手順）をユーザーに見せ、承認を得てから savePlaybook で保存する。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 	{
 		name: "runPlaybook",
 		description:
-			"指定した名前のマクロ（Playbook）の手順を取得します。ユーザーが実行を承認した後に呼び出し、" +
-			"返された手順（steps）に厳密に従って各ツールを順番に実行してください。" +
-			"手順内の各ステップが失敗した場合は中断し、どのステップで何が起きたかをユーザーに正直に報告してください。",
+			"指定した名前のマクロ（Playbook）の手順を取り出して実行できるようにする。\n" +
+			"・ユーザーが実行を承認した後で呼ぶ。\n" +
+			"・返ってきた手順（steps）の通りに、各ツールを順番どおり実行する。\n" +
+			"・途中のステップが失敗したら止めて、どのステップで何が起きたかをユーザーに正直に報告する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				name: {
 					type: SchemaType.STRING,
 					description:
-						"実行するマクロの英数字名（findPlaybooks の結果の name）",
+						"実行するマクロの英数字名。findPlaybooks の結果に入っている name を使う。",
 				},
 			},
 			required: ["name"],
@@ -100,13 +103,14 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "deletePlaybook",
 		description:
-			"マクロ（Playbook）を削除します。削除前に対象のタイトルをユーザーに確認すること。",
+			"マクロ（Playbook）を削除する（元に戻せない）。\n" +
+			"・削除する前に、消す対象のタイトルをユーザーに確認してから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				name: {
 					type: SchemaType.STRING,
-					description: "削除するマクロの英数字名",
+					description: "削除するマクロの英数字名。",
 				},
 			},
 			required: ["name"],

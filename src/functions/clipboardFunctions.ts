@@ -10,18 +10,19 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addClipboardEntry",
 		description:
-			"「今日・今だけ」の揮発的な一時メモをクリップボードに保存します（例:「今日の会議メモ」「あとで調べるURL」「買い物リスト」）。" +
-			"期限（TTL）付きで自動削除されます（デフォルト24時間）。長期的な属性・背景知識は appendContextNote を使うこと。" +
-			"クリップボードはLLMコンテキストへ常時注入されないため、ユーザーが参照を求めたら listClipboardEntries を呼んでください（§3.10）。" +
-			"「今週中だけ」→ ttl_hours: 168、「1時間後に消して」→ ttl_hours: 1 のように自然言語のTTL指定を変換すること。",
+			"「今日だけ」の一時メモをクリップボードに保存する。期限が来ると自動で消える（既定24時間）。\n" +
+			"・例:「今日の会議メモ」「あとで調べるURL」「買い物リスト」。\n" +
+			"・ずっと使う情報（プロフィールや好みなど）→ 代わりに appendContextNote を使う。\n" +
+			"・常時は読み込まれないので、ユーザーが見たがったら listClipboardEntries を呼ぶ。\n" +
+			"・「今週中だけ」→ ttl_hours:168、「1時間後に消して」→ ttl_hours:1 のように変換する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				content: { type: SchemaType.STRING, description: "メモの内容" },
+				content: { type: SchemaType.STRING, description: "メモする内容" },
 				ttl_hours: {
 					type: SchemaType.NUMBER,
 					description:
-						"保持時間（時間単位）。省略時は24時間。0を指定すると無期限",
+						"何時間で自動削除するか（時間単位）。省略=24時間。0=ずっと消えない",
 				},
 			},
 			required: ["content"],
@@ -30,19 +31,22 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listClipboardEntries",
 		description:
-			"クリップボード（一時メモ）の有効なエントリ一覧を取得します。「メモを見せて」「さっきクリップした内容は？」などの依頼時に呼び出します。",
+			"クリップボード（一時メモ）の今も有効なメモを一覧で取り出す。\n" +
+			"・例:「メモを見せて」「さっきクリップした内容は？」と言われた時に呼ぶ。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 	{
 		name: "deleteClipboardEntry",
 		description:
-			"クリップボードの指定エントリを削除します。「〇〇のメモを消して」への対応時に、listClipboardEntries でIDを確認してから呼び出します。",
+			"クリップボードの指定したメモを1件削除する。\n" +
+			"・例:「〇〇のメモを消して」と言われた時に使う。\n" +
+			"・消し間違えないよう、先に listClipboardEntries で正しいIDを確かめてから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				entry_id: {
 					type: SchemaType.NUMBER,
-					description: "削除するエントリのID",
+					description: "削除するメモのID（listClipboardEntries で確認した番号）",
 				},
 			},
 			required: ["entry_id"],

@@ -17,38 +17,41 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addSchedule",
 		description:
-			"新しい予定・スケジュールを登録する。Googleカレンダー連携が有効な場合は自動的にカレンダーにも同期される。" +
-			"カレンダーを汚したくない単発タイマー・リマインダー用途の場合は local_only を true に設定する（単純な「n分後に教えて」は addReminder の方が適切）。",
+			"日時の決まった予定をカレンダーに登録する。\n" +
+			"・例:「来週月曜10時に打ち合わせ」「5/28に歯医者」。\n" +
+			"・Googleカレンダー連携が入っていると、自動でそちらにも同じ予定が追加される。\n" +
+			"・カレンダーを汚したくない単発のタイマーやリマインダーなら local_only を true にする。\n" +
+			"・ただ「n分後に教えて」だけなら → 代わりに addReminder を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				title: { type: SchemaType.STRING, description: "予定のタイトル" },
+				title: { type: SchemaType.STRING, description: "予定の名前（例:「歯医者」「定例会議」）" },
 				start_at: {
 					type: SchemaType.STRING,
-					description: "開始日時 (ISO 8601形式、例: 2026-05-28T10:00:00)",
+					description: "開始する日時。形式: ISO 8601（例: 2026-05-28T10:00:00）",
 				},
 				end_at: {
 					type: SchemaType.STRING,
-					description: "終了日時 (ISO 8601形式、任意)",
+					description: "終了する日時。形式: ISO 8601。省略可",
 				},
 				remind_before_minutes: {
 					type: SchemaType.NUMBER,
 					description:
-						"何分前にリマインドするか（省略時はユーザー設定のデフォルト値）",
+						"開始の何分前に知らせるか（分単位）。省略=ユーザー設定の既定値",
 				},
 				description: {
 					type: SchemaType.STRING,
-					description: "予定の詳細（任意）",
+					description: "予定の補足メモ。省略可",
 				},
 				calendar_id: {
 					type: SchemaType.STRING,
 					description:
-						"登録先GoogleカレンダーのID（任意。目的に最も適したカレンダーIDを選択し設定します）",
+						"登録先のGoogleカレンダーのID。省略可。複数ある時は内容に一番合うものを選ぶ",
 				},
 				local_only: {
 					type: SchemaType.BOOLEAN,
 					description:
-						"Googleカレンダーに同期せず、ボットのローカル通知のみに留めるか",
+						"true にするとGoogleカレンダーに送らず、ボット内の通知だけにする",
 				},
 			},
 			required: ["title", "start_at"],
@@ -57,13 +60,15 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listSchedules",
 		description:
-			"今後の予定一覧を取得する（取得前にGoogleカレンダーとの双方向同期を実行する）",
+			"これから先の予定の一覧を表示する。\n" +
+			"・例:「今週の予定は?」「直近の予定を見せて」。\n" +
+			"・表示する前にGoogleカレンダーと最新状態をやり取りして同期する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				days: {
 					type: SchemaType.NUMBER,
-					description: "何日先までの予定を表示するか (デフォルト7日)",
+					description: "今日から何日先までの予定を表示するか（日数）。省略=7日",
 				},
 			},
 		},
@@ -71,13 +76,15 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "deleteSchedule",
 		description:
-			"予定を削除する（Googleカレンダーに同期済みの場合はカレンダー側からも削除される）",
+			"指定したIDの予定を削除する。\n" +
+			"・例:「#3の予定を消して」。どの予定か分からない時は先に listSchedules でIDを確認する。\n" +
+			"・Googleカレンダーに同期済みなら、向こうの予定も一緒に消える。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				schedule_id: {
 					type: SchemaType.NUMBER,
-					description: "削除する予定のID",
+					description: "削除する予定のID（listSchedules で表示される番号）",
 				},
 			},
 			required: ["schedule_id"],

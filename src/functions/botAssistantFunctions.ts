@@ -54,16 +54,17 @@ const memberDeclarations: FunctionDeclaration[] = [
 	{
 		name: "addBotMember",
 		description:
-			"このBotの利用メンバーへ新しいユーザーを追加します。メンバーから「@xx を追加して」「○○さんも使えるようにして」と依頼された際に呼び出してください。" +
-			"user_id にはメッセージ中のメンション表記（<@数字> 形式）か、DiscordユーザーIDの数字をそのまま渡します。" +
-			"追加されたユーザーは、このサーバーでBotにメンションすると利用できるようになります。",
+			"このBotを使えるメンバーに新しい人を追加する。\n" +
+			"・例:「@xx を追加して」「○○さんも使えるようにして」と頼まれた時に呼ぶ。\n" +
+			"・user_id には発言の中のメンション（<@数字> の形）か、DiscordユーザーIDの数字をそのまま渡す。\n" +
+				"・追加された人は、このサーバーでBotにメンションすれば使えるようになる。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				user_id: {
 					type: SchemaType.STRING,
 					description:
-						"追加するユーザーのメンション表記（例: '<@123456789012345678>'）またはDiscordユーザーID",
+						"追加する人のメンション（例: '<@123456789012345678>'）またはDiscordユーザーIDの数字。",
 				},
 			},
 			required: ["user_id"],
@@ -72,15 +73,16 @@ const memberDeclarations: FunctionDeclaration[] = [
 	{
 		name: "removeBotMember",
 		description:
-			"このBotの利用メンバーからユーザーを外します。削除できるのは「依頼した本人が自分自身を外す場合」と「Bot作成者（owner）による削除」のみです。" +
-			"メンバーが他のメンバーの削除を依頼した場合は実行せず、その権限がないことを伝えてください。",
+			"このBotを使えるメンバーから人を外す。\n" +
+				"・外せるのは「本人が自分自身を外す時」か「Bot作成者（owner）が外す時」だけ。\n" +
+			"・誰かが他の人を外すよう頼んできた時は実行せず、その権限がないことを伝える。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				user_id: {
 					type: SchemaType.STRING,
 					description:
-						"削除するユーザーのメンション表記またはDiscordユーザーID（「私を外して」の場合は発話者自身のID）",
+						"外す人のメンションまたはDiscordユーザーIDの数字。「私を外して」なら話している本人のID。",
 				},
 			},
 			required: ["user_id"],
@@ -89,7 +91,8 @@ const memberDeclarations: FunctionDeclaration[] = [
 	{
 		name: "listBotMembers",
 		description:
-			"このサーバーでBotを利用できるメンバーの一覧（DiscordユーザーID）を取得します。「誰が使えるの？」「メンバー一覧を見せて」への回答に使ってください。",
+			"このサーバーでBotを使えるメンバーの一覧（DiscordユーザーID）を取り出す。\n" +
+				"・例:「誰が使えるの？」「メンバー一覧を見せて」と聞かれた時に呼ぶ。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 ];
@@ -203,16 +206,17 @@ const myNoteDeclarations: FunctionDeclaration[] = [
 	{
 		name: "appendMyNote",
 		description:
-			"発話者本人に関する長期的な情報（好み・役割・背景知識など「覚えておいて」と言われた事柄）を、その人専用の個人ノートへ1行追記します。" +
-			"個人ノートは本人が話しかけた時だけ参照され、他のメンバーには見えません。" +
-			"サーバー全体で共有すべき情報（ルール・用語・運用手順）は appendGuildNote を使ってください。",
+			"話している本人について長く変わらない情報を、その人専用の個人ノートに1行書き足す。\n" +
+				"・好み・役割・背景知識など「覚えておいて」と言われたことを保存する。\n" +
+			"・個人ノートはその人が話しかけた時だけ読み込まれ、他のメンバーには見えない。\n" +
+			"・サーバー全体で共有すべき情報（ルール・用語・運用手順）→ 代わりに appendGuildNote を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				content: {
 					type: SchemaType.STRING,
 					description:
-						"記憶する短い1行の文章（例: '〇〇さんはイベント企画担当'）",
+						"覚えておく短い1行の文章（例: '〇〇さんはイベント企画担当'）。",
 				},
 			},
 			required: ["content"],
@@ -221,20 +225,22 @@ const myNoteDeclarations: FunctionDeclaration[] = [
 	{
 		name: "getMyNote",
 		description:
-			"発話者本人の個人ノートの全文を取得します。「私について何を覚えてる？」への回答や、整理・重複確認に使います。",
+			"話している本人の個人ノートの全文を取り出す。\n" +
+				"・例:「私について何を覚えてる？」と聞かれた時や、整理や重複の確認をしたい時に使う。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 	{
 		name: "setMyNote",
 		description:
-			"発話者本人の個人ノートを全文置換します。「〇〇を忘れて」への対応や内容整理の際、必ず getMyNote で現状を確認し、" +
-			"置換後の内容を本人に提示して承認を得てから呼び出してください（誤消去防止）。",
+			"話している本人の個人ノートを、渡した全文でまるごと書き換える（古い内容は消える）。\n" +
+				"・「〇〇を忘れて」や内容を整理したい時に使う。\n" +
+			"・誤って消さないため、先に getMyNote で今の中身を読み、書き換え後の全文を本人に見せて承認を得てから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				content: {
 					type: SchemaType.STRING,
-					description: `整理後のノート全文（${BOT_NOTE_MAX_LENGTH.toLocaleString()}文字以内。改行区切りの箇条書き推奨）`,
+					description: `整理し直したノートの全文（${BOT_NOTE_MAX_LENGTH.toLocaleString()}文字まで。改行で区切った箇条書きがおすすめ）。`,
 				},
 			},
 			required: ["content"],
@@ -332,15 +338,17 @@ const guildMemoryDeclarations: FunctionDeclaration[] = [
 	{
 		name: "appendGuildNote",
 		description:
-			"このサーバー全体で共有すべき知識（サーバーのルール・用語・運用手順・よくある質問への回答など）を共有ノートへ1行追記します。" +
-			"共有ノートは利用メンバー全員との会話で参照されます。発話者個人に関する情報は appendMyNote を使ってください。",
+			"このサーバー全体で共有したい知識を、共有ノートに1行書き足す。\n" +
+				"・サーバーのルール・用語・運用手順・よくある質問への答えなどを保存する。\n" +
+			"・共有ノートは利用メンバー全員との会話で読み込まれる。\n" +
+				"・話している本人だけに関する情報 → 代わりに appendMyNote を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				content: {
 					type: SchemaType.STRING,
 					description:
-						"記憶する短い1行の文章（例: 'イベント告知は #お知らせ チャンネルで行う'）",
+						"覚えておく短い1行の文章（例: 'イベント告知は #お知らせ チャンネルで行う'）。",
 				},
 			},
 			required: ["content"],
@@ -349,20 +357,22 @@ const guildMemoryDeclarations: FunctionDeclaration[] = [
 	{
 		name: "getGuildNote",
 		description:
-			"このサーバーの共有ノートの全文を取得します。「サーバーのルールは？」等への回答や、整理・重複確認に使います。",
+			"このサーバーの共有ノートの全文を取り出す。\n" +
+				"・例:「サーバーのルールは？」と聞かれた時や、整理や重複の確認をしたい時に使う。",
 		parameters: { type: SchemaType.OBJECT, properties: {} },
 	},
 	{
 		name: "setGuildNote",
 		description:
-			"このサーバーの共有ノートを全文置換します。内容の整理や項目の削除依頼の際、必ず getGuildNote で現状を確認し、" +
-			"置換後の内容を提示して承認を得てから呼び出してください（共有情報の誤消去防止）。",
+			"このサーバーの共有ノートを、渡した全文でまるごと書き換える（古い内容は消える）。\n" +
+				"・内容を整理したい時や、項目の削除を頼まれた時に使う。\n" +
+			"・共有情報を誤って消さないため、先に getGuildNote で今の中身を読み、書き換え後の全文をユーザーに見せて承認を得てから呼ぶ。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				content: {
 					type: SchemaType.STRING,
-					description: `整理後のノート全文（${BOT_NOTE_MAX_LENGTH.toLocaleString()}文字以内。改行区切りの箇条書き推奨）`,
+					description: `整理し直したノートの全文（${BOT_NOTE_MAX_LENGTH.toLocaleString()}文字まで。改行で区切った箇条書きがおすすめ）。`,
 				},
 			},
 			required: ["content"],
@@ -371,24 +381,25 @@ const guildMemoryDeclarations: FunctionDeclaration[] = [
 	{
 		name: "summarizeConversationTopic",
 		description:
-			"このサーバーでの特定の話題に関する過去の会話を検索し、要約用の会話ログ（時系列順）を取得します。「〇〇の議論をまとめて」のような" +
-			"依頼の際に呼び出してください。このFunctionは要約そのものは行わないため、返された会話ログを読み、あなたが依頼に沿って要約して提示してください。",
+			"このサーバーの過去の会話から、ある話題のログを古い順に取り出す（要約のための材料集め）。\n" +
+				"・例:「〇〇の議論をまとめて」と頼まれた時に呼ぶ。\n" +
+			"・このツール自体は要約しない。返ってきた会話ログを読んで、あなたが依頼に沿って要約して伝える。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				keyword: {
 					type: SchemaType.STRING,
 					description:
-						"要約したい話題のキーワード。省略すると期間のみで検索します。",
+						"要約したい話題のキーワード。省略=期間だけで検索する。",
 				},
 				from: {
 					type: SchemaType.STRING,
-					description: "検索期間の開始日 (YYYY-MM-DD形式)（任意）",
+					description: "検索する期間の開始日。形式: YYYY-MM-DD。省略可。",
 				},
 				to: {
 					type: SchemaType.STRING,
 					description:
-						"検索期間の終了日 (YYYY-MM-DD形式。その日の終わりまで含む)（任意）",
+						"検索する期間の終了日。形式: YYYY-MM-DD。その日の終わりまで含む。省略可。",
 				},
 			},
 		},

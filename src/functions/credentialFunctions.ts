@@ -53,7 +53,9 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "listCredentialServices",
 		description:
-			"パスワードマネージャに登録済みのサービス名・ユーザー名・URLの一覧を取得します（パスワードは一切含まれません）。「どのサービスのアカウントを登録してる？」といった確認や、ブラウザ自動ログイン（browserFillCredential）の前に正しいサービス名を確認する用途で呼び出してください。",
+			"パスワード保管庫に登録済みのサービス名・ユーザー名・URLの一覧を見る（パスワードは出ない）。\n" +
+				"・例:「どのサービスのアカウントを登録してる？」と聞かれた時。\n" +
+				"・ブラウザ自動ログイン（browserFillCredential）の前に、正しいサービス名を確かめたい時にも使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {},
@@ -62,28 +64,32 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "addCredential",
 		description:
-			"パスワードマネージャに新しい認証情報（サービス名・ユーザー名・パスワード・URL）を登録します。【重要】ユーザーが明示的に登録を指示した場合のみ呼び出すこと。呼び出す前に必ず登録内容（サービス名・ユーザー名・URL。パスワードは「受け取ったパスワード」とだけ表現）をユーザーに復唱して確認を得ること。確認なしに勝手に登録してはいけません。また、パスワードの値をチャット返信に繰り返してはいけません（登録後の応答にも含めない）。",
+			"新しいログイン情報（サービス名・ユーザー名・パスワード・URL）をパスワード保管庫に登録する。\n" +
+				"・ユーザーが「登録して」とはっきり頼んだ時だけ呼ぶ。\n" +
+				"・呼ぶ前に、登録する内容（サービス名・ユーザー名・URL。パスワードは「受け取ったパスワード」とだけ言う）をユーザーに読み上げて確認をもらう。\n" +
+				"・確認なしに勝手に登録しない。\n" +
+				"・パスワードの中身は返信に書かない（登録後の返事にも入れない）。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				service_name: {
 					type: SchemaType.STRING,
 					description:
-						"サービス名（例: 'github', '社内ポータル'）。小文字に正規化して保存されます",
+						"サービス名（例: 'github', '社内ポータル'）。小文字にそろえて保存される。",
 				},
 				username: {
 					type: SchemaType.STRING,
-					description: "ログインに使用するユーザー名またはメールアドレス",
+					description: "ログインに使うユーザー名またはメールアドレス。",
 				},
 				password: {
 					type: SchemaType.STRING,
 					description:
-						"パスワード（暗号化して保存されます。この値を以後の返信に繰り返さないこと）",
+						"パスワード。暗号化して保存される。この値を以後の返信に書かないこと。",
 				},
 				url: {
 					type: SchemaType.STRING,
 					description:
-						"ログインページのURL（任意。ブラウザ自動ログイン時に開くページの参考になります）",
+						"ログインページのURL（任意）。ブラウザ自動ログインで開くページの目安になる。",
 				},
 			},
 			required: ["service_name", "username", "password"],
@@ -92,28 +98,31 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "updateCredential",
 		description:
-			"パスワードマネージャの既存認証情報を更新します（ユーザー名・パスワード・URLのうち指定した項目のみ変更）。【重要】ユーザーが明示的に更新を指示した場合のみ呼び出すこと。呼び出す前に必ず「どのサービスの・どの項目を変更するか」をユーザーに復唱して確認を得ること。新旧どちらのパスワードの値もチャット返信に繰り返してはいけません。",
+			"登録済みのログイン情報を変更する（ユーザー名・パスワード・URLのうち指定した項目だけ書き換え）。\n" +
+				"・ユーザーが「変えて」とはっきり頼んだ時だけ呼ぶ。\n" +
+				"・呼ぶ前に「どのサービスの・どの項目を変えるか」をユーザーに読み上げて確認をもらう。\n" +
+				"・新旧どちらのパスワードの中身も返信に書かない。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				service_name: {
 					type: SchemaType.STRING,
 					description:
-						"更新対象のサービス名（listCredentialServices で確認可能）",
+						"変更したいサービス名。listCredentialServices で確認できる。",
 				},
 				username: {
 					type: SchemaType.STRING,
-					description: "新しいユーザー名（変更する場合のみ指定）",
+					description: "新しいユーザー名。変える時だけ指定する。",
 				},
 				password: {
 					type: SchemaType.STRING,
 					description:
-						"新しいパスワード（変更する場合のみ指定。この値を以後の返信に繰り返さないこと）",
+						"新しいパスワード。変える時だけ指定する。この値を以後の返信に書かないこと。",
 				},
 				url: {
 					type: SchemaType.STRING,
 					description:
-						"新しいログインページURL（変更する場合のみ指定。空文字を指定するとURLを削除）",
+						"新しいログインページのURL。変える時だけ指定する。空文字を入れるとURLを消す。",
 				},
 			},
 			required: ["service_name"],
@@ -122,14 +131,17 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "deleteCredential",
 		description:
-			"パスワードマネージャから認証情報を完全に削除します。【重要】ユーザーが明示的に削除を指示した場合のみ呼び出すこと。呼び出す前に必ず削除対象のサービス名をユーザーに復唱して確認を得ること。確認なしに勝手に削除してはいけません。削除は取り消せません。",
+			"登録済みのログイン情報を保管庫から完全に消す（取り消せない）。\n" +
+				"・ユーザーが「消して」とはっきり頼んだ時だけ呼ぶ。\n" +
+				"・呼ぶ前に、消すサービス名をユーザーに読み上げて確認をもらう。\n" +
+				"・確認なしに勝手に消さない。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				service_name: {
 					type: SchemaType.STRING,
 					description:
-						"削除対象のサービス名（listCredentialServices で確認可能）",
+						"消したいサービス名。listCredentialServices で確認できる。",
 				},
 			},
 			required: ["service_name"],
@@ -138,24 +150,29 @@ const declarations: FunctionDeclaration[] = [
 	{
 		name: "browserFillCredential",
 		description:
-			"パスワードマネージャの認証情報を復号し、インタラクティブブラウザの現在のページの入力欄へ直接入力します（§6.4 get_credential 相当）。復号されたユーザー名・パスワードはブラウザにのみ渡され、LLM（あなた）には一切返されません。自動ログイン時は (1)browserInteractiveOpen でログインページを開く (2)browserInteractiveStatus で入力欄の数値IDを確認 (3)本関数で username_selector / password_selector に数値IDを指定して入力 (4)browserInteractiveClick でログインボタンを押下、の順で使ってください。セレクタには browserInteractiveStatus のマークダウンに表示される数値ID（data-yuuka-id）またはCSSセレクタを指定できます。ユーザー名のみ入力したい場合は username_selector のみ指定してください。ユーザーの明示的な指示（ログインして等）があった場合のみ使用すること。",
+			"保管庫のログイン情報を、いま開いているブラウザのページの入力欄へ直接打ち込む。\n" +
+				"・ユーザー名とパスワードはブラウザにだけ渡り、あなた（LLM）には返らない。\n" +
+				"・ユーザーが「ログインして」などはっきり頼んだ時だけ使う。\n" +
+				"・自動ログインの手順: (1)browserInteractiveOpen でログインページを開く (2)browserInteractiveStatus で入力欄の数値IDを調べる (3)この関数で username_selector / password_selector に数値IDを渡して入力 (4)browserInteractiveClick でログインボタンを押す。\n" +
+				"・セレクタには browserInteractiveStatus に出る数値ID（data-yuuka-id）かCSSセレクタを使う。\n" +
+				"・ユーザー名だけ入れたい時は username_selector だけ指定する。",
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
 				service_name: {
 					type: SchemaType.STRING,
 					description:
-						"入力する認証情報のサービス名（listCredentialServices で確認可能）",
+						"入力するログイン情報のサービス名。listCredentialServices で確認できる。",
 				},
 				username_selector: {
 					type: SchemaType.STRING,
 					description:
-						"ユーザー名入力欄のセレクタ（browserInteractiveStatus で確認した数値ID または CSSセレクタ）。省略時はユーザー名を入力しない",
+						"ユーザー名の入力欄を指すセレクタ（browserInteractiveStatus で調べた数値ID か CSSセレクタ）。省略するとユーザー名は入れない。",
 				},
 				password_selector: {
 					type: SchemaType.STRING,
 					description:
-						"パスワード入力欄のセレクタ（browserInteractiveStatus で確認した数値ID または CSSセレクタ）。省略時はパスワードを入力しない",
+						"パスワードの入力欄を指すセレクタ（browserInteractiveStatus で調べた数値ID か CSSセレクタ）。省略するとパスワードは入れない。",
 				},
 			},
 			required: ["service_name"],
