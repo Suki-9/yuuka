@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "14";
+const SCHEMA_VERSION = "15";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -754,6 +754,26 @@ function migrateToMemberRequests(db: ReturnType<typeof getDb>): void {
   `);
 }
 
+/**
+ * v14→v15: 利用可能ロール（bot_roles）。
+ * ギルドのDiscordロール単位で利用許可を設定でき、許可ロール保有者は利用メンバー扱いになる。
+ * role_name は表示用キャッシュ（実体はDiscord側。判定は role_id で行う）。
+ */
+function migrateToAllowedRoles(db: ReturnType<typeof getDb>): void {
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_roles (
+      bot_id     TEXT NOT NULL,
+      guild_id   TEXT NOT NULL,
+      role_id    TEXT NOT NULL,
+      role_name  TEXT,                            -- 表示用キャッシュ（任意）
+      added_by   TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (bot_id, guild_id, role_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+  `);
+}
+
 export async function runMigrations(): Promise<void> {
 	const db = getDb();
 
@@ -1457,6 +1477,7 @@ export async function runMigrations(): Promise<void> {
 	// 新規テーブルのみの冪等追加（破壊的再構築なし）。既存テーブル不変。
 	migrateToDesktopTokens(db);
 	migrateToMemberRequests(db);
+	migrateToAllowedRoles(db);
 
 	// スキーマバージョンを記録
 	db.prepare(

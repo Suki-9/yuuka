@@ -4299,6 +4299,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 			renderAssistantGuilds(botId, data.guilds || []);
 			renderAssistantMembers(botId, data.members || [], data.guilds || []);
+			renderAssistantRoles(botId, data.roles || [], data.guilds || []);
 			renderAssistantRequests(botId);
 
 			// 共有ノートのギルド選択
@@ -4396,6 +4397,11 @@ document.addEventListener("DOMContentLoaded", () => {
 				guildSelect.value = prev;
 		}
 
+		// 選択中ギルドのメンバープルダウン候補を読み込む
+		if (guildSelect && guildSelect.value) {
+			loadGuildOptions(botId, guildSelect.value, "member");
+		}
+
 		const list = document.getElementById("assistant-member-list");
 		if (!list) return;
 		list.innerHTML = "";
@@ -4413,8 +4419,13 @@ document.addEventListener("DOMContentLoaded", () => {
 			const removeBtn = document.createElement("button");
 			removeBtn.className = "btn btn-secondary btn-sm";
 			removeBtn.textContent = "削除";
-			removeBtn.addEventListener("click", async () => {
-				if (!confirm(`ユーザー ${m.user_id} を利用メンバーから削除しますか？`))
+			removeBtn.title = "Shiftを押しながらで確認なしに削除";
+			removeBtn.addEventListener("click", async (ev) => {
+				// Shift押下時は確認モーダルをスキップ
+				if (
+					!ev.shiftKey &&
+					!confirm(`ユーザー ${m.user_id} を利用メンバーから削除しますか？`)
+				)
 					return;
 				await postAssistantAction("/api/bots/assistant/members", {
 					botId,
@@ -4427,6 +4438,116 @@ document.addEventListener("DOMContentLoaded", () => {
 			row.appendChild(removeBtn);
 			list.appendChild(row);
 		});
+	}
+
+	/** 利用可能ロールのギルド選択・一覧を描画する */
+	function renderAssistantRoles(botId, roles, guilds) {
+		const guildSelect = document.getElementById("assistant-role-guild-select");
+		if (guildSelect) {
+			const prev = guildSelect.value;
+			guildSelect.innerHTML = "";
+			guilds.forEach((g) => {
+				const opt = document.createElement("option");
+				opt.value = g.guild_id;
+				opt.textContent = `ギルド ${g.guild_id}`;
+				guildSelect.appendChild(opt);
+			});
+			if (prev && guilds.some((g) => g.guild_id === prev))
+				guildSelect.value = prev;
+			if (guildSelect.value) loadGuildOptions(botId, guildSelect.value, "role");
+		}
+
+		const list = document.getElementById("assistant-role-list");
+		if (!list) return;
+		list.innerHTML = "";
+		if (!roles || roles.length === 0) {
+			list.innerHTML = `<span class="field-sub">許可中のロールはありません。</span>`;
+			return;
+		}
+		roles.forEach((r) => {
+			const row = document.createElement("div");
+			row.style.cssText =
+				"display:flex; align-items:center; justify-content:space-between; gap:10px;";
+			const label = document.createElement("span");
+			label.className = "field-sub";
+			const name = r.role_name
+				? `@${escapeHtml(r.role_name)}`
+				: `<span style="font-family:var(--font-family-mono);">${escapeHtml(r.role_id)}</span>`;
+			label.innerHTML = `${name} @ ギルド ${escapeHtml(r.guild_id)}`;
+			const removeBtn = document.createElement("button");
+			removeBtn.className = "btn btn-secondary btn-sm";
+			removeBtn.textContent = "削除";
+			removeBtn.title = "Shiftを押しながらで確認なしに削除";
+			removeBtn.addEventListener("click", async (ev) => {
+				if (
+					!ev.shiftKey &&
+					!confirm(
+						`ロール ${r.role_name || r.role_id} を利用可能ロールから削除しますか？`,
+					)
+				)
+					return;
+				await postAssistantAction("/api/bots/assistant/roles", {
+					botId,
+					guildId: r.guild_id,
+					roleId: r.role_id,
+					action: "remove",
+				});
+			});
+			row.appendChild(label);
+			row.appendChild(removeBtn);
+			list.appendChild(row);
+		});
+	}
+
+	/**
+	 * 対象Botのクライアントからギルドのロール/メンバー候補を取得してプルダウンに反映する。
+	 * which: "member" | "role" | "both"
+	 */
+	async function loadGuildOptions(botId, guildId, which = "both") {
+		if (!botId || !guildId) return;
+		let data;
+		try {
+			const res = await originalFetch(
+				`/api/bots/assistant/guild-options?botId=${encodeURIComponent(botId)}&guildId=${encodeURIComponent(guildId)}`,
+			);
+			data = await res.json();
+		} catch (e) {
+			return;
+		}
+		if (!data || !data.success) return;
+
+		if (which === "member" || which === "both") {
+			const sel = document.getElementById("assistant-member-select");
+			if (sel) {
+				const prev = sel.value;
+				sel.innerHTML = `<option value="">（メンバーを選択）</option>`;
+				(data.members || []).forEach((m) => {
+					const opt = document.createElement("option");
+					opt.value = m.id;
+					opt.textContent = `${m.name}（${m.id}）`;
+					sel.appendChild(opt);
+				});
+				if (prev) sel.value = prev;
+				if (!data.available) {
+					sel.innerHTML = `<option value="">（Bot未起動/未参加: ID手入力をご利用ください）</option>`;
+				}
+			}
+		}
+
+		if (which === "role" || which === "both") {
+			const sel = document.getElementById("assistant-role-select");
+			if (sel) {
+				sel.innerHTML = data.available
+					? `<option value="">（ロールを選択）</option>`
+					: `<option value="">（Bot未起動/未参加のため取得できません）</option>`;
+				(data.roles || []).forEach((r) => {
+					const opt = document.createElement("option");
+					opt.value = r.id;
+					opt.textContent = r.name;
+					sel.appendChild(opt);
+				});
+			}
+		}
 	}
 
 	/** 承認待ちの利用申請一覧を読み込んで描画する（owner用） */
@@ -4717,15 +4838,23 @@ document.addEventListener("DOMContentLoaded", () => {
 			const guildSelect = document.getElementById(
 				"assistant-member-guild-select",
 			);
+			const memberSelect = document.getElementById("assistant-member-select");
 			const input = document.getElementById("assistant-member-input");
 			const guildId = guildSelect ? guildSelect.value : "";
-			const userId = input ? input.value.trim() : "";
+			// プルダウン選択を優先し、無ければID手入力を使う
+			const userId = (
+				(memberSelect && memberSelect.value) ||
+				(input && input.value.trim()) ||
+				""
+			).trim();
 			if (!guildId) {
 				alert("先に応答許可ギルドを追加してください。");
 				return;
 			}
 			if (!/^\d{5,25}$/.test(userId)) {
-				alert("ユーザーID（数字）を入力してください。");
+				alert(
+					"メンバーをプルダウンから選ぶか、ユーザーID（数字）を入力してください。",
+				);
 				return;
 			}
 			const result = await postAssistantAction("/api/bots/assistant/members", {
@@ -4734,7 +4863,72 @@ document.addEventListener("DOMContentLoaded", () => {
 				userId,
 				action: "add",
 			});
-			if (result.success && input) input.value = "";
+			if (result.success) {
+				if (input) input.value = "";
+				if (memberSelect) memberSelect.value = "";
+			}
+		});
+	}
+
+	// メンバー追加ギルド変更時にメンバープルダウン候補を読み込む
+	const assistantMemberGuildSelect = document.getElementById(
+		"assistant-member-guild-select",
+	);
+	if (assistantMemberGuildSelect) {
+		assistantMemberGuildSelect.addEventListener("change", () => {
+			loadGuildOptions(
+				window.currentBotId,
+				assistantMemberGuildSelect.value,
+				"member",
+			);
+		});
+	}
+
+	// ロール追加ギルド変更時にロールプルダウン候補を読み込む
+	const assistantRoleGuildSelect = document.getElementById(
+		"assistant-role-guild-select",
+	);
+	if (assistantRoleGuildSelect) {
+		assistantRoleGuildSelect.addEventListener("change", () => {
+			loadGuildOptions(
+				window.currentBotId,
+				assistantRoleGuildSelect.value,
+				"role",
+			);
+		});
+	}
+
+	const btnAddAssistantRole = document.getElementById("btn-add-assistant-role");
+	if (btnAddAssistantRole) {
+		btnAddAssistantRole.addEventListener("click", async () => {
+			const guildSelect = document.getElementById(
+				"assistant-role-guild-select",
+			);
+			const roleSelect = document.getElementById("assistant-role-select");
+			const guildId = guildSelect ? guildSelect.value : "";
+			const roleId = roleSelect ? roleSelect.value : "";
+			const roleName =
+				roleSelect && roleSelect.selectedOptions[0]
+					? roleSelect.selectedOptions[0].textContent
+					: undefined;
+			if (!guildId) {
+				alert("先に応答許可ギルドを追加してください。");
+				return;
+			}
+			if (!/^\d{5,25}$/.test(roleId)) {
+				alert(
+					"ロールをプルダウンから選択してください（Botが当該ギルドに参加・起動している必要があります）。",
+				);
+				return;
+			}
+			const result = await postAssistantAction("/api/bots/assistant/roles", {
+				botId: window.currentBotId,
+				guildId,
+				roleId,
+				roleName,
+				action: "add",
+			});
+			if (result.success && roleSelect) roleSelect.value = "";
 		});
 	}
 

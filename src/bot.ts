@@ -10,7 +10,11 @@ import {
 	type Message,
 	Partials,
 } from "discord.js";
-import { isBotMember, isGuildAllowed } from "./db/botAttributesRepo.js";
+import {
+	isAnyRoleAllowed,
+	isBotMember,
+	isGuildAllowed,
+} from "./db/botAttributesRepo.js";
 import {
 	acceptShareInvite,
 	getBotById,
@@ -31,12 +35,12 @@ import {
 	processMessage,
 } from "./gemini.js";
 import { isGuildAssistantBot } from "./services/botCapabilities.js";
+import { consumeRateLimit, rateLimitMessage } from "./services/botRateLimit.js";
+import { getBotGenAI } from "./services/llmClient.js";
 import {
 	decideMemberRequestById,
 	submitMemberRequest,
 } from "./services/memberRequest.js";
-import { consumeRateLimit, rateLimitMessage } from "./services/botRateLimit.js";
-import { getBotGenAI } from "./services/llmClient.js";
 import { sendToUser } from "./services/notifier.js";
 import { parseReceipt } from "./services/receiptParser.js";
 import type { TurnAsyncDelivery } from "./types/contracts.js";
@@ -86,6 +90,62 @@ export function getBotClientForUser(botId: string): Client {
 		return custom;
 	}
 	return client;
+}
+
+export interface GuildOption {
+	id: string;
+	name: string;
+}
+
+export interface GuildOptions {
+	/** ロールはGuildsインテントで完全取得できる（@everyone / Bot管理ロールは除外） */
+	roles: GuildOption[];
+	/** メンバーはキャッシュ済みのみ（GuildMembers特権インテント未使用のため不完全な場合あり） */
+	members: GuildOption[];
+	/** メンバー一覧が完全と見なせるか（基本 false。UIでID手入力フォールバックを促す） */
+	members_complete: boolean;
+	/** Botがオンラインで当該ギルドに参加しているか */
+	available: boolean;
+}
+
+/**
+ * プルダウン用に、対象Botのクライアントからギルドのロール/メンバー候補を取得する。
+ * ロールは Guilds インテントで完全に取得可能。メンバーは GuildMembers 特権インテントが
+ * 無いためキャッシュ済み（会話・参加で観測済み）のみを返す（不足分はUIのID手入力で補う）。
+ */
+export async function getGuildOptionsForBot(
+	botId: string,
+	guildId: string,
+): Promise<GuildOptions> {
+	const empty: GuildOptions = {
+		roles: [],
+		members: [],
+		members_complete: false,
+		available: false,
+	};
+	const botClient = getBotClientForUser(botId);
+	if (!botClient.readyAt) return empty;
+	const guild = await botClient.guilds.fetch(guildId).catch(() => null);
+	if (!guild) return empty;
+
+	let roles: GuildOption[] = [];
+	try {
+		const fetched = await guild.roles.fetch();
+		roles = fetched
+			.filter((r) => r.id !== guild.id && !r.managed) // @everyone と Bot管理ロールを除外
+			.map((r) => ({ id: r.id, name: r.name }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	} catch (err) {
+		console.error("[Discord Bot] ロール一覧の取得に失敗しました:", err);
+	}
+
+	// メンバーはキャッシュ済みのみ（Bot自身・人間以外を除外）
+	const members: GuildOption[] = guild.members.cache
+		.filter((m) => !m.user.bot)
+		.map((m) => ({ id: m.id, name: m.displayName }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+
+	return { roles, members, members_complete: false, available: true };
 }
 
 export function setBotStatus(
@@ -335,7 +395,8 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
 				? (await interaction.guild.members
 						.fetch(interaction.user.id)
 						.then((m) => m.displayName)
-						.catch(() => interaction.user.username)) || interaction.user.username
+						.catch(() => interaction.user.username)) ||
+					interaction.user.username
 				: interaction.user.username;
 			const guildLabel = interaction.guild?.name;
 
@@ -637,8 +698,14 @@ async function handleAssistantMessage(
 	const userId = message.author.id;
 
 	if (!isDM) {
-		// ── 利用メンバー判定（owner は常に暗黙メンバー §4.3.3） ──
-		const isMember = userId === ownerId || isBotMember(botId, guildId!, userId);
+		// ── 利用メンバー判定（owner は常に暗黙メンバー §4.3.3。許可ロール保有者も利用可） ──
+		const memberRoleIds = message.member
+			? Array.from(message.member.roles.cache.keys())
+			: [];
+		const isMember =
+			userId === ownerId ||
+			isBotMember(botId, guildId!, userId) ||
+			isAnyRoleAllowed(botId, guildId!, memberRoleIds);
 		if (!isMember) {
 			await sendNonMemberGuidance(botId, message);
 			return;

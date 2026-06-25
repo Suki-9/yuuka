@@ -1602,13 +1602,25 @@
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">
               <summary>利用メンバー</summary>
-              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバー（DiscordユーザーID）を管理します。あなた（owner）は常に利用できます。メンバーは会話（「@xx を追加して」）からも追加できます。</p>
+              <p class="description-text" style="margin: 4px 0 8px;">ギルドごとの利用メンバーを管理します。あなた（owner）は常に利用できます。プルダウンから選ぶか、一覧に無い場合はユーザーIDを直接入力してください。削除ボタンはShiftを押しながらで確認なしに削除できます。</p>
               <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <select id="assistant-member-guild-select" style="min-width: 180px;"></select>
-                <input type="text" id="assistant-member-input" placeholder="ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
+                <select id="assistant-member-select" style="min-width: 180px;"><option value="">（メンバーを選択）</option></select>
+                <input type="text" id="assistant-member-input" placeholder="または ユーザーID（数字）" style="flex-grow: 1; font-family: var(--font-family-mono);">
                 <button type="button" id="btn-add-assistant-member" class="btn btn-primary" style="white-space: nowrap;">追加</button>
               </div>
               <div id="assistant-member-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
+            </details>
+
+            <details class="form-group collapsible-group" style="margin-top: 16px;">
+              <summary>利用可能ロール</summary>
+              <p class="description-text" style="margin: 4px 0 8px;">許可したDiscordロールの保有者は、個別追加なしで利用できます（判定はメッセージ受信時に行われます）。ギルドを選ぶとロール一覧を取得します。削除ボタンはShiftを押しながらで確認なしに削除できます。</p>
+              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <select id="assistant-role-guild-select" style="min-width: 180px;"></select>
+                <select id="assistant-role-select" style="min-width: 180px; flex-grow: 1;"><option value="">（ロールを選択）</option></select>
+                <button type="button" id="btn-add-assistant-role" class="btn btn-primary" style="white-space: nowrap;">追加</button>
+              </div>
+              <div id="assistant-role-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;"></div>
             </details>
 
             <details class="form-group collapsible-group" style="margin-top: 16px;">

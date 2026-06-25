@@ -1,10 +1,14 @@
+import { getGuildOptionsForBot } from "../../bot.js";
 import { addAuditLog } from "../../db/auditRepo.js";
 import {
 	addAllowedGuild,
+	addAllowedRole,
 	addBotMember,
 	listAllowedGuilds,
+	listAllowedRoles,
 	listBotMembers,
 	removeAllowedGuild,
+	removeAllowedRole,
 	removeBotMember,
 } from "../../db/botAttributesRepo.js";
 import {
@@ -226,6 +230,7 @@ export const botAttributeRoutes: RouteDef[] = [
 				mcp_servers: grantedServers,
 				guilds: listAllowedGuilds(bot.id),
 				members: listBotMembers(bot.id),
+				roles: listAllowedRoles(bot.id),
 				usage: countBotDailyUsage(bot.id, 14),
 				rate_limits: getRateLimitSettings(),
 			});
@@ -417,6 +422,76 @@ export const botAttributeRoutes: RouteDef[] = [
 						: "利用メンバーから削除しました。"
 					: "変更はありませんでした。",
 			});
+		},
+	},
+
+	// ── 利用可能ロールの管理（許可ロール保有者を利用メンバー扱い） ──
+	{
+		method: "POST",
+		path: "/api/bots/assistant/roles",
+		auth: "user",
+		async handler(ctx) {
+			const bot = requireOwnedBot(ctx);
+			if (!bot) return;
+
+			const guildId =
+				typeof ctx.body.guildId === "string" ? ctx.body.guildId.trim() : "";
+			const roleId =
+				typeof ctx.body.roleId === "string" ? ctx.body.roleId.trim() : "";
+			const roleName =
+				typeof ctx.body.roleName === "string" ? ctx.body.roleName : undefined;
+			const action = ctx.body.action === "remove" ? "remove" : "add";
+			if (!isSnowflake(guildId) || !isSnowflake(roleId)) {
+				return sendJson(ctx.res, 400, {
+					success: false,
+					message: "ギルドIDとロールID（数字）を入力してください。",
+				});
+			}
+
+			const ok =
+				action === "add"
+					? addAllowedRole(
+							bot.id,
+							guildId,
+							roleId,
+							ctx.user!.discordId,
+							roleName,
+						)
+					: removeAllowedRole(bot.id, guildId, roleId);
+			addAuditLog(
+				ctx.user!.discordId,
+				action === "add" ? "bot.role_add" : "bot.role_remove",
+				`${bot.id}:${guildId}:${roleId}`,
+			);
+			sendJson(ctx.res, 200, {
+				success: true,
+				roles: listAllowedRoles(bot.id),
+				message: ok
+					? action === "add"
+						? "利用可能ロールへ追加しました。"
+						: "利用可能ロールから削除しました。"
+					: "変更はありませんでした。",
+			});
+		},
+	},
+
+	// ── プルダウン用: ギルドのロール/メンバー候補（owner / Admin のみ） ──
+	{
+		method: "GET",
+		path: "/api/bots/assistant/guild-options",
+		auth: "user",
+		async handler(ctx) {
+			const bot = requireOwnedBot(ctx);
+			if (!bot) return;
+			const guildId = ctx.url.searchParams.get("guildId") || "";
+			if (!isSnowflake(guildId)) {
+				return sendJson(ctx.res, 400, {
+					success: false,
+					message: "guildId が必要です。",
+				});
+			}
+			const options = await getGuildOptionsForBot(bot.id, guildId);
+			sendJson(ctx.res, 200, { success: true, ...options });
 		},
 	},
 
