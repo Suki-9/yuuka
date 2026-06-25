@@ -35,9 +35,14 @@ RUN apt-get update \
 WORKDIR /build/desktop
 COPY clients/desktop/Cargo.toml clients/desktop/Cargo.lock ./
 COPY clients/desktop/src ./src
+# 配布 exe に焼き込む公開 URL（インスタンス別）。config.rs が option_env!("YUUKA_API_BASE")
+# で読む。未指定（空）なら焼き込まずローカル既定 http://127.0.0.1:7854 にフォールバックする。
+# 空文字を env に残すと option_env! が Some("") を返し壊れるため、空なら unset する。
+ARG YUUKA_API_BASE
 # /out は常に作成する。ビルドが失敗してもサーバーイメージのビルドは続行させ
 # （デプロイをブロックしない）、その場合ダッシュボードは「配布ビルド無し」を表示する。
 RUN mkdir -p /out \
+ && if [ -z "${YUUKA_API_BASE:-}" ]; then unset YUUKA_API_BASE; else export YUUKA_API_BASE; fi \
  && if cargo build --release --locked --target x86_64-pc-windows-gnu; then \
       cp target/x86_64-pc-windows-gnu/release/yuuka-desktop.exe /out/yuuka-desktop.exe \
       && sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n1 > /out/version.txt; \
