@@ -28,6 +28,27 @@ const ORB_HOVER_MARGIN_PX: f32 = 10.0;
 /// 定期再描画してカーソルのオーブ進入を検知する（collapsed の間だけの軽い負荷）。
 const OVERLAY_CURSOR_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// collapsed（オーブ）時のウィンドウ一辺（論理 px）。オーブ直径 + バッジ/余白ぶん。
+/// この小さな窓を画面上にドラッグして常駐させる（client_design.md §4.1）。
+pub const ORB_WINDOW_SIZE: f32 = 76.0;
+
+/// expanded（ログイン / チャット / 設定）時のウィンドウ内寸（論理 px）。
+/// collapsed↔expanded は単一ビューポートをリサイズして表現する（client_design.md §4.1）。
+pub const PANEL_WINDOW_SIZE: [f32; 2] = [380.0, 600.0];
+
+/// 保存された左上座標を、ウィンドウ全体がモニタ内に収まるよう丸める。
+///
+/// `monitor` 不明（起動直後の数フレーム）なら負値だけ 0 に丸めて返す。これにより
+/// 復元位置が画面外（オーブが見えず「触れない」）になる事故を防ぐ（純粋関数＝テスト可）。
+fn clamp_top_left(pos: egui::Pos2, size: egui::Vec2, monitor: Option<egui::Vec2>) -> egui::Pos2 {
+    let Some(mon) = monitor else {
+        return egui::pos2(pos.x.max(0.0), pos.y.max(0.0));
+    };
+    let max_x = (mon.x - size.x).max(0.0);
+    let max_y = (mon.y - size.y).max(0.0);
+    egui::pos2(pos.x.clamp(0.0, max_x), pos.y.clamp(0.0, max_y))
+}
+
 /// egui に日本語フォントを登録する（eframe 起動時に一度だけ呼ぶ）。
 ///
 /// egui の既定フォント（`default_fonts`）はラテン系のみで CJK グリフを持たないため、
@@ -203,6 +224,8 @@ pub struct YuukaApp {
     passthrough_active: bool,
     /// OS 統合（オーブ上ホバー判定のための物理カーソル取得に使う）。
     os: os::PlatformOs,
+    /// 直前フレームのビュー（collapsed↔expanded のサイズ切替を検知する）。
+    last_view: Option<View>,
 }
 
 impl YuukaApp {
@@ -219,7 +242,59 @@ impl YuukaApp {
             net_rx,
             passthrough_active: true,
             os: os::platform(),
+            last_view: None,
         }
+    }
+
+    /// ウィンドウのサイズ/位置を現在のビューへ追従させる（client_design.md §4.1）。
+    ///
+    /// - collapsed（Overlay）= オーブ大の小窓、expanded（その他）= パネル大。
+    /// - **オーブが絡む遷移のときだけ**ウィンドウを作り替える（`InnerSize`+`OuterPosition`）。
+    ///   位置は記憶したオーブ座標へアンカーし、画面外へ出ないよう丸める。起動直後の
+    ///   ログイン（オーブ未経由）は OS の配置のまま／パネル同士（Chat↔Settings）は動かさない。
+    /// - collapsed の間はドラッグ後の左上座標を `overlay_pos` に記憶し続ける（次回復元用）。
+    fn manage_window_geometry(&mut self, ctx: &egui::Context) {
+        let is_orb = matches!(self.state.view, View::Overlay);
+        let was_orb = self.last_view.map(|v| matches!(v, View::Overlay));
+        let class_changed = was_orb != Some(is_orb);
+        // オーブ↔パネルの遷移か（少なくとも片側がオーブ）。
+        let involves_orb = is_orb || was_orb == Some(true);
+
+        if class_changed && involves_orb {
+            let monitor = ctx.input(|i| i.viewport().monitor_size);
+            let size = if is_orb {
+                egui::vec2(ORB_WINDOW_SIZE, ORB_WINDOW_SIZE)
+            } else {
+                egui::vec2(PANEL_WINDOW_SIZE[0], PANEL_WINDOW_SIZE[1])
+            };
+            // collapsed から離れる直前に、ドラッグで動かしたオーブ位置を永続化しておく
+            // （強制終了でも次回はその位置から復元できる）。
+            if was_orb == Some(true) {
+                let _ = self.state.settings.save();
+            }
+            let pos = clamp_top_left(self.overlay_anchor(), size, monitor);
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        }
+        self.last_view = Some(self.state.view);
+
+        // collapsed の間は、ユーザーがドラッグして決めた左上座標を記憶する。
+        if is_orb {
+            if let Some(rect) = ctx.input(|i| i.viewport().outer_rect) {
+                self.state.settings.overlay_pos = crate::config::OverlayPos {
+                    x: rect.min.x,
+                    y: rect.min.y,
+                };
+            }
+        }
+    }
+
+    /// 記憶しているオーブの左上座標（ウィンドウ位置のアンカー）。
+    fn overlay_anchor(&self) -> egui::Pos2 {
+        egui::pos2(
+            self.state.settings.overlay_pos.x,
+            self.state.settings.overlay_pos.y,
+        )
     }
 
     /// OS のカーソルがオーブの上にあるか。判定不能（OS 非対応・窓位置やオーブ矩形が
@@ -548,11 +623,51 @@ impl eframe::App for YuukaApp {
         {
             self.state.view = View::Overlay;
         }
+
+        // 本フレームで確定したビューへウィンドウのサイズ/位置を追従させる
+        // （collapsed=小窓 / expanded=パネル。オーブのドラッグ位置も記憶する）。
+        self.manage_window_geometry(ctx);
     }
 
     /// 終了時に設定を保存し、Net タスクへ停止を伝える。
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         let _ = self.state.settings.save();
         let _ = self.ui_tx.try_send(UiEvent::Shutdown);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_top_left;
+
+    #[test]
+    fn clamp_keeps_in_bounds_position_unchanged() {
+        let mon = Some(egui::vec2(1920.0, 1080.0));
+        // パネル（380x600）が完全に収まる位置はそのまま。
+        let p = clamp_top_left(egui::pos2(100.0, 50.0), egui::vec2(380.0, 600.0), mon);
+        assert_eq!(p, egui::pos2(100.0, 50.0));
+    }
+
+    #[test]
+    fn clamp_pulls_offscreen_window_back_onto_monitor() {
+        let mon = Some(egui::vec2(1920.0, 1080.0));
+        // 既定 overlay_pos(1200,700) にオーブ大(76)を置くと下端が画面外 → 丸められる。
+        let p = clamp_top_left(egui::pos2(1900.0, 1050.0), egui::vec2(76.0, 76.0), mon);
+        assert_eq!(p, egui::pos2(1920.0 - 76.0, 1080.0 - 76.0));
+    }
+
+    #[test]
+    fn clamp_without_monitor_only_floors_negatives() {
+        // モニタ不明時は負値だけ 0 へ（過剰に動かさない）。
+        let p = clamp_top_left(egui::pos2(-30.0, 700.0), egui::vec2(76.0, 76.0), None);
+        assert_eq!(p, egui::pos2(0.0, 700.0));
+    }
+
+    #[test]
+    fn clamp_window_larger_than_monitor_pins_to_origin() {
+        let mon = Some(egui::vec2(60.0, 60.0));
+        // 窓がモニタより大きい異常系でも NaN/負値を出さず原点に固定。
+        let p = clamp_top_left(egui::pos2(500.0, 500.0), egui::vec2(76.0, 76.0), mon);
+        assert_eq!(p, egui::pos2(0.0, 0.0));
     }
 }

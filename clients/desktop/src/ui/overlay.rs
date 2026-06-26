@@ -21,11 +21,10 @@ const ORB_DIAMETER: f32 = 56.0;
 pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
     let mut clicked = false;
 
-    // オーブ円の領域を確保。ドラッグ移動はビューポート移動として Phase 5 で配線。
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(ORB_DIAMETER, ORB_DIAMETER),
-        egui::Sense::click_and_drag(),
-    );
+    // 小さな collapsed 窓の中央にオーブを置く（窓＝オーブ大なので中央寄せで安定）。
+    let full = ui.available_rect_before_wrap();
+    let rect = egui::Rect::from_center_size(full.center(), egui::vec2(ORB_DIAMETER, ORB_DIAMETER));
+    let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
 
     // app.rs のクリック透過判定（オーブ上だけ透過 OFF）に使うため、描画した
     // オーブ矩形（ウィンドウ内 points）を記録する。
@@ -75,12 +74,16 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
         clicked = true;
     }
 
-    // ドラッグ中はオーブ位置を更新（実際のウィンドウ移動は Phase 5 で
-    // ViewportCommand::OuterPosition と連動）。
-    if response.dragged() {
-        let delta = response.drag_delta();
-        state.settings.overlay_pos.x += delta.x;
-        state.settings.overlay_pos.y += delta.y;
+    // ドラッグ開始で OS ネイティブのウィンドウ移動を始める（枠なし窓を掴んで動かす）。
+    // 移動後の左上座標は app.rs が `outer_rect` から読み取り `overlay_pos` へ記憶する。
+    // タップ（移動なし）は `clicked`、しきい値を超える動きは `drag_started` に分かれるため
+    // 「掴んで動かす」と「押して開く」が衝突しない。
+    if response.drag_started() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    // 移動可能であることを示すためカーソルを grab 表示にする。
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
 
     clicked

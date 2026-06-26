@@ -84,8 +84,9 @@ fn main() -> eframe::Result<()> {
         .with_decorations(false) // 枠なし
         .with_taskbar(false) // タスクバー非表示（常駐演出）
         .with_mouse_passthrough(true) // オーブ以外クリック透過（モーダル展開時に false へ）
-        .with_inner_size([360.0, 520.0])
-        .with_min_inner_size([72.0, 72.0]);
+        // 起動直後はログインビュー（パネル大）。ready 後に Overlay へ縮小する（app.rs が制御）。
+        .with_inner_size(app::PANEL_WINDOW_SIZE)
+        .with_min_inner_size([app::ORB_WINDOW_SIZE, app::ORB_WINDOW_SIZE]);
 
     let native_options = eframe::NativeOptions {
         viewport,
