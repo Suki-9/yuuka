@@ -705,10 +705,9 @@ impl eframe::App for YuukaApp {
         }
 
         // チャットから離れたら録音は破棄する（背面でマイクを開き続けないため）。
-        if !matches!(self.state.view, View::Chat) {
-            if let Some(rec) = self.state.recording.take() {
-                let _ = rec.recorder.stop();
-            }
+        // Recorder を drop すれば cpal ストリームも止まる。
+        if !matches!(self.state.view, View::Chat) && self.state.recording.is_some() {
+            self.state.recording = None;
         }
 
         // 本フレームで確定したビューへウィンドウのサイズ/位置を追従させる

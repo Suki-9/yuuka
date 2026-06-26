@@ -290,10 +290,9 @@ fn recording_bar(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<Ui
         });
 
     if cancel {
-        // 録音を破棄（送信しない）。
-        if let Some(rec) = state.recording.take() {
-            let _ = rec.recorder.stop();
-        }
+        // 録音を破棄（送信しない）。Recorder を drop すれば cpal ストリームも止まる
+        // （WAV エンコードを無駄に走らせない）。
+        state.recording = None;
     } else if stop {
         if let Some(rec) = state.recording.take() {
             match rec.recorder.stop() {
