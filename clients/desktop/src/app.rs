@@ -217,6 +217,9 @@ pub struct AppState {
     /// 送信待ちの画像添付（ファイル選択 / D&D / 貼り付けでステージ・送信でクリア）。
     pub pending_attachment: Option<crate::attach::StagedImage>,
 
+    /// egui へ登録済みのチャット画像 URI 集合（base64 デコード＋include_bytes を初回1回に）。
+    pub loaded_files: std::collections::HashSet<String>,
+
     // --- Markdown レンダリングキャッシュ（egui_commonmark）---
     pub commonmark_cache: egui_commonmark::CommonMarkCache,
 }
@@ -240,6 +243,7 @@ impl AppState {
             orb_rect: None,
             avatars: std::collections::HashMap::new(),
             pending_attachment: None,
+            loaded_files: std::collections::HashSet::new(),
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
         }
     }
@@ -528,12 +532,17 @@ impl YuukaApp {
     fn dispatch_intent(&self, intent: UiIntent) {
         let event = match intent {
             UiIntent::SendMessage { text, image } => {
-                UiEvent::Send(crate::model::ClientFrame::Msg {
-                    text,
-                    image,
-                    audio: None,
-                    reply_to_id: None,
-                })
+                let frame = match image {
+                    // 画像つきは Msg、テキストのみは簡潔なショートカットで送る。
+                    Some(image) => crate::model::ClientFrame::Msg {
+                        text,
+                        image: Some(image),
+                        audio: None,
+                        reply_to_id: None,
+                    },
+                    None => crate::model::ClientFrame::text(text),
+                };
+                UiEvent::Send(frame)
             }
             UiIntent::Reset => UiEvent::Send(crate::model::ClientFrame::Reset),
             UiIntent::SwitchBot { bot_id } => UiEvent::SwitchBot { bot_id },

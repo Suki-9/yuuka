@@ -25,6 +25,9 @@ use super::Role;
 pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
     let mut intent: Option<UiIntent> = None;
 
+    // 履歴中の画像添付（受信ファイル＋送信ローカルエコー）を一度だけ egui へ登録する。
+    register_image_files(state, ui.ctx());
+
     // --- ヘッダ: Bot 切替セレクタ + 接続状態 + 会話クリア ---
     ui.horizontal(|ui| {
         bot_selector(state, ui, &mut intent);
@@ -316,16 +319,22 @@ fn message_bubble(
                     }
                 }
 
-                // Embed カード（最低限の表示。Phase 3 で画像インライン化）。
+                // Embed カード（embed image は files の同名添付をインライン表示）。
                 for embed in &entry.embeds {
-                    embed_card(embed, ui);
+                    embed_card(embed, &entry.files, ui);
                 }
-                // files のインライン画像表示も Phase 3。
-                if !entry.files.is_empty() {
-                    ui.weak(format!(
-                        "(添付ファイル {} 件 — Phase 3 で表示)",
-                        entry.files.len()
-                    ));
+                // files: 画像はインライン表示、それ以外は弱ラベル。embed が参照済みの
+                // 添付は二重表示しない。
+                let referenced: std::collections::HashSet<&str> = entry
+                    .embeds
+                    .iter()
+                    .filter_map(|e| e.image.as_ref().map(|im| im.name.as_str()))
+                    .collect();
+                for file in &entry.files {
+                    if referenced.contains(file.name.as_str()) {
+                        continue;
+                    }
+                    file_attachment(file, ui);
                 }
 
                 // 対話コンポーネント（action row）= 横並びのボタン列。
@@ -397,8 +406,11 @@ fn button_color(style: u8) -> egui::Color32 {
     }
 }
 
-/// Embed カードの最低限描画（タイトル/本文/色帯/フィールド）。
-fn embed_card(embed: &crate::model::Embed, ui: &mut egui::Ui) {
+/// Embed カードの描画（タイトル/本文/色帯/フィールド/インライン画像）。
+///
+/// `embed.image`（`attachment://name`）は `files` の同名添付へ解決して画像表示する
+/// （architecture.md §7）。画像バイトは `register_image_files` で事前登録済み。
+fn embed_card(embed: &crate::model::Embed, files: &[crate::model::FilePayload], ui: &mut egui::Ui) {
     let stripe = embed
         .color
         .map(|c| {
@@ -427,5 +439,55 @@ fn embed_card(embed: &crate::model::Embed, ui: &mut egui::Ui) {
                     ui.label(&f.value);
                 });
             }
+            if let Some(img) = &embed.image {
+                if let Some(file) = files.iter().find(|f| f.name == img.name) {
+                    file_attachment(file, ui);
+                }
+            }
         });
+}
+
+/// チャット画像添付の安定 URI（内容ごとに変える＝name+base64長）。
+fn file_uri(file: &crate::model::FilePayload) -> String {
+    format!("bytes://chatfile-{}-{}", file.name, file.data.len())
+}
+
+/// 履歴中の未登録な画像添付を base64 デコードして egui へ登録する（初回のみ）。
+/// 以降の描画は `Image::new(Uri)` で再デコード無しにテクスチャを参照できる。
+fn register_image_files(state: &mut AppState, ctx: &egui::Context) {
+    use base64::Engine;
+    // history 借用を先に解放するため、未登録ぶんを (uri, base64) で集めてから処理する。
+    let mut pending: Vec<(String, String)> = Vec::new();
+    for entry in &state.history {
+        for file in &entry.files {
+            if file.mime.starts_with("image/") {
+                let uri = file_uri(file);
+                if !state.loaded_files.contains(&uri) {
+                    pending.push((uri, file.data.clone()));
+                }
+            }
+        }
+    }
+    for (uri, b64) in pending {
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()) {
+            ctx.include_bytes(uri.clone(), egui::load::Bytes::from(bytes));
+        }
+        // デコード失敗もマークして毎フレームの再試行を避ける（画像は出ないが落ちない）。
+        state.loaded_files.insert(uri);
+    }
+}
+
+/// 1 添付の描画。画像はインライン表示（事前登録済みバイトを URI 参照）、
+/// それ以外は弱ラベル（ダウンロード経路は未提供）。
+fn file_attachment(file: &crate::model::FilePayload, ui: &mut egui::Ui) {
+    if file.mime.starts_with("image/") {
+        ui.add(
+            egui::Image::new(egui::ImageSource::Uri(file_uri(file).into()))
+                .max_height(220.0)
+                .maintain_aspect_ratio(true)
+                .rounding(egui::Rounding::same(6.0)),
+        );
+    } else {
+        ui.weak(format!("📎 {} ({})", file.name, file.mime));
+    }
 }
