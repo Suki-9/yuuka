@@ -284,6 +284,9 @@ pub struct UserInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct BotInfo {
     pub id: String,
+    /// 表示名。欠落しても 1 件の不正 Bot で `ready` 全体のデコードが落ち、セレクタが
+    /// 空（＝何も選べない）にならないよう、未指定は空文字に倒す（既定許容）。
+    #[serde(default)]
     pub name: String,
     /// オーブに描く Discord アバター URL。未設定の Bot もありうるので任意。
     #[serde(
@@ -487,6 +490,29 @@ mod tests {
                 // discord_avatar_url 未設定の Bot も許容される。
                 assert!(bots[1].discord_avatar_url.is_none());
                 assert_eq!(max_upload_mb, 20);
+            }
+            _ => panic!("expected ready"),
+        }
+    }
+
+    #[test]
+    fn server_ready_tolerates_bot_missing_name() {
+        // 1 件の Bot が name を欠いても ready 全体のデコードは落ちず、欠落名は空文字へ。
+        // （こうしないとセレクタが空になり「個人用 Bot が選べない」事故になりうる。）
+        let json = r#"{
+            "type":"ready",
+            "user":{"discordId":"u1"},
+            "bot":{"id":"b1","name":"ユウカ","primary":true},
+            "bots":[{"id":"b1","name":"ユウカ","primary":true},
+                    {"id":"b2"}],
+            "maxUploadMb":20
+        }"#;
+        let frame: ServerFrame = serde_json::from_str(json).unwrap();
+        match frame {
+            ServerFrame::Ready { bots, .. } => {
+                assert_eq!(bots.len(), 2);
+                assert_eq!(bots[1].id, "b2");
+                assert_eq!(bots[1].name, "");
             }
             _ => panic!("expected ready"),
         }

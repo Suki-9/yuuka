@@ -105,27 +105,66 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
 }
 
 /// Bot 切替セレクタ（選択で WS 再接続 = [`UiIntent::SwitchBot`]）。
+///
+/// 所有/共有/個人用すべての Bot（`ready.bots`）を一覧する。小さなウィンドウでも全件へ
+/// 届くよう、ポップアップに高さ上限（＝スクロール）を設ける。各行に Bot アイコンを添える。
 fn bot_selector(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<UiIntent>) {
     let current_name = state
         .bot
         .as_ref()
         .map(|b| b.name.clone())
         .unwrap_or_else(|| "(未接続)".to_string());
+    // クローンしておきセレクタ内での state 借用衝突を避ける。
+    let current_id = state.bot.as_ref().map(|b| b.id.clone());
 
     egui::ComboBox::from_id_salt("bot-selector")
         .selected_text(current_name)
+        .width(160.0)
+        .height(260.0) // 小窓でも全 Bot へスクロールで到達できるよう上限を設ける。
         .show_ui(ui, |ui| {
-            // `bots` のクローンを回して借用衝突を避ける。
             let bots = state.bots.clone();
+            if bots.is_empty() {
+                ui.weak("(利用可能な Bot がありません)");
+                return;
+            }
             for bot in &bots {
-                let selected = state.bot.as_ref().map(|b| &b.id) == Some(&bot.id);
-                if ui.selectable_label(selected, &bot.name).clicked() && !selected {
+                let selected = current_id.as_deref() == Some(bot.id.as_str());
+                let resp = ui
+                    .horizontal(|ui| {
+                        bot_row_icon(state, &bot.id, ui);
+                        // 名前空の Bot でもクリックできるよう識別子をフォールバック表示。
+                        let label = if bot.name.is_empty() {
+                            bot.id.as_str()
+                        } else {
+                            bot.name.as_str()
+                        };
+                        ui.selectable_label(selected, label)
+                    })
+                    .inner;
+                if resp.clicked() && !selected {
                     *intent = Some(UiIntent::SwitchBot {
                         bot_id: bot.id.clone(),
                     });
                 }
             }
         });
+}
+
+/// セレクタ 1 行の先頭に Bot アイコン（取得済みは小さな円画像、未取得は色丸）を描く。
+fn bot_row_icon(state: &AppState, bot_id: &str, ui: &mut egui::Ui) {
+    const SZ: f32 = 18.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(SZ, SZ), egui::Sense::hover());
+    if let Some(bytes) = state.avatars.get(bot_id) {
+        egui::Image::new(egui::ImageSource::Bytes {
+            uri: crate::app::avatar_uri(bot_id).into(),
+            bytes: bytes.clone(),
+        })
+        .rounding(egui::Rounding::same(SZ / 2.0))
+        .paint_at(ui, rect);
+    } else {
+        ui.painter()
+            .circle_filled(rect.center(), SZ / 2.0, egui::Color32::from_rgb(70, 110, 180));
+    }
 }
 
 /// 接続状態の小ラベル（オフライン/再接続中をヘッダに表示。client_design.md §5）。

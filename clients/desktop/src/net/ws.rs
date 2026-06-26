@@ -92,6 +92,18 @@ pub async fn run_ws_loop(
                 if is_unauthorized(&e) {
                     return WsExit::LoggedOut;
                 }
+                // 403 = この Bot へのアクセス権が無い（共有取消・無効 ID 等）。NetError は
+                // UI に出ないため、エラーフレームを合成して履歴に可視化する（沈黙の無限
+                // リトライで「選んでも切り替わらない」ように見えるのを防ぐ）。
+                if is_forbidden(&e) {
+                    let _ = net_tx
+                        .send(NetEvent::Frame(crate::model::ServerFrame::Error {
+                            code: crate::model::ErrorCode::Internal,
+                            message: "この Bot に接続できません（アクセス権限がありません）。Web 設定をご確認ください。"
+                                .into(),
+                        }))
+                        .await;
+                }
                 let _ = net_tx
                     .send(NetEvent::NetError(format!("connect failed: {e}")))
                     .await;
@@ -132,6 +144,13 @@ fn is_unauthorized(e: &tokio_tungstenite::tungstenite::Error) -> bool {
     use tokio_tungstenite::tungstenite::http::StatusCode;
     use tokio_tungstenite::tungstenite::Error;
     matches!(e, Error::Http(resp) if resp.status() == StatusCode::UNAUTHORIZED)
+}
+
+/// upgrade レスポンスが 403 か（この Bot へのアクセス権が無い判定。server.ts upgrade）。
+fn is_forbidden(e: &tokio_tungstenite::tungstenite::Error) -> bool {
+    use tokio_tungstenite::tungstenite::http::StatusCode;
+    use tokio_tungstenite::tungstenite::Error;
+    matches!(e, Error::Http(resp) if resp.status() == StatusCode::FORBIDDEN)
 }
 
 /// 1 接続分のセッション内ループの結果。

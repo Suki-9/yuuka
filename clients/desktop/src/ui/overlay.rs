@@ -49,7 +49,7 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
     if let (Some(id), Some(bytes)) = (bound_id.as_ref(), avatar) {
         egui::Image::new(egui::ImageSource::Bytes {
             // uri は bot_id 毎に安定 → egui がデコード済みテクスチャをキャッシュする。
-            uri: format!("bytes://orb-{id}").into(),
+            uri: crate::app::avatar_uri(id).into(),
             bytes,
         })
         .rounding(egui::Rounding::same(radius))

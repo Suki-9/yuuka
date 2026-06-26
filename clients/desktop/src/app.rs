@@ -36,6 +36,13 @@ pub const ORB_WINDOW_SIZE: f32 = 76.0;
 /// collapsed↔expanded は単一ビューポートをリサイズして表現する（client_design.md §4.1）。
 pub const PANEL_WINDOW_SIZE: [f32; 2] = [380.0, 600.0];
 
+/// Bot アイコン画像の安定 URI（egui のテクスチャキャッシュキー）。
+///
+/// オーブとチャットのセレクタで同じ URI を使い、同じ画像を二重デコードしない。
+pub fn avatar_uri(bot_id: &str) -> String {
+    format!("bytes://yuuka-avatar-{bot_id}")
+}
+
 /// 保存された左上座標を、ウィンドウ全体がモニタ内に収まるよう丸める。
 ///
 /// `monitor` 不明（起動直後の数フレーム）なら負値だけ 0 に丸めて返す。これにより
