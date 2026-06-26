@@ -160,8 +160,11 @@ pub enum View {
 /// UI → Net へ橋渡しする操作意図（ビュー関数が返し、`App` が `UiEvent` へ変換）。
 #[derive(Debug, Clone)]
 pub enum UiIntent {
-    /// テキスト送信。
-    SendText(String),
+    /// 発話送信（テキスト＋任意の画像添付）。
+    SendMessage {
+        text: String,
+        image: Option<crate::model::Attachment>,
+    },
     /// 会話リセット。
     Reset,
     /// Bot 切替（WS 再接続）。
@@ -211,6 +214,9 @@ pub struct AppState {
     /// （`NetEvent::Avatar`）。オーブ/セレクタは egui の画像ローダ越しに円形描画する。
     pub avatars: std::collections::HashMap<String, egui::load::Bytes>,
 
+    /// 送信待ちの画像添付（ファイル選択 / D&D / 貼り付けでステージ・送信でクリア）。
+    pub pending_attachment: Option<crate::attach::StagedImage>,
+
     // --- Markdown レンダリングキャッシュ（egui_commonmark）---
     pub commonmark_cache: egui_commonmark::CommonMarkCache,
 }
@@ -233,6 +239,7 @@ impl AppState {
             request_logout: false,
             orb_rect: None,
             avatars: std::collections::HashMap::new(),
+            pending_attachment: None,
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
         }
     }
@@ -520,7 +527,14 @@ impl YuukaApp {
     /// ビュー関数が返した [`UiIntent`] を [`UiEvent`] に変換して Net へ送る。
     fn dispatch_intent(&self, intent: UiIntent) {
         let event = match intent {
-            UiIntent::SendText(text) => UiEvent::Send(crate::model::ClientFrame::text(text)),
+            UiIntent::SendMessage { text, image } => {
+                UiEvent::Send(crate::model::ClientFrame::Msg {
+                    text,
+                    image,
+                    audio: None,
+                    reply_to_id: None,
+                })
+            }
             UiIntent::Reset => UiEvent::Send(crate::model::ClientFrame::Reset),
             UiIntent::SwitchBot { bot_id } => UiEvent::SwitchBot { bot_id },
             UiIntent::Interaction {

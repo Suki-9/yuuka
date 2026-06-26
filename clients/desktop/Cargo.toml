@@ -54,6 +54,9 @@ tray-icon = "0.19"        # トレイ常駐メニュー
 global-hotkey = "0.6"     # グローバルホットキー（呼び出し）
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 arboard = "3"             # クリップボード（画像貼り付け）。クロスプラットフォーム
+# 画像添付のファイル選択ダイアログ。Windows=ネイティブ / Linux=GTK3（バックエンドは
+# OS 別で常にコンパイルされ、gtk3 feature は Linux のみ有効）。
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 open = "5"                # 既定ブラウザ起動（OAuth verification_uri）
 directories = "5"         # 設定保存ディレクトリ（非機微設定のみ）
 

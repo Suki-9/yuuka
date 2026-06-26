@@ -66,10 +66,18 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
 
     ui.separator();
 
+    // --- 添付の取り込み（D&D / 貼り付け）と添付バー（サムネ＋削除＋ファイル選択）---
+    ingest_dropped_and_pasted(state, ui);
+    attachment_bar(state, ui);
+
     // --- 入力欄（Enter 送信 / Shift+Enter 改行）---
     ui.horizontal(|ui| {
-        let send_enabled =
-            state.status.is_none() && matches!(state.connection, ConnectionState::Connected { .. });
+        let connected = matches!(state.connection, ConnectionState::Connected { .. });
+        let over_limit = state
+            .pending_attachment
+            .as_ref()
+            .is_some_and(|a| a.exceeds_limit(state.max_upload_mb));
+        let send_enabled = state.status.is_none() && connected && !over_limit;
 
         let text_edit = egui::TextEdit::multiline(&mut state.input)
             .hint_text("メッセージを入力（Enter 送信 / Shift+Enter 改行）")
@@ -85,23 +93,112 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
             .add_enabled(send_enabled, egui::Button::new("送信"))
             .clicked();
 
-        if send_enabled && (enter_pressed || send_clicked) {
+        // 本文か画像のいずれかがあれば送信可能（画像のみの発話も許容。§3.2）。
+        let has_payload = !state.input.trim().is_empty() || state.pending_attachment.is_some();
+        if send_enabled && has_payload && (enter_pressed || send_clicked) {
             let text = state.input.trim().to_string();
-            if !text.is_empty() {
-                state.history.push(super::ChatEntry::user(text.clone()));
-                state.input.clear();
-                intent = Some(UiIntent::SendText(text));
+            let staged = state.pending_attachment.take();
+            let attachment = staged.as_ref().map(|s| s.to_attachment());
+
+            // ローカルエコー（送った画像はユーザー気泡にサムネ表示する）。
+            let mut entry = super::ChatEntry::user(text.clone());
+            if let (Some(s), Some(att)) = (&staged, &attachment) {
+                entry.files.push(crate::model::FilePayload {
+                    name: s.name.clone(),
+                    mime: att.mime.clone(),
+                    data: att.data.clone(),
+                });
             }
+            state.history.push(entry);
+            state.input.clear();
+            intent = Some(UiIntent::SendMessage {
+                text,
+                image: attachment,
+            });
         }
     });
 
-    // 添付/録音ボタン（Phase 3/4 で実装）。
+    intent
+}
+
+/// D&D されたファイル / クリップボード貼り付け（Ctrl/Cmd+V）から画像をステージする。
+fn ingest_dropped_and_pasted(state: &mut AppState, ui: &egui::Ui) {
+    // ドロップされたファイル（最初の画像を採用）。raw.dropped_files は毎フレーム空に戻る。
+    let dropped = ui.input(|i| i.raw.dropped_files.clone());
+    for f in &dropped {
+        let staged = if let Some(path) = &f.path {
+            crate::attach::from_path(path)
+        } else if let Some(bytes) = &f.bytes {
+            crate::attach::from_named_bytes(&f.name, bytes)
+        } else {
+            None
+        };
+        if let Some(img) = staged {
+            state.pending_attachment = Some(img);
+            break;
+        }
+    }
+    // クリップボード貼り付け（画像があれば添付へ。テキストは TextEdit が別途処理）。
+    let paste = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::V));
+    if paste {
+        if let Some(img) = crate::attach::from_clipboard() {
+            state.pending_attachment = Some(img);
+        }
+    }
+}
+
+/// 「📎 画像」ファイル選択ボタンと、ステージ済み添付のサムネ＋削除＋サイズ警告。
+fn attachment_bar(state: &mut AppState, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.add_enabled(false, egui::Button::new("画像添付 (Phase 3)"));
+        let pick = ui
+            .button("📎 画像")
+            .on_hover_text("画像を添付（ドラッグ＆ドロップ / 貼り付けも可）")
+            .clicked();
+        if pick {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("画像", crate::attach::IMAGE_EXTS)
+                .pick_file()
+            {
+                if let Some(img) = crate::attach::from_path(&path) {
+                    state.pending_attachment = Some(img);
+                }
+            }
+        }
         ui.add_enabled(false, egui::Button::new("録音 (Phase 4)"));
     });
 
-    intent
+    let mut clear = false;
+    if let Some(att) = &state.pending_attachment {
+        let over = att.exceeds_limit(state.max_upload_mb);
+        ui.horizontal(|ui| {
+            // uri は name+len で変える（同名別画像でテクスチャキャッシュが古くならないよう）。
+            let uri = format!("bytes://staged-{}-{}", att.name, att.bytes.len());
+            ui.add(
+                egui::Image::new(egui::ImageSource::Bytes {
+                    uri: uri.into(),
+                    bytes: egui::load::Bytes::from(att.bytes.clone()),
+                })
+                .max_height(48.0)
+                .maintain_aspect_ratio(true)
+                .rounding(egui::Rounding::same(4.0)),
+            );
+            ui.vertical(|ui| {
+                ui.label(&att.name);
+                if over {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 80, 80),
+                        format!("サイズ超過（上限 {}MB）。送信できません。", state.max_upload_mb),
+                    );
+                }
+            });
+            if ui.button("✕").on_hover_text("添付を取り消す").clicked() {
+                clear = true;
+            }
+        });
+    }
+    if clear {
+        state.pending_attachment = None;
+    }
 }
 
 /// Bot 切替セレクタ（選択で WS 再接続 = [`UiIntent::SwitchBot`]）。
