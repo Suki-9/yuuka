@@ -28,6 +28,13 @@ const ORB_HOVER_MARGIN_PX: f32 = 10.0;
 /// 定期再描画してカーソルのオーブ進入を検知する（collapsed の間だけの軽い負荷）。
 const OVERLAY_CURSOR_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// 日本語フォントの縦位置補正量（font_size に対する割合・正=下方向）。
+///
+/// CJK フォントは egui 上でやや上寄りに描かれ、ボタンの文字が上に詰まって見える。
+/// グリフを少しだけ下げて天地中央へ寄せる（視覚のみ・レイアウト不変）。大きいフォント
+/// ほど効きが強い。見た目が合わなければこの 1 値だけ実機で微調整すればよい。
+const JP_FONT_Y_OFFSET_FACTOR: f32 = 0.08;
+
 /// collapsed（オーブ）時のウィンドウ一辺（論理 px）。オーブ直径 + バッジ/余白ぶん。
 /// この小さな窓を画面上にドラッグして常駐させる（client_design.md §4.1）。
 pub const ORB_WINDOW_SIZE: f32 = 76.0;
@@ -96,9 +103,16 @@ pub fn install_fonts(ctx: &egui::Context) {
             continue;
         }
         let mut fonts = egui::FontDefinitions::default();
-        fonts
-            .font_data
-            .insert("jp".to_owned(), egui::FontData::from_owned(bytes));
+        fonts.font_data.insert(
+            "jp".to_owned(),
+            // CJK フォントは egui 上で天地がやや上寄りに描かれ、ボタン等で文字が上に
+            // 詰まって見える。グリフを font_size の数% だけ下げて中央へ寄せる
+            // （視覚のみの補正でテキストレイアウトには影響しない。正=下方向）。
+            egui::FontData::from_owned(bytes).tweak(egui::FontTweak {
+                y_offset_factor: JP_FONT_Y_OFFSET_FACTOR,
+                ..Default::default()
+            }),
+        );
         // 先頭へ差し込む＝日本語を最優先で解決し、欠落グリフは既定フォントへフォールバック。
         for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
             fonts.families.entry(family).or_default().insert(0, "jp".to_owned());
@@ -583,6 +597,10 @@ impl eframe::App for YuukaApp {
         }
 
         // --- ビューのルーティング ---
+        // オーバーレイ（オーブ/チャット）には不透明度を適用する（設定スライダ。
+        // 透明ウィンドウ + ui.set_opacity で背面が透けて常駐感が出る）。ログイン/設定は
+        // 読みやすさ優先で常に不透明のまま。スライダ範囲は 0.3〜1.0 なので不可視にはならない。
+        let overlay_opacity = self.state.settings.overlay_opacity;
         let mut intent: Option<UiIntent> = None;
         match self.state.view {
             View::Login => {
@@ -595,6 +613,7 @@ impl eframe::App for YuukaApp {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::none()) // 透明背景
                     .show(ctx, |ui| {
+                        ui.set_opacity(overlay_opacity);
                         if ui::overlay::view(&mut self.state, ui) {
                             self.state.view = View::Chat;
                             self.state.unread = 0; // モーダルを開いたら未読クリア。
@@ -603,6 +622,7 @@ impl eframe::App for YuukaApp {
             }
             View::Chat => {
                 egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_opacity(overlay_opacity);
                     // ヘッダにオーバーレイへ戻る / 設定導線。
                     ui.horizontal(|ui| {
                         if ui.button("⤫ 閉じる").clicked() {

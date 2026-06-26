@@ -167,22 +167,25 @@ fn bot_row_icon(state: &AppState, bot_id: &str, ui: &mut egui::Ui) {
     }
 }
 
-/// 接続状態の小ラベル（オフライン/再接続中をヘッダに表示。client_design.md §5）。
+/// 接続状態は色付きの丸だけで示す（ヘッダを簡潔に。client_design.md §5）。
+/// 詳細（再接続の残り秒数など）はホバーのツールチップに載せる。
 fn connection_label(conn: &ConnectionState, ui: &mut egui::Ui) {
-    let (text, color) = match conn {
-        ConnectionState::Connected { .. } => ("オンライン", egui::Color32::from_rgb(80, 200, 120)),
-        ConnectionState::Connecting => ("接続中…", egui::Color32::GRAY),
-        ConnectionState::Reconnecting { next_retry_secs } => {
-            return {
-                ui.colored_label(
-                    egui::Color32::from_rgb(230, 180, 80),
-                    format!("再接続中… ({next_retry_secs}s)"),
-                );
-            };
+    let (color, tip) = match conn {
+        ConnectionState::Connected { .. } => {
+            (egui::Color32::from_rgb(80, 200, 120), "オンライン".to_string())
         }
-        ConnectionState::Disconnected => ("オフライン", egui::Color32::from_rgb(200, 80, 80)),
+        ConnectionState::Connecting => (egui::Color32::GRAY, "接続中…".to_string()),
+        ConnectionState::Reconnecting { next_retry_secs } => (
+            egui::Color32::from_rgb(230, 180, 80),
+            format!("再接続中… ({next_retry_secs}s)"),
+        ),
+        ConnectionState::Disconnected => {
+            (egui::Color32::from_rgb(200, 80, 80), "オフライン".to_string())
+        }
     };
-    ui.colored_label(color, text);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 5.0, color);
+    resp.on_hover_text(tip);
 }
 
 /// 1 メッセージの気泡描画（role で色分け、assistant は MD）。
