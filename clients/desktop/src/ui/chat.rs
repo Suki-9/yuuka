@@ -36,7 +36,7 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("会話をクリア").clicked() {
                 intent = Some(UiIntent::Reset);
-                state.history.clear();
+                clear_history(state, ui.ctx());
             }
         });
     });
@@ -47,8 +47,8 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
         .auto_shrink([false, false])
         .stick_to_bottom(true)
         .show(ui, |ui| {
-            for entry in &state.history {
-                if let Some(i) = message_bubble(entry, ui, &mut state.commonmark_cache) {
+            for (idx, entry) in state.history.iter().enumerate() {
+                if let Some(i) = message_bubble(idx, entry, ui, &mut state.commonmark_cache) {
                     intent = Some(i);
                 }
             }
@@ -174,8 +174,8 @@ fn attachment_bar(state: &mut AppState, ui: &mut egui::Ui) {
     if let Some(att) = &state.pending_attachment {
         let over = att.exceeds_limit(state.max_upload_mb);
         ui.horizontal(|ui| {
-            // uri は name+len で変える（同名別画像でテクスチャキャッシュが古くならないよう）。
-            let uri = format!("bytes://staged-{}-{}", att.name, att.bytes.len());
+            // uri は内容ハッシュで変える（同名別画像＝連続貼り付けでキャッシュが古くならないよう）。
+            let uri = format!("bytes://staged-{:016x}", att.tag);
             ui.add(
                 egui::Image::new(egui::ImageSource::Bytes {
                     uri: uri.into(),
@@ -292,6 +292,7 @@ fn connection_label(conn: &ConnectionState, ui: &mut egui::Ui) {
 ///
 /// ボタン押下があれば [`UiIntent::Interaction`] を返す（ws_components.md §6）。
 fn message_bubble(
+    entry_idx: usize,
     entry: &super::ChatEntry,
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
@@ -321,7 +322,7 @@ fn message_bubble(
 
                 // Embed カード（embed image は files の同名添付をインライン表示）。
                 for embed in &entry.embeds {
-                    embed_card(embed, &entry.files, ui);
+                    embed_card(entry_idx, embed, &entry.files, ui);
                 }
                 // files: 画像はインライン表示、それ以外は弱ラベル。embed が参照済みの
                 // 添付は二重表示しない。
@@ -330,11 +331,11 @@ fn message_bubble(
                     .iter()
                     .filter_map(|e| e.image.as_ref().map(|im| im.name.as_str()))
                     .collect();
-                for file in &entry.files {
+                for (file_idx, file) in entry.files.iter().enumerate() {
                     if referenced.contains(file.name.as_str()) {
                         continue;
                     }
-                    file_attachment(file, ui);
+                    file_attachment(entry_idx, file_idx, file, ui);
                 }
 
                 // 対話コンポーネント（action row）= 横並びのボタン列。
@@ -410,7 +411,12 @@ fn button_color(style: u8) -> egui::Color32 {
 ///
 /// `embed.image`（`attachment://name`）は `files` の同名添付へ解決して画像表示する
 /// （architecture.md §7）。画像バイトは `register_image_files` で事前登録済み。
-fn embed_card(embed: &crate::model::Embed, files: &[crate::model::FilePayload], ui: &mut egui::Ui) {
+fn embed_card(
+    entry_idx: usize,
+    embed: &crate::model::Embed,
+    files: &[crate::model::FilePayload],
+    ui: &mut egui::Ui,
+) {
     let stripe = embed
         .color
         .map(|c| {
@@ -440,16 +446,21 @@ fn embed_card(embed: &crate::model::Embed, files: &[crate::model::FilePayload], 
                 });
             }
             if let Some(img) = &embed.image {
-                if let Some(file) = files.iter().find(|f| f.name == img.name) {
-                    file_attachment(file, ui);
+                if let Some((file_idx, file)) =
+                    files.iter().enumerate().find(|(_, f)| f.name == img.name)
+                {
+                    file_attachment(entry_idx, file_idx, file, ui);
                 }
             }
         });
 }
 
-/// チャット画像添付の安定 URI（内容ごとに変える＝name+base64長）。
-fn file_uri(file: &crate::model::FilePayload) -> String {
-    format!("bytes://chatfile-{}-{}", file.name, file.data.len())
+/// チャット画像添付の安定 URI。履歴は append-only（並べ替え無し）なので、出現位置
+/// （履歴インデックス＋添付インデックス）で一意・衝突無し。会話クリア時は
+/// [`clear_history`] が `forget_all_images` でテクスチャを破棄し、インデックス再利用
+/// による古画像表示を防ぐ。
+fn file_uri(entry_idx: usize, file_idx: usize) -> String {
+    format!("bytes://chatfile-{entry_idx}-{file_idx}")
 }
 
 /// 履歴中の未登録な画像添付を base64 デコードして egui へ登録する（初回のみ）。
@@ -458,10 +469,10 @@ fn register_image_files(state: &mut AppState, ctx: &egui::Context) {
     use base64::Engine;
     // history 借用を先に解放するため、未登録ぶんを (uri, base64) で集めてから処理する。
     let mut pending: Vec<(String, String)> = Vec::new();
-    for entry in &state.history {
-        for file in &entry.files {
+    for (ei, entry) in state.history.iter().enumerate() {
+        for (fi, file) in entry.files.iter().enumerate() {
             if file.mime.starts_with("image/") {
-                let uri = file_uri(file);
+                let uri = file_uri(ei, fi);
                 if !state.loaded_files.contains(&uri) {
                     pending.push((uri, file.data.clone()));
                 }
@@ -477,12 +488,28 @@ fn register_image_files(state: &mut AppState, ctx: &egui::Context) {
     }
 }
 
-/// 1 添付の描画。画像はインライン表示（事前登録済みバイトを URI 参照）、
+/// 会話履歴をクリアし、登録済み画像テクスチャ／バイトも破棄する。
+///
+/// これをしないと (a) クリア後にインデックスを再利用した新画像が旧テクスチャを表示し、
+/// (b) 画像キャッシュがセッション中に無制限に増える。アバター等 `ImageSource::Bytes`
+/// 由来は毎フレーム再登録されるため `forget_all_images` でも消えたままにはならない。
+fn clear_history(state: &mut AppState, ctx: &egui::Context) {
+    state.history.clear();
+    state.loaded_files.clear();
+    ctx.forget_all_images();
+}
+
+/// 1 添付の描画。画像はインライン表示（事前登録済みバイトを位置ベース URI で参照）、
 /// それ以外は弱ラベル（ダウンロード経路は未提供）。
-fn file_attachment(file: &crate::model::FilePayload, ui: &mut egui::Ui) {
+fn file_attachment(
+    entry_idx: usize,
+    file_idx: usize,
+    file: &crate::model::FilePayload,
+    ui: &mut egui::Ui,
+) {
     if file.mime.starts_with("image/") {
         ui.add(
-            egui::Image::new(egui::ImageSource::Uri(file_uri(file).into()))
+            egui::Image::new(egui::ImageSource::Uri(file_uri(entry_idx, file_idx).into()))
                 .max_height(220.0)
                 .maintain_aspect_ratio(true)
                 .rounding(egui::Rounding::same(6.0)),

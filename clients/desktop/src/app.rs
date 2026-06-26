@@ -593,6 +593,9 @@ impl eframe::App for YuukaApp {
             self.state.login = LoginUiState::LoggedOut;
             // 直近の会話/Bot 表示はクリアして再ログイン後の混線を防ぐ。
             self.state.history.clear();
+            // 画像テクスチャ/バイトも破棄（インデックス再利用での古画像表示とキャッシュ肥大を防ぐ）。
+            self.state.loaded_files.clear();
+            ctx.forget_all_images();
             self.state.bot = None;
             self.state.bots.clear();
         }
