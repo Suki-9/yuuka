@@ -28,6 +28,20 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
     // 履歴中の画像添付（受信ファイル＋送信ローカルエコー）を一度だけ egui へ登録する。
     register_image_files(state, ui.ctx());
 
+    // --- 入力エリアを下部パネルへ固定する ---
+    // 履歴 ScrollArea は残り高さを埋める（auto_shrink false）ため、素朴に縦へ並べると
+    // 入力欄が画面外へ押し出されて「文字入力 UI が見つからない」状態になる。入力を
+    // 下部パネルに置くことで、履歴がどれだけ伸びても入力欄は常に画面内に出る。
+    egui::TopBottomPanel::bottom("chat-input")
+        .resizable(false)
+        .show_inside(ui, |ui| {
+            ui.add_space(4.0);
+            ingest_dropped_and_pasted(state, ui);
+            attachment_bar(state, ui);
+            input_row(state, ui, &mut intent);
+            ui.add_space(2.0);
+        });
+
     // --- ヘッダ: Bot 切替セレクタ + 接続状態 + 会話クリア ---
     ui.horizontal(|ui| {
         bot_selector(state, ui, &mut intent);
@@ -42,7 +56,7 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
     });
     ui.separator();
 
-    // --- 履歴ビュー ---
+    // --- 履歴ビュー（中央の残り高さを埋める）---
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .stick_to_bottom(true)
@@ -67,13 +81,12 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
             }
         });
 
-    ui.separator();
+    intent
+}
 
-    // --- 添付の取り込み（D&D / 貼り付け）と添付バー（サムネ＋削除＋ファイル選択）---
-    ingest_dropped_and_pasted(state, ui);
-    attachment_bar(state, ui);
-
-    // --- 入力欄（Enter 送信 / Shift+Enter 改行）---
+/// 入力欄（複数行 TextEdit + 送信）。Enter 送信 / Shift+Enter 改行。
+/// 本文か画像のいずれかがあれば送信可能（画像のみの発話も許容。§3.2）。
+fn input_row(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<UiIntent>) {
     ui.horizontal(|ui| {
         let connected = matches!(state.connection, ConnectionState::Connected { .. });
         let over_limit = state
@@ -88,15 +101,12 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
             .desired_width(f32::INFINITY);
         let resp = ui.add_enabled(send_enabled, text_edit);
 
-        // Enter（Shift 無し）で送信。
         let enter_pressed =
             resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-
         let send_clicked = ui
             .add_enabled(send_enabled, egui::Button::new("送信"))
             .clicked();
 
-        // 本文か画像のいずれかがあれば送信可能（画像のみの発話も許容。§3.2）。
         let has_payload = !state.input.trim().is_empty() || state.pending_attachment.is_some();
         if send_enabled && has_payload && (enter_pressed || send_clicked) {
             let text = state.input.trim().to_string();
@@ -114,14 +124,12 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
             }
             state.history.push(entry);
             state.input.clear();
-            intent = Some(UiIntent::SendMessage {
+            *intent = Some(UiIntent::SendMessage {
                 text,
                 image: attachment,
             });
         }
     });
-
-    intent
 }
 
 /// D&D されたファイル / クリップボード貼り付け（Ctrl/Cmd+V）から画像をステージする。
