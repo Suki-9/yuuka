@@ -157,13 +157,23 @@ pub enum View {
     Settings,
 }
 
+/// 進行中の録音セッション（録音中だけ `Some`）。
+///
+/// `recorder` は cpal ストリーム等を保持する（`audio` feature 無効ビルドでは空の器で、
+/// `start` 時に未対応エラーになる）。`started_at` は経過秒の表示に使う egui 入力時刻。
+pub struct Recording {
+    pub recorder: crate::audio::record::Recorder,
+    pub started_at: f64,
+}
+
 /// UI → Net へ橋渡しする操作意図（ビュー関数が返し、`App` が `UiEvent` へ変換）。
 #[derive(Debug, Clone)]
 pub enum UiIntent {
-    /// 発話送信（テキスト＋任意の画像添付）。
+    /// 発話送信（テキスト＋任意の画像/音声添付）。
     SendMessage {
         text: String,
         image: Option<crate::model::Attachment>,
+        audio: Option<crate::model::Attachment>,
     },
     /// 会話リセット。
     Reset,
@@ -217,6 +227,9 @@ pub struct AppState {
     /// 送信待ちの画像添付（ファイル選択 / D&D / 貼り付けでステージ・送信でクリア）。
     pub pending_attachment: Option<crate::attach::StagedImage>,
 
+    /// 進行中の録音（録音中だけ Some）。停止で WAV 化して `msg.audio` 送信。
+    pub recording: Option<Recording>,
+
     /// egui へ登録済みのチャット画像 URI 集合（base64 デコード＋include_bytes を初回1回に）。
     pub loaded_files: std::collections::HashSet<String>,
 
@@ -243,6 +256,7 @@ impl AppState {
             orb_rect: None,
             avatars: std::collections::HashMap::new(),
             pending_attachment: None,
+            recording: None,
             loaded_files: std::collections::HashSet::new(),
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
         }
@@ -531,16 +545,17 @@ impl YuukaApp {
     /// ビュー関数が返した [`UiIntent`] を [`UiEvent`] に変換して Net へ送る。
     fn dispatch_intent(&self, intent: UiIntent) {
         let event = match intent {
-            UiIntent::SendMessage { text, image } => {
-                let frame = match image {
-                    // 画像つきは Msg、テキストのみは簡潔なショートカットで送る。
-                    Some(image) => crate::model::ClientFrame::Msg {
+            UiIntent::SendMessage { text, image, audio } => {
+                // 添付があれば Msg、テキストのみは簡潔なショートカットで送る。
+                let frame = if image.is_none() && audio.is_none() {
+                    crate::model::ClientFrame::text(text)
+                } else {
+                    crate::model::ClientFrame::Msg {
                         text,
-                        image: Some(image),
-                        audio: None,
+                        image,
+                        audio,
                         reply_to_id: None,
-                    },
-                    None => crate::model::ClientFrame::text(text),
+                    }
                 };
                 UiEvent::Send(frame)
             }
@@ -687,6 +702,13 @@ impl eframe::App for YuukaApp {
         if matches!(self.state.view, View::Chat) && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
             self.state.view = View::Overlay;
+        }
+
+        // チャットから離れたら録音は破棄する（背面でマイクを開き続けないため）。
+        if !matches!(self.state.view, View::Chat) {
+            if let Some(rec) = self.state.recording.take() {
+                let _ = rec.recorder.stop();
+            }
         }
 
         // 本フレームで確定したビューへウィンドウのサイズ/位置を追従させる

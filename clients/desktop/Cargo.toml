@@ -76,25 +76,29 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Gdi",
 ] }
 
-# --- 音声入力（Phase 4）。`audio` feature の裏に隔離。-------------------
-# feature OFF（既定）でもクレートはコンパイルできること（要件 §10）。
+# --- 音声入力。`audio` feature の裏に隔離。------------------------------
+# feature OFF でもクレートはコンパイルできること（要件 §10）。録音は cpal で取り込み
+# hound で WAV(PCM16) 化して送る（Gemini ネイティブ音声対応。OGG/Opus 最適化は将来）。
 [dependencies.cpal]
 version = "0.15"
 optional = true
+[dependencies.hound]
+version = "3"
+optional = true
+# 将来の OGG/Opus 圧縮用（現状の WAV 実装では未使用）。
 [dependencies.opus]
 version = "0.3"
 optional = true
 [dependencies.ogg]
 version = "0.9"
 optional = true
-[dependencies.hound]
-version = "3"
-optional = true
 
 [features]
-# 既定では音声機能を含めない（軽量・ビルド単純化）。Phase 4 で `--features audio`。
+# 既定は音声 OFF（cpal は Linux で libasound を要求し、開発機に無いとビルド不可な
+# ため）。Windows 配布ビルドはマイク録音を含めるべく `--features audio` でビルドする
+# （WAV のみ＝cpal + hound。opus/ogg は将来の圧縮用に optional のまま）。
 default = []
-audio = ["dep:cpal", "dep:opus", "dep:ogg", "dep:hound"]
+audio = ["dep:cpal", "dep:hound"]
 
 # ---------------------------------------------------------------------------
 # リリースビルドのバイナリ最小化（設計 §1 / NFR-1: 単一 exe ≤ 20MB 目標）。

@@ -36,9 +36,14 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> Option<UiIntent> {
         .resizable(false)
         .show_inside(ui, |ui| {
             ui.add_space(4.0);
-            ingest_dropped_and_pasted(state, ui);
-            attachment_bar(state, ui);
-            input_row(state, ui, &mut intent);
+            if state.recording.is_some() {
+                // 録音中は入力欄を隠し、録音インジケータ（停止/取消）だけを出す。
+                recording_bar(state, ui, &mut intent);
+            } else {
+                ingest_dropped_and_pasted(state, ui);
+                attachment_bar(state, ui);
+                input_row(state, ui, &mut intent);
+            }
             ui.add_space(2.0);
         });
 
@@ -127,6 +132,7 @@ fn input_row(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<UiInte
             *intent = Some(UiIntent::SendMessage {
                 text,
                 image: attachment,
+                audio: None,
             });
         }
     });
@@ -175,7 +181,14 @@ fn attachment_bar(state: &mut AppState, ui: &mut egui::Ui) {
                 }
             }
         }
-        ui.add_enabled(false, egui::Button::new("録音 (Phase 4)"));
+        // 音声入力（録音開始）。録音中は recording_bar 側へ切り替わる。
+        if ui
+            .button("🎤 録音")
+            .on_hover_text("音声で入力（クリックで録音開始）")
+            .clicked()
+        {
+            start_recording(state, ui);
+        }
     });
 
     let mut clear = false;
@@ -209,6 +222,103 @@ fn attachment_bar(state: &mut AppState, ui: &mut egui::Ui) {
     }
     if clear {
         state.pending_attachment = None;
+    }
+}
+
+/// 録音を開始する。失敗（マイク無し / 音声 feature 無効ビルド等）はメッセージで知らせる。
+fn start_recording(state: &mut AppState, ui: &egui::Ui) {
+    match crate::audio::record::Recorder::start() {
+        Ok(recorder) => {
+            let started_at = ui.input(|i| i.time);
+            state.recording = Some(crate::app::Recording {
+                recorder,
+                started_at,
+            });
+        }
+        Err(e) => {
+            state
+                .history
+                .push(super::ChatEntry::assistant(format!(
+                    "⚠ 録音を開始できません: {e}"
+                )));
+        }
+    }
+}
+
+/// 録音中インジケータ（点滅する赤丸＋経過秒）と、停止して送信 / 取消ボタン。
+/// 「録音中」が一目で分かる UI。60 秒で自動停止して送信する。
+fn recording_bar(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<UiIntent>) {
+    let now = ui.input(|i| i.time);
+    let elapsed = state
+        .recording
+        .as_ref()
+        .map(|r| (now - r.started_at).max(0.0))
+        .unwrap_or(0.0);
+    // 経過秒・点滅を更新するため録音中は継続再描画（~20fps）。
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(50));
+
+    let mut stop = elapsed >= 60.0; // 上限 60s で自動停止＆送信。
+    let mut cancel = false;
+
+    egui::Frame::none()
+        .fill(egui::Color32::from_rgb(60, 30, 30))
+        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        .rounding(egui::Rounding::same(6.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                // 点滅する赤丸（録音中の視覚指標）。
+                let pulse = 0.5_f32 + 0.5 * ((now * 4.0).sin() as f32); // 0..1
+                let red = (170.0_f32 + 70.0 * pulse) as u8;
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                ui.painter()
+                    .circle_filled(rect.center(), 6.0, egui::Color32::from_rgb(red, 40, 40));
+                ui.colored_label(
+                    egui::Color32::from_rgb(235, 120, 120),
+                    format!("● 録音中  {elapsed:.1} 秒"),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("■ 停止して送信").clicked() {
+                        stop = true;
+                    }
+                    if ui.button("取消").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        });
+
+    if cancel {
+        // 録音を破棄（送信しない）。
+        if let Some(rec) = state.recording.take() {
+            let _ = rec.recorder.stop();
+        }
+    } else if stop {
+        if let Some(rec) = state.recording.take() {
+            match rec.recorder.stop() {
+                Ok(audio) => {
+                    state
+                        .history
+                        .push(super::ChatEntry::user("🎤 音声メッセージ".to_string()));
+                    *intent = Some(UiIntent::SendMessage {
+                        text: String::new(),
+                        image: None,
+                        audio: Some(crate::model::Attachment {
+                            mime: audio.mime,
+                            data: audio.data_base64,
+                        }),
+                    });
+                }
+                Err(e) => {
+                    state
+                        .history
+                        .push(super::ChatEntry::assistant(format!(
+                            "⚠ 録音の処理に失敗: {e}"
+                        )));
+                }
+            }
+        }
     }
 }
 
