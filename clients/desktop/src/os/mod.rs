@@ -48,6 +48,16 @@ pub trait OsIntegration {
     fn set_overlay_passthrough(&self, _window_handle: isize, _passthrough: bool) {
         // 既定: 何もしない（eframe 標準で足りる前提）。
     }
+
+    /// グローバルなカーソル位置（**物理スクリーンピクセル**・仮想デスクトップ原点）。
+    ///
+    /// オーバーレイのクリック透過を「オーブの上だけ無効化」するために使う
+    /// （client_design.md §4.2）。クリック透過中は egui がマウス座標を受け取れない
+    /// ため、OS へ直接問い合わせてオーブ矩形との内外を判定する。未対応の
+    /// プラットフォームでは `None`（呼び出し側は安全側＝透過 OFF にフォールバックする）。
+    fn cursor_pos_physical(&self) -> Option<(f32, f32)> {
+        None
+    }
 }
 
 /// OS 統合のエラー。

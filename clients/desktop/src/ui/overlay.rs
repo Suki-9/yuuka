@@ -4,8 +4,10 @@
 //!
 //! - collapsed（オーブ）: **接続中 Bot のアイコン**を円形に描画。右上に通知バッジ
 //!   （未読件数）。ドラッグで移動・位置記憶。クリックでモーダルを開く。
-//! - 周囲は `mouse_passthrough(true)` で透過し、オーブ部のみヒットする
-//!   （eframe 既定 + 不足分は `os::windows`）。
+//! - 周囲は透過し、オーブ部のみヒットさせる。eframe の `mouse_passthrough` は
+//!   ウィンドウ単位（全域）にしか効かないため、`app.rs` 側で OS カーソル位置と
+//!   このオーブ矩形（`AppState::orb_rect` に毎フレーム記録）を突き合わせ、カーソルが
+//!   オーブ上にある間だけ透過を解除する（client_design.md §4.2 / `os::cursor_pos_physical`）。
 //!
 //! 本フェーズはアイコン画像ロード（egui_extras）を省き、Bot 名頭文字の
 //! プレースホルダ円で描画する（client_design.md §4.1）。
@@ -24,6 +26,10 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
         egui::vec2(ORB_DIAMETER, ORB_DIAMETER),
         egui::Sense::click_and_drag(),
     );
+
+    // app.rs のクリック透過判定（オーブ上だけ透過 OFF）に使うため、描画した
+    // オーブ矩形（ウィンドウ内 points）を記録する。
+    state.orb_rect = Some(rect);
 
     let painter = ui.painter();
     let center = rect.center();

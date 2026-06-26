@@ -13,7 +13,20 @@ use tokio::sync::mpsc;
 use crate::config::Settings;
 use crate::model::{BotInfo, ServerFrame, StatusState};
 use crate::net::{ConnectionState, LoginEvent, NetEvent, UiEvent};
+use crate::os::{self, OsIntegration};
 use crate::ui::{self, ChatEntry};
+
+/// オーブのヒット領域を視覚サイズより広げる余白（**物理ピクセル**）。
+///
+/// カーソルがオーブへ到達する少し手前でクリック透過を解除し、「ホバーした瞬間に
+/// 押せない」体感（透過 ON→OFF の 1 フレーム遅延）を緩和する。
+const ORB_HOVER_MARGIN_PX: f32 = 10.0;
+
+/// オーバーレイ表示中に OS カーソルをポーリングする間隔。
+///
+/// クリック透過中は egui がマウス移動を受け取れず再描画も起きないため、自前で
+/// 定期再描画してカーソルのオーブ進入を検知する（collapsed の間だけの軽い負荷）。
+const OVERLAY_CURSOR_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// egui に日本語フォントを登録する（eframe 起動時に一度だけ呼ぶ）。
 ///
@@ -43,10 +56,21 @@ pub fn install_fonts(ctx: &egui::Context) {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
+        // 重要: 「読めた」≠「フォントとして妥当」。妥当でないバイト列を set_fonts へ
+        // 渡すと、egui/epaint がアトラス構築時（最初のフレーム）に panic する
+        // （epaint fonts.rs: `Error parsing ... TTF/OTF font file`）。リリースは
+        // panic="abort" かつ Windows は windows_subsystem="windows" のため、画面も
+        // コンソールも出ずにプロセスが即終了する＝「起動すらしない」。catch_unwind は
+        // panic=abort 下では効かないので、egui と同じ ab_glyph で**事前検証**し、
+        // 駄目なら次の候補へフォールバックする（参照渡しでコピーを避ける）。
+        if let Err(e) = ab_glyph::FontRef::try_from_slice_and_index(&bytes, 0) {
+            log::warn!("font at {path} is not a parseable TTF/OTF/TTC ({e}); skipping");
+            continue;
+        }
         let mut fonts = egui::FontDefinitions::default();
         fonts
             .font_data
-            .insert("jp".to_owned(), egui::FontData::from_owned(bytes).into());
+            .insert("jp".to_owned(), egui::FontData::from_owned(bytes));
         // 先頭へ差し込む＝日本語を最優先で解決し、欠落グリフは既定フォントへフォールバック。
         for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
             fonts.families.entry(family).or_default().insert(0, "jp".to_owned());
@@ -55,7 +79,9 @@ pub fn install_fonts(ctx: &egui::Context) {
         log::info!("loaded Japanese font: {path}");
         return;
     }
-    log::warn!("no Japanese font found on this system; CJK text may render as tofu (□)");
+    // 1 つも妥当な日本語フォントが見つからなくても、既定フォントのまま**起動は続行する**
+    // （日本語は豆腐 □ になるが、無言で落ちるよりはるかに良い）。
+    log::warn!("no usable Japanese font found; CJK may render as tofu (□), but the app will still start");
 }
 
 /// ログイン UI のステート（ui/login.rs と共有）。
@@ -135,6 +161,10 @@ pub struct AppState {
     pub request_login_start: bool,
     pub request_logout: bool,
 
+    /// 直近フレームでオーブが描かれたウィンドウ内矩形（egui points）。
+    /// クリック透過をオーブ上だけ解除するためのヒット判定に使う（overlay::view が更新）。
+    pub orb_rect: Option<egui::Rect>,
+
     // --- Markdown レンダリングキャッシュ（egui_commonmark）---
     pub commonmark_cache: egui_commonmark::CommonMarkCache,
 }
@@ -155,6 +185,7 @@ impl AppState {
             max_upload_mb: 20,
             request_login_start: false,
             request_logout: false,
+            orb_rect: None,
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
         }
     }
@@ -170,6 +201,8 @@ pub struct YuukaApp {
     /// 現在ウィンドウへ適用中のクリック透過状態（変化時のみ送信する）。
     /// 起動時は main.rs の `with_mouse_passthrough(true)` に揃える。
     passthrough_active: bool,
+    /// OS 統合（オーブ上ホバー判定のための物理カーソル取得に使う）。
+    os: os::PlatformOs,
 }
 
 impl YuukaApp {
@@ -185,7 +218,25 @@ impl YuukaApp {
             ui_tx,
             net_rx,
             passthrough_active: true,
+            os: os::platform(),
         }
+    }
+
+    /// OS のカーソルがオーブの上にあるか。判定不能（OS 非対応・窓位置やオーブ矩形が
+    /// 未確定）なら `None`。
+    ///
+    /// クリック透過中は egui がマウス座標を受け取れないため、OS から**物理ピクセル**の
+    /// カーソル位置を取り、オーブのスクリーン矩形（少し広げたヒット領域）と内外判定する。
+    /// `inner_rect` は monitor 空間の points なので、`pixels_per_point` を掛けて物理 px へ
+    /// 揃えてから比較する（`GetCursorPos` と同じ仮想デスクトップ原点・物理スケール）。
+    fn cursor_over_orb(&self, ctx: &egui::Context) -> Option<bool> {
+        let orb = self.state.orb_rect?; // ウィンドウ内 points（左上=窓左上）
+        let inner = ctx.input(|i| i.viewport().inner_rect)?; // monitor 空間 points
+        let (cx, cy) = self.os.cursor_pos_physical()?; // 物理スクリーン px
+        let ppp = ctx.pixels_per_point();
+        let screen_points = egui::Rect::from_min_size(inner.min + orb.min.to_vec2(), orb.size());
+        let hit = (screen_points * ppp).expand(ORB_HOVER_MARGIN_PX);
+        Some(hit.contains(egui::pos2(cx, cy)))
     }
 
     /// Net から届いたイベントを排出して状態へ反映する。
@@ -415,15 +466,26 @@ impl eframe::App for YuukaApp {
             self.state.bots.clear();
         }
 
-        // --- クリック透過の切り替え ---
-        // Overlay（オーブのみ）は周囲を透過させ背面アプリを操作可能にするが、
-        // それ以外（Login/Chat/Settings）は不透過にしないとボタンを押せず、
-        // 透明背景と相まって「何も出ない / 触れない」状態になる。
-        // 変化時のみ ViewportCommand を送る（毎フレーム送出を避ける）。
-        let want_passthrough = matches!(self.state.view, View::Overlay);
+        // --- クリック透過の切り替え（オーブ上だけヒット・周囲は透過）---
+        // Overlay（collapsed）は背面アプリを操作できるよう周囲を透過させるが、
+        // ウィンドウ単位の透過は全域に効くため、素朴に透過 ON にするとオーブ自身も
+        // クリックできずモーダルを開けない。そこで OS カーソルがオーブの上にある間
+        // だけ透過 OFF にして、オーブへのクリックを通す（client_design.md §4.2）。
+        // OS カーソルを取れない環境（非 Windows 等）や矩形未確定時は安全側＝透過 OFF
+        // （オーブは確実に押せる。代わりにウィンドウ矩形がクリックを奪う）。
+        // それ以外のビュー（Login/Chat/Settings）は常に不透過（ボタン操作のため）。
+        let want_passthrough = match self.state.view {
+            View::Overlay => self.cursor_over_orb(ctx).map(|over| !over).unwrap_or(false),
+            _ => false,
+        };
         if want_passthrough != self.passthrough_active {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(want_passthrough));
             self.passthrough_active = want_passthrough;
+        }
+        // 透過中は egui がマウス移動を受け取れず再描画も起きないため、Overlay の間は
+        // 定期再描画して OS カーソルのオーブ進入をポーリングする（collapsed 限定の軽負荷）。
+        if matches!(self.state.view, View::Overlay) {
+            ctx.request_repaint_after(OVERLAY_CURSOR_POLL);
         }
 
         // --- ビューのルーティング ---
