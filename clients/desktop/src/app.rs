@@ -291,7 +291,9 @@ impl YuukaApp {
         self.last_view = Some(self.state.view);
 
         // collapsed の間は、ユーザーがドラッグして決めた左上座標を記憶する。
-        if is_orb {
+        // 遷移直後フレームは送ったばかりの OuterPosition が未反映で outer_rect が旧位置
+        // （パネル位置）を指すため、その1フレームは記録しない（次フレーム以降で確定値を拾う）。
+        if is_orb && !class_changed {
             if let Some(rect) = ctx.input(|i| i.viewport().outer_rect) {
                 self.state.settings.overlay_pos = crate::config::OverlayPos {
                     x: rect.min.x,

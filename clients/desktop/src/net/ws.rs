@@ -57,6 +57,10 @@ pub async fn run_ws_loop(
     let mut backoff = BACKOFF_INITIAL;
     // 切断中に積まれた送信を退避するキュー（NFR-6: 再接続後に再送）。
     let mut outbox: Vec<ClientFrame> = Vec::new();
+    // 403 を通知済みの botId（同一 Bot への再試行ごとに ⚠ を出し続けない）。
+    let mut forbidden_notified: Option<String> = None;
+    // 直近で接続に成功した botId。403 で行き止まりにしないため、ここへ自動で戻す。
+    let mut last_good_bot: Option<String> = None;
 
     loop {
         let _ = net_tx
@@ -66,6 +70,8 @@ pub async fn run_ws_loop(
         match connect(token, &bot_id).await {
             Ok(stream) => {
                 backoff = BACKOFF_INITIAL; // 接続成功でバックオフをリセット。
+                forbidden_notified = None; // 以後この Bot が 403 になれば再通知する。
+                last_good_bot = Some(bot_id.clone()); // 403 時の自動復帰先として記憶。
                 let _ = net_tx
                     .send(NetEvent::Connection(ConnectionState::Connected {
                         bot_id: bot_id.clone(),
@@ -92,17 +98,31 @@ pub async fn run_ws_loop(
                 if is_unauthorized(&e) {
                     return WsExit::LoggedOut;
                 }
-                // 403 = この Bot へのアクセス権が無い（共有取消・無効 ID 等）。NetError は
-                // UI に出ないため、エラーフレームを合成して履歴に可視化する（沈黙の無限
-                // リトライで「選んでも切り替わらない」ように見えるのを防ぐ）。
+                // 403 = この Bot へのアクセス権が無い（共有取消・無効 ID 等）。
                 if is_forbidden(&e) {
-                    let _ = net_tx
-                        .send(NetEvent::Frame(crate::model::ServerFrame::Error {
-                            code: crate::model::ErrorCode::Internal,
-                            message: "この Bot に接続できません（アクセス権限がありません）。Web 設定をご確認ください。"
-                                .into(),
-                        }))
-                        .await;
+                    // NetError は UI に出ないため、エラーフレームを合成して履歴に可視化する
+                    // （沈黙の無限リトライで「選んでも切り替わらない」ように見えるのを防ぐ）。
+                    // 同一 Bot の再試行ごとに繰り返さないよう、通知は botId 単位で 1 度だけ。
+                    if forbidden_notified.as_deref() != Some(bot_id.as_str()) {
+                        forbidden_notified = Some(bot_id.clone());
+                        let _ = net_tx
+                            .send(NetEvent::Frame(crate::model::ServerFrame::Error {
+                                code: crate::model::ErrorCode::Internal,
+                                message: "この Bot に接続できません（アクセス権限がありません）。直前の Bot に戻ります。"
+                                    .into(),
+                            }))
+                            .await;
+                    }
+                    // 直前に正常接続できていた別 Bot があれば、そこへ即座に戻す
+                    // （切替先が 403 でもユーザーを行き止まりにせず、selector も追従する）。
+                    if let Some(prev) = last_good_bot.clone() {
+                        if prev != bot_id {
+                            bot_id = prev;
+                            outbox.clear();
+                            backoff = BACKOFF_INITIAL;
+                            continue;
+                        }
+                    }
                 }
                 let _ = net_tx
                     .send(NetEvent::NetError(format!("connect failed: {e}")))
