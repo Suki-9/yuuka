@@ -9,8 +9,8 @@
 //!   このオーブ矩形（`AppState::orb_rect` に毎フレーム記録）を突き合わせ、カーソルが
 //!   オーブ上にある間だけ透過を解除する（client_design.md §4.2 / `os::cursor_pos_physical`）。
 //!
-//! 本フェーズはアイコン画像ロード（egui_extras）を省き、Bot 名頭文字の
-//! プレースホルダ円で描画する（client_design.md §4.1）。
+//! アイコンは Net 側が取得した画像バイト（`AppState::avatars`）を egui の画像ローダ越しに
+//! 円形描画する。未取得/デコード中は背景円＋Bot 名頭文字のプレースホルダを見せる。
 
 use crate::app::AppState;
 
@@ -30,36 +30,51 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
     // オーブ矩形（ウィンドウ内 points）を記録する。
     state.orb_rect = Some(rect);
 
-    let painter = ui.painter();
     let center = rect.center();
     let radius = ORB_DIAMETER / 2.0;
 
-    // プレースホルダ円（接続中 Bot のアバター取得前 / 取得後は画像で置換予定）。
+    // 背景プレースホルダ円（アイコン未取得/デコード中もこれが見える＝オーブが消えない）。
     let fill = if response.hovered() {
         egui::Color32::from_rgb(90, 130, 200)
     } else {
         egui::Color32::from_rgb(70, 110, 180)
     };
-    painter.circle_filled(center, radius, fill);
+    ui.painter().circle_filled(center, radius, fill);
 
-    // Bot 名の頭文字（プレースホルダ）。
-    let initial = state
-        .bot
+    // 接続中 Bot のアイコンが取得済みなら、背景円の上へ円形にクリップして重ねる。
+    let bound_id = state.bot.as_ref().map(|b| b.id.clone());
+    let avatar = bound_id
         .as_ref()
-        .and_then(|b| b.name.chars().next())
-        .unwrap_or('Y')
-        .to_string();
-    painter.text(
-        center,
-        egui::Align2::CENTER_CENTER,
-        initial,
-        egui::FontId::proportional(24.0),
-        egui::Color32::WHITE,
-    );
+        .and_then(|id| state.avatars.get(id).cloned());
+    if let (Some(id), Some(bytes)) = (bound_id.as_ref(), avatar) {
+        egui::Image::new(egui::ImageSource::Bytes {
+            // uri は bot_id 毎に安定 → egui がデコード済みテクスチャをキャッシュする。
+            uri: format!("bytes://orb-{id}").into(),
+            bytes,
+        })
+        .rounding(egui::Rounding::same(radius))
+        .paint_at(ui, rect);
+    } else {
+        // 頭文字プレースホルダ（アイコン未取得時）。
+        let initial = state
+            .bot
+            .as_ref()
+            .and_then(|b| b.name.chars().next())
+            .unwrap_or('Y')
+            .to_string();
+        ui.painter().text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            initial,
+            egui::FontId::proportional(24.0),
+            egui::Color32::WHITE,
+        );
+    }
 
     // 通知バッジ（右上に未読件数）。モーダルを開くとクリアされる（app.rs 側）。
     if state.unread > 0 {
         let badge_center = egui::pos2(rect.right() - 8.0, rect.top() + 8.0);
+        let painter = ui.painter();
         painter.circle_filled(badge_center, 9.0, egui::Color32::from_rgb(220, 60, 60));
         painter.text(
             badge_center,

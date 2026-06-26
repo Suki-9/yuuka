@@ -100,6 +100,8 @@ fn main() -> eframe::Result<()> {
         Box::new(move |cc| {
             // 日本語フォントを登録（未登録だと CJK が豆腐 □ になる）。
             app::install_fonts(&cc.egui_ctx);
+            // 画像ローダを登録（オーブの Bot アイコン・受信画像の表示に必要）。
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(app::YuukaApp::new(settings, ui_tx, net_rx)))
         }),
     )

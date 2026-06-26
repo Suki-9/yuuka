@@ -186,6 +186,10 @@ pub struct AppState {
     /// クリック透過をオーブ上だけ解除するためのヒット判定に使う（overlay::view が更新）。
     pub orb_rect: Option<egui::Rect>,
 
+    /// Bot アイコン画像のキャッシュ（bot_id → 生バイト列）。Net 側が取得して送る
+    /// （`NetEvent::Avatar`）。オーブ/セレクタは egui の画像ローダ越しに円形描画する。
+    pub avatars: std::collections::HashMap<String, egui::load::Bytes>,
+
     // --- Markdown レンダリングキャッシュ（egui_commonmark）---
     pub commonmark_cache: egui_commonmark::CommonMarkCache,
 }
@@ -207,6 +211,7 @@ impl AppState {
             request_login_start: false,
             request_logout: false,
             orb_rect: None,
+            avatars: std::collections::HashMap::new(),
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
         }
     }
@@ -331,6 +336,11 @@ impl YuukaApp {
                     log::warn!("net error: {msg}");
                 }
                 NetEvent::Login(ev) => self.apply_login_event(ev),
+                NetEvent::Avatar { bot_id, bytes } => {
+                    self.state
+                        .avatars
+                        .insert(bot_id, egui::load::Bytes::from(bytes));
+                }
             }
         }
         any

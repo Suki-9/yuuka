@@ -51,6 +51,8 @@ pub async fn run_ws_loop(
     mut bot_id: String,
     ui_rx: &mut mpsc::Receiver<UiEvent>,
     net_tx: &mpsc::Sender<NetEvent>,
+    http: &reqwest::Client,
+    fetched_avatars: &mut std::collections::HashSet<String>,
 ) -> WsExit {
     let mut backoff = BACKOFF_INITIAL;
     // 切断中に積まれた送信を退避するキュー（NFR-6: 再接続後に再送）。
@@ -71,7 +73,7 @@ pub async fn run_ws_loop(
                     .await;
 
                 // 退避していた送信を先頭に注入して、1 接続分のセッションを回す。
-                match run_session(stream, ui_rx, net_tx, &mut outbox).await {
+                match run_session(stream, ui_rx, net_tx, &mut outbox, http, fetched_avatars).await {
                     SessionOutcome::Shutdown => return WsExit::Shutdown,
                     SessionOutcome::LoggedOut => return WsExit::LoggedOut,
                     SessionOutcome::SwitchBot(new_id) => {
@@ -172,6 +174,8 @@ async fn run_session(
     ui_rx: &mut mpsc::Receiver<UiEvent>,
     net_tx: &mpsc::Sender<NetEvent>,
     outbox: &mut Vec<ClientFrame>,
+    http: &reqwest::Client,
+    fetched_avatars: &mut std::collections::HashSet<String>,
 ) -> SessionOutcome {
     let (mut sink, mut source) = stream.split();
     let mut ping_timer = tokio::time::interval(PING_INTERVAL);
@@ -228,6 +232,11 @@ async fn run_session(
                 Some(Ok(Message::Text(text))) => {
                     match serde_json::from_str::<crate::model::ServerFrame>(&text) {
                         Ok(frame) => {
+                            // ready を受けたら束縛 Bot と一覧のアイコンを Net 側で先読みする
+                            // （UI スレッドを塞がない・重複は fetched_avatars で抑止）。
+                            if let crate::model::ServerFrame::Ready { bot, bots, .. } = &frame {
+                                spawn_avatar_fetches(http, bot, bots, fetched_avatars, net_tx);
+                            }
                             // トークン失効通知は UI へ転送しつつセッションを畳んで再ログインへ。
                             let unauthorized = matches!(
                                 &frame,
@@ -261,6 +270,43 @@ async fn run_session(
                 }
             },
         }
+    }
+}
+
+/// `ready` の束縛 Bot + 一覧について、未取得のアイコンをバックグラウンドで取得する。
+///
+/// 各取得は独立タスクで走り、完了ぶんから [`NetEvent::Avatar`] で UI へ流す。`fetched`
+/// に bot_id を記録して再接続/切替での重複取得を避ける（アイコンは滅多に変わらない）。
+fn spawn_avatar_fetches(
+    http: &reqwest::Client,
+    bound: &crate::model::BotInfo,
+    bots: &[crate::model::BotInfo],
+    fetched: &mut std::collections::HashSet<String>,
+    net_tx: &mpsc::Sender<NetEvent>,
+) {
+    let mut targets: Vec<(String, String)> = Vec::new();
+    for b in std::iter::once(bound).chain(bots.iter()) {
+        if fetched.contains(&b.id) {
+            continue;
+        }
+        if let Some(url) = b.discord_avatar_url.as_deref() {
+            if !url.is_empty() {
+                fetched.insert(b.id.clone());
+                targets.push((b.id.clone(), url.to_string()));
+            }
+        }
+    }
+    for (bot_id, url) in targets {
+        let http = http.clone();
+        let net_tx = net_tx.clone();
+        tokio::spawn(async move {
+            match crate::net::rest::fetch_avatar(&http, &url).await {
+                Ok(bytes) => {
+                    let _ = net_tx.send(NetEvent::Avatar { bot_id, bytes }).await;
+                }
+                Err(e) => log::warn!("avatar fetch failed for {bot_id}: {e}"),
+            }
+        });
     }
 }
 

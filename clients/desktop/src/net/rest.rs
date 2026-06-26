@@ -73,6 +73,15 @@ pub async fn get_bots(client: &reqwest::Client, token: &str) -> Result<Vec<BotIn
     Ok(body.bots)
 }
 
+/// Bot のアイコン画像バイト列を取得する（オーブ描画用。client_design.md §4.1）。
+///
+/// `discord_avatar_url` は通常 Discord CDN の公開 URL（認証不要）なので Bearer は付けない。
+/// 取得は Net スレッドで行い（UI スレッドを塞がない）、結果は `NetEvent::Avatar` で UI へ渡す。
+pub async fn fetch_avatar(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, RestError> {
+    let resp = client.get(url).send().await?.error_for_status()?;
+    Ok(resp.bytes().await?.to_vec())
+}
+
 /// `GET /api/devices` — 端末一覧（端末管理・自端末判定）。
 pub async fn get_devices(
     client: &reqwest::Client,
