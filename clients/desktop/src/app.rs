@@ -546,9 +546,23 @@ impl YuukaApp {
 }
 
 impl eframe::App for YuukaApp {
-    /// 透明オーバーレイのため背景はクリアカラーを透過にする。
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
+    /// クリアカラー（ウィンドウ背景）。
+    ///
+    /// オーブ（Overlay）だけ透過にして円を浮かせる。パネル系（Login/Chat/Settings）は
+    /// **不透明**で塗りつぶす。窓は透明属性付き（オーブ用）なので、パネルで透過のままだと
+    /// 装飾窓の未描画領域（タイトルバー直下や周囲）から背面の壁紙が透けて見えてしまう。
+    /// パネル背景色で全面クリアして透けを止める（隙間ができても下地と同色で目立たない）。
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        if matches!(self.state.view, View::Overlay) {
+            return [0.0, 0.0, 0.0, 0.0];
+        }
+        let c = visuals.panel_fill;
+        [
+            c.r() as f32 / 255.0,
+            c.g() as f32 / 255.0,
+            c.b() as f32 / 255.0,
+            1.0,
+        ]
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
