@@ -100,22 +100,31 @@ fn input_row(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<UiInte
             .is_some_and(|a| a.exceeds_limit(state.max_upload_mb));
         let send_enabled = state.status.is_none() && connected && !over_limit;
 
+        // 通常 Enter（Shift なし）は「送信」専用にし、複数行 TextEdit に**改行を
+        // 入れさせない**。そのため、TextEdit が処理する前に Enter を消費しておく
+        // （消費しないと、IME 変換確定の Enter で改行が入ってしまう）。Shift+Enter は
+        // 消費しないので従来どおり改行になる。フォーカス判定は前フレームの記憶を見る。
+        let field_id = ui.id().with("chat-input");
+        let has_focus = ui.memory(|m| m.has_focus(field_id));
+        let plain_enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+        // IME 変換確定の Enter は同じフレームに IME イベント（Commit/Preedit）を伴う。
+        // そのフレームは「確定だけ」＝改行も送信もしない。確定後、IME を伴わない次の
+        // Enter で初めて送信する（日本語入力の確定→送信の 2 段階）。
+        let ime_active = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Ime(_))));
+        if has_focus && plain_enter {
+            ui.input_mut(|i| {
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+            });
+        }
+
         let text_edit = egui::TextEdit::multiline(&mut state.input)
+            .id(field_id)
             .hint_text("メッセージを入力（Enter 送信 / Shift+Enter 改行）")
             .desired_rows(2)
             .desired_width(f32::INFINITY);
-        let resp = ui.add_enabled(send_enabled, text_edit);
+        ui.add_enabled(send_enabled, text_edit);
 
-        // Enter 送信。ただし **IME 変換確定の Enter では送信しない**。日本語入力では
-        // 変換を確定する Enter と、確定後に送信する Enter の 2 回が押されるが、確定側の
-        // Enter は同じフレームに IME イベント（Commit/Preedit 等）を伴って届く。その
-        // フレームでは送信を抑制し、IME イベントを伴わない次の Enter で初めて送信する。
-        let enter_pressed = resp.has_focus()
-            && ui.input(|i| {
-                i.key_pressed(egui::Key::Enter)
-                    && !i.modifiers.shift
-                    && !i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))
-            });
+        let enter_pressed = has_focus && plain_enter && !ime_active;
         let send_clicked = ui
             .add_enabled(send_enabled, egui::Button::new("送信"))
             .clicked();
