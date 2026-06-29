@@ -50,6 +50,44 @@ fn clamp_top_left(pos: egui::Pos2, size: egui::Vec2, monitor: Option<egui::Vec2>
     egui::pos2(pos.x.clamp(0.0, max_x), pos.y.clamp(0.0, max_y))
 }
 
+/// パネル系ビュー（Login/Chat/Settings）の最上段に出す自前タイトルバー。
+///
+/// 窓は枠なし固定（OS 装飾を使うと透明窓との組合せで透け帯や描画/入力座標のズレが
+/// 出る）。代わりにこのバーで「ドラッグして窓を移動」「✕ で終了」を提供する。バー全体を
+/// ドラッグ対象にし、右端のボタンはその上へ重ねてクリックを優先させる。
+fn window_titlebar(ctx: &egui::Context, id: &'static str) {
+    egui::TopBottomPanel::top(id)
+        .exact_height(30.0)
+        .frame(
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(32, 32, 38))
+                .inner_margin(egui::Margin::symmetric(8.0, 4.0)),
+        )
+        .show(ctx, |ui| {
+            // バー全体をドラッグで窓移動（StartDrag）。ボタンは後段で上に重ねる。
+            let drag = ui.interact(
+                ui.max_rect(),
+                ui.id().with("win-drag"),
+                egui::Sense::click_and_drag(),
+            );
+            if drag.drag_started_by(egui::PointerButton::Primary) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+            ui.horizontal_centered(|ui| {
+                ui.label(egui::RichText::new("Yuuka Desktop").weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button("✕")
+                        .on_hover_text("終了")
+                        .clicked()
+                    {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
+        });
+}
+
 /// egui に日本語フォントを登録する（eframe 起動時に一度だけ呼ぶ）。
 ///
 /// egui の既定フォント（`default_fonts`）はラテン系のみで CJK グリフを持たないため、
@@ -261,9 +299,6 @@ pub struct YuukaApp {
     net_rx: mpsc::Receiver<NetEvent>,
     /// 直前フレームのビュー（collapsed↔expanded のサイズ切替を検知する）。
     last_view: Option<View>,
-    /// 現在ウィンドウへ適用中の装飾（タイトルバー）有無（変化時のみ送信）。
-    /// パネル系（Login/Chat/Settings）は枠付き＝移動/フォーカス確実、オーブのみ枠なし。
-    last_decorated: Option<bool>,
 }
 
 impl YuukaApp {
@@ -279,7 +314,6 @@ impl YuukaApp {
             ui_tx,
             net_rx,
             last_view: None,
-            last_decorated: None,
         }
     }
 
@@ -605,15 +639,10 @@ impl eframe::App for YuukaApp {
         // （ホバー/クリック/ドラッグで再描画されるので定期ポーリングも不要）。詳細は
         // main.rs のビューポート設定コメントを参照。
 
-        // --- 装飾（タイトルバー）の切替 ---
-        // パネル系（Login/Chat/Settings）は**枠付きの通常窓**にして、タイトルバーで
-        // 移動・フォーカス・クローズが確実にできるようにする（枠なしだとドラッグ移動
-        // できず操作不能に見える）。オーブ（Overlay）だけ枠なし＝透明な円として出す。
-        let want_decorated = !matches!(self.state.view, View::Overlay);
-        if self.last_decorated != Some(want_decorated) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(want_decorated));
-            self.last_decorated = Some(want_decorated);
-        }
+        // 窓は枠なし固定（OS 装飾は使わない）。装飾をランタイムで ON/OFF すると、
+        // 透明窓＋装飾の組合せで「タイトルバー直下の透け帯」や「描画と入力座標のズレ
+        // （見た目より上に当たり判定）」が出るため。パネル系には自前のタイトルバー
+        // （`window_titlebar`：ドラッグ移動＋終了）を最上段に出して移動/終了を提供する。
 
         // --- ビューのルーティング ---
         // オーバーレイ（オーブ/チャット）には不透明度を適用する（設定スライダ。
@@ -623,6 +652,7 @@ impl eframe::App for YuukaApp {
         let mut intent: Option<UiIntent> = None;
         match self.state.view {
             View::Login => {
+                window_titlebar(ctx, "win-chrome-login");
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui::login::view(&mut self.state, ui);
                 });
@@ -640,6 +670,7 @@ impl eframe::App for YuukaApp {
                     });
             }
             View::Chat => {
+                window_titlebar(ctx, "win-chrome-chat");
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.set_opacity(overlay_opacity);
                     // ヘッダにオーバーレイへ戻る / 設定導線。
@@ -656,6 +687,7 @@ impl eframe::App for YuukaApp {
                 });
             }
             View::Settings => {
+                window_titlebar(ctx, "win-chrome-settings");
                 egui::CentralPanel::default().show(ctx, |ui| {
                     if ui.button("← 戻る").clicked() {
                         self.state.view = View::Chat;
