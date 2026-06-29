@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "15";
+const SCHEMA_VERSION = "16";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -704,6 +704,22 @@ function migrateToTaskProgress(db: ReturnType<typeof getDb>): void {
 }
 
 /**
+ * v15→v16: ルーチン（繰り返し）タスク。
+ * todos に繰り返し用の列を後付けする（冪等）。
+ * - repeat_rule: cron式（例 '0 9 * * 1' = 毎週月曜）。NULL は単発タスク。
+ * - repeat_until: 繰り返し終了日 'YYYY-MM-DD'。次回期日がこれを越えたら繰り返しを止める。NULL は無期限。
+ * - repeat_count: 残り繰り返し回数（現在分を含む）。0 になったら繰り返しを止める。NULL は無制限。
+ * 期日駆動で todoRecurrenceService が次回期日へ自動更新する（§3.2 ルーチン）。
+ */
+function migrateToRoutineTasks(db: ReturnType<typeof getDb>): void {
+	ensureColumns(db, "todos", [
+		{ name: "repeat_rule", ddl: "repeat_rule TEXT" },
+		{ name: "repeat_until", ddl: "repeat_until TEXT" },
+		{ name: "repeat_count", ddl: "repeat_count INTEGER" },
+	]);
+}
+
+/**
  * v13: デスクトップクライアント用の長命トークン表（desktop_client 設計 backend_api.md §5）。
  * - OAuth デバイスフローで発行した Bearer トークンを sha256 で保存（生トークンは保持しない）。
  * - user_id（Discord ユーザーID）でスコープ。Web 登録済みユーザーのみ（ログイン必須）のため users への FK は妥当。
@@ -1090,6 +1106,9 @@ export async function runMigrations(): Promise<void> {
       parent_id INTEGER,                       -- v12: 自己参照。NULL=親タスク / 値=サブタスク（1階層のみ）
       linked_payment_id INTEGER,               -- 支払い予定との紐付け（§3.4）
       due_reminded INTEGER NOT NULL DEFAULT 0, -- 期限接近リマインド送信済みフラグ
+      repeat_rule TEXT,                        -- v16: ルーチンタスクの周期（cron式）or NULL（単発）
+      repeat_until TEXT,                       -- v16: 繰り返し終了日 'YYYY-MM-DD' or NULL（無期限）
+      repeat_count INTEGER,                    -- v16: 残り繰り返し回数（現在分を含む）or NULL（無制限）
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (user_id) REFERENCES users(discord_id) ON DELETE CASCADE,
@@ -1478,6 +1497,7 @@ export async function runMigrations(): Promise<void> {
 	migrateToDesktopTokens(db);
 	migrateToMemberRequests(db);
 	migrateToAllowedRoles(db);
+	migrateToRoutineTasks(db);
 
 	// スキーマバージョンを記録
 	db.prepare(

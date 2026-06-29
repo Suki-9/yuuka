@@ -1,5 +1,6 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
+import { CronExpressionParser } from "cron-parser";
 import * as todoRepo from "../db/todoRepo.js";
 import {
 	parseTodoTags,
@@ -41,6 +42,26 @@ function normalizeTags(value: unknown): string[] {
 		if (result.length >= 8) break;
 	}
 	return result;
+}
+
+/** cron式の妥当性を検証する（パースできれば true） */
+function isValidCron(rule: string): boolean {
+	try {
+		CronExpressionParser.parse(rule, { currentDate: new Date() });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** ルーチン情報の表示ラベル（繰り返しでなければ空文字） */
+function routineLabel(
+	todo: Pick<TodoRecord, "repeat_rule" | "repeat_count">,
+): string {
+	if (!todo.repeat_rule) return "";
+	const countPart =
+		todo.repeat_count !== null ? `・残り${todo.repeat_count}回` : "";
+	return ` 🔁ルーチン(${todo.repeat_rule}${countPart})`;
 }
 
 /** 優先度引数の検証（high/medium/low 以外は undefined） */
@@ -92,6 +113,9 @@ function toTodoEntry(todo: TodoRecord) {
 		status: todo.status,
 		progress: todo.progress,
 		parent_id: todo.parent_id,
+		repeat_rule: todo.repeat_rule,
+		repeat_until: todo.repeat_until,
+		repeat_count: todo.repeat_count,
 	};
 }
 
@@ -117,7 +141,7 @@ function todoTreeLines(todo: TodoWithSubtasks): string {
 		todo.subtasks.length > 0
 			? ` (サブタスク ${todo.subtasks.filter((s) => s.status === "done").length}/${todo.subtasks.length})`
 			: "";
-	const head = `${statusEmoji(todo.status)} #${todo.id} ${todo.title}${dueLabel(todo.due_date)} ${priorityLabel(todo.priority)} ${progressLabel(todo.effective_progress)}${subInfo}${tagLabel}`;
+	const head = `${statusEmoji(todo.status)} #${todo.id} ${todo.title}${dueLabel(todo.due_date)} ${priorityLabel(todo.priority)} ${progressLabel(todo.effective_progress)}${subInfo}${tagLabel}${routineLabel(todo)}`;
 	const subLines = todo.subtasks.map(
 		(s) =>
 			`    ↳ ${statusEmoji(s.status)} #${s.id} ${s.title}${dueLabel(s.due_date)} ${progressLabel(s.status === "done" ? 100 : s.progress)}`,
@@ -135,6 +159,7 @@ const declarations: FunctionDeclaration[] = [
 			"・例:「〜をやることに追加して」「〜しなきゃ」などの登録依頼で呼ぶ。\n" +
 			"・タグは追加後に自動で付くので指定しなくてよい。\n" +
 			"・優先度はユーザーがはっきり言った時だけ指定する（言わなければ省略）。\n" +
+			"・「毎週」「毎月」など繰り返す“ルーチン”にしたい時は repeat_rule を入れる。その場合 due_date に初回の期日も必ず入れる。\n" +
 			"・あるタスクの中の「サブタスク」として登録したい時 → 代わりに addSubtask を使う。",
 		parameters: {
 			type: SchemaType.OBJECT,
@@ -150,7 +175,7 @@ const declarations: FunctionDeclaration[] = [
 				due_date: {
 					type: SchemaType.STRING,
 					description:
-						"締め切り。形式: 日付だけなら YYYY-MM-DD、時刻ありなら YYYY-MM-DDTHH:MM:SS。「明日まで」などは今の日時を基準に変換して入れる（任意）",
+						"締め切り。形式: 日付だけなら YYYY-MM-DD、時刻ありなら YYYY-MM-DDTHH:MM:SS。「明日まで」などは今の日時を基準に変換して入れる。ルーチン(repeat_rule)を指定する時は初回の期日として必須（任意）",
 				},
 				start_date: {
 					type: SchemaType.STRING,
@@ -161,6 +186,21 @@ const declarations: FunctionDeclaration[] = [
 					type: SchemaType.STRING,
 					description:
 						"優先度: 'high'（高）| 'medium'（中）| 'low'（低）。ユーザーがはっきり言った時だけ指定（任意）",
+				},
+				repeat_rule: {
+					type: SchemaType.STRING,
+					description:
+						"ルーチン（繰り返し）にする時の周期。cron式で書く（並びは 分 時 日 月 曜日。例 '0 9 * * 1'=毎週月曜、'0 0 1 * *'=毎月1日、'0 0 * * *'=毎日）。繰り返さない単発タスクでは指定しない（任意）",
+				},
+				repeat_until: {
+					type: SchemaType.STRING,
+					description:
+						"ルーチンの終了日 YYYY-MM-DD。「年末まで毎週」のように終わりが決まっている時に入れる。次回期日がこの日を越えたら自動で繰り返しを止める（任意）",
+				},
+				repeat_count: {
+					type: SchemaType.NUMBER,
+					description:
+						"ルーチンを何回行うか（初回を含む回数）。「毎日5回だけ」のように回数で終える時に入れる。指定回数に達したら自動で止まる（任意）",
 				},
 			},
 			required: ["title"],
@@ -411,6 +451,23 @@ const declarations: FunctionDeclaration[] = [
 		},
 	},
 	{
+		name: "stopTodoRoutine",
+		description:
+			"ルーチン（繰り返し）タスクの繰り返しを終了する（終了指示）。\n" +
+			"・例:「もう毎週の○○はやらなくていい」「#3のルーチンを止めて」などの依頼で呼ぶ。\n" +
+			"・タスク自体は消えず、今ある1件は普通の単発タスクとして残る（完全に消したい時は deleteTodo）。",
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				todo_id: {
+					type: SchemaType.NUMBER,
+					description: "繰り返しを止めるルーチンタスクのID（#番号）",
+				},
+			},
+			required: ["todo_id"],
+		},
+	},
+	{
 		name: "organizeTaskPriorities",
 		description:
 			"優先度の整理の1段目。未完了タスク全部を、期限・タグ・今の優先度つきで取り出す。\n" +
@@ -472,12 +529,43 @@ const handlers: FunctionModule["handlers"] = {
 			});
 		}
 
+		// ルーチン（繰り返し）指定の検証
+		const repeatRule = asOptionalString(args.repeat_rule);
+		const dueDate = asOptionalString(args.due_date);
+		if (repeatRule) {
+			if (!isValidCron(repeatRule)) {
+				return JSON.stringify({
+					success: false,
+					message:
+						"repeat_rule は cron式（分 時 日 月 曜日。例 '0 9 * * 1'=毎週月曜）で指定してください。",
+				});
+			}
+			if (!dueDate) {
+				return JSON.stringify({
+					success: false,
+					message:
+						"ルーチンタスクには初回の due_date（期日）も指定してください。",
+				});
+			}
+		}
+		const repeatUntil = asOptionalString(args.repeat_until);
+		const rawCount =
+			typeof args.repeat_count === "number" ? args.repeat_count : undefined;
+		const repeatCount =
+			rawCount !== undefined && Number.isFinite(rawCount) && rawCount > 0
+				? Math.floor(rawCount)
+				: undefined;
+
 		const todo = todoRepo.addTodo(ctx.userId, ctx.botId, {
 			title,
 			description: asOptionalString(args.description),
-			dueDate: asOptionalString(args.due_date),
+			dueDate,
 			startDate: asOptionalString(args.start_date),
 			priority: asOptionalPriority(args.priority),
+			// ルーチン指定は repeat_rule がある時のみ有効
+			repeatRule: repeatRule,
+			repeatUntil: repeatRule ? repeatUntil : undefined,
+			repeatCount: repeatRule ? repeatCount : undefined,
 		});
 
 		// タグ自動付与をバックグラウンドで起動（awaitしない。§3.2.4: 応答をブロックしない）
@@ -485,7 +573,7 @@ const handlers: FunctionModule["handlers"] = {
 
 		return JSON.stringify({
 			success: true,
-			message: `ToDo「${todo.title}」を追加しました (ID: #${todo.id}、優先度: ${priorityLabel(todo.priority)}${dueLabel(todo.due_date)})。タグはバックグラウンドで自動付与されます。`,
+			message: `ToDo「${todo.title}」を追加しました (ID: #${todo.id}、優先度: ${priorityLabel(todo.priority)}${dueLabel(todo.due_date)}${routineLabel(todo)})。タグはバックグラウンドで自動付与されます。`,
 			todo: toTodoEntry(todo),
 		});
 	},
@@ -897,6 +985,36 @@ const handlers: FunctionModule["handlers"] = {
 				count: g.items.length,
 				todos: g.items.map(toTodoTreeEntry),
 			})),
+		});
+	},
+
+	// ルーチン終了（§3.2 v16）。repeat_* をクリアして単発タスクへ戻す（タスク自体は残す）
+	async stopTodoRoutine(
+		ctx: ToolContext,
+		args: Record<string, unknown>,
+	): Promise<string> {
+		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		if (!Number.isFinite(todoId)) {
+			return JSON.stringify({
+				success: false,
+				message: "todo_id（#番号）を指定してください。",
+			});
+		}
+		const stopped = todoRepo.stopRoutine(ctx.userId, ctx.botId, todoId);
+		if (!stopped) {
+			// 対象なし＝存在しない or 既にルーチンでない
+			const exists = todoRepo.getTodoById(ctx.userId, ctx.botId, todoId);
+			return JSON.stringify({
+				success: false,
+				message: exists
+					? `タスク #${args.todo_id} はルーチン（繰り返し）ではありません。`
+					: `タスク #${args.todo_id} が見つかりません。`,
+			});
+		}
+		return JSON.stringify({
+			success: true,
+			message: `タスク「${stopped.title}」(#${stopped.id}) の繰り返しを終了しました🏁（このタスクは単発として残ります）`,
+			todo: toTodoEntry(stopped),
 		});
 	},
 

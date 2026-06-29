@@ -43,6 +43,10 @@ import {
 	startSynapseEngine,
 	stopSynapseEngine,
 } from "./services/synapseEngine.js";
+import {
+	startTodoRecurrenceService,
+	stopTodoRecurrenceService,
+} from "./services/todoRecurrenceService.js";
 import { rotateSecretKey } from "./utils/crypto.js";
 import { applyGoogleHttpFix } from "./utils/googleHttpFix.js";
 
@@ -112,6 +116,7 @@ async function main() {
 	startClipboardCleanup(); // クリップボードTTL（§3.10）
 	startBirthdayReminderService(); // 誕生日リマインド（§3.11）
 	startPaymentRecurrenceService(); // 繰り返し支払い予定の自動生成（§3.4）
+	startTodoRecurrenceService(); // ルーチン（繰り返し）タスクの自動生成（§3.2 v16）
 	startReportService(); // 日報・週報（§3.8）
 	startBriefingService(); // 朝報: 天気・ニュース（§3.9）
 	startBackupScheduler(); // ユーザー単位Google Driveバックアップ（§8）
@@ -145,6 +150,7 @@ async function gracefulShutdown(): Promise<void> {
 		stopBriefingService();
 		stopReportService();
 		stopPaymentRecurrenceService();
+		stopTodoRecurrenceService();
 		stopBirthdayReminderService();
 		stopClipboardCleanup();
 		stopPlaybookScheduleService();
