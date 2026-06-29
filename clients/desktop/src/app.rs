@@ -76,11 +76,8 @@ fn window_titlebar(ctx: &egui::Context, id: &'static str) {
             ui.horizontal_centered(|ui| {
                 ui.label(egui::RichText::new("Yuuka Desktop").weak());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("✕")
-                        .on_hover_text("終了")
-                        .clicked()
-                    {
+                    // × は U+00D7（CJK フォントにも在る）。✕(U+2715) は豆腐□になるため使わない。
+                    if ui.button("×").on_hover_text("終了").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
@@ -675,7 +672,7 @@ impl eframe::App for YuukaApp {
                     ui.set_opacity(overlay_opacity);
                     // ヘッダにオーバーレイへ戻る / 設定導線。
                     ui.horizontal(|ui| {
-                        if ui.button("⤫ 閉じる").clicked() {
+                        if ui.button("× 閉じる").clicked() {
                             self.state.view = View::Overlay;
                         }
                         if ui.button("⚙ 設定").clicked() {

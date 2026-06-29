@@ -106,8 +106,16 @@ fn input_row(state: &mut AppState, ui: &mut egui::Ui, intent: &mut Option<UiInte
             .desired_width(f32::INFINITY);
         let resp = ui.add_enabled(send_enabled, text_edit);
 
-        let enter_pressed =
-            resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+        // Enter 送信。ただし **IME 変換確定の Enter では送信しない**。日本語入力では
+        // 変換を確定する Enter と、確定後に送信する Enter の 2 回が押されるが、確定側の
+        // Enter は同じフレームに IME イベント（Commit/Preedit 等）を伴って届く。その
+        // フレームでは送信を抑制し、IME イベントを伴わない次の Enter で初めて送信する。
+        let enter_pressed = resp.has_focus()
+            && ui.input(|i| {
+                i.key_pressed(egui::Key::Enter)
+                    && !i.modifiers.shift
+                    && !i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))
+            });
         let send_clicked = ui
             .add_enabled(send_enabled, egui::Button::new("送信"))
             .clicked();
