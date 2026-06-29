@@ -30,6 +30,12 @@ export interface TodoRecord {
 	parent_id: number | null;
 	linked_payment_id: number | null;
 	due_reminded: number;
+	/** v16: ルーチンの周期（cron式）。NULL=単発タスク */
+	repeat_rule: string | null;
+	/** v16: 繰り返し終了日 'YYYY-MM-DD'。NULL=無期限 */
+	repeat_until: string | null;
+	/** v16: 残り繰り返し回数（現在分を含む）。NULL=無制限 */
+	repeat_count: number | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -63,6 +69,12 @@ export interface TodoInput {
 	tags?: string[];
 	/** v12: サブタスクにする場合の親ToDoのID（1階層のみ。2階層目以降は親へ平坦化される） */
 	parentId?: number;
+	/** v16: ルーチンの周期（cron式）。指定するとルーチンタスクになる */
+	repeatRule?: string;
+	/** v16: 繰り返し終了日 'YYYY-MM-DD'（任意） */
+	repeatUntil?: string;
+	/** v16: 繰り返し回数（現在分を含む。任意） */
+	repeatCount?: number;
 }
 
 /** updateTodo の入力（指定されたフィールドのみ更新） */
@@ -148,8 +160,8 @@ export function addTodo(
 	const parentId = normalizeParentId(userId, botId, input.parentId);
 	const result = db
 		.prepare(
-			`INSERT INTO todos (user_id, bot_id, title, description, due_date, start_date, priority, tags, parent_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO todos (user_id, bot_id, title, description, due_date, start_date, priority, tags, parent_id, repeat_rule, repeat_until, repeat_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.run(
 			userId,
@@ -161,6 +173,10 @@ export function addTodo(
 			input.priority ?? null,
 			JSON.stringify(input.tags ?? []),
 			parentId,
+			// サブタスク（parentId あり）はルーチンにしない（親のみ繰り返し対象とする）
+			parentId == null ? (input.repeatRule ?? null) : null,
+			parentId == null ? (input.repeatUntil ?? null) : null,
+			parentId == null ? (input.repeatCount ?? null) : null,
 		);
 	return getTodoById(userId, botId, result.lastInsertRowid as number)!;
 }
@@ -175,6 +191,16 @@ export function getTodoById(
 	return db
 		.prepare("SELECT * FROM todos WHERE user_id = ? AND bot_id = ? AND id = ?")
 		.get(userId, botId, id) as TodoRecord | undefined;
+}
+
+/** スコープ更新の共通後処理: 変更が無ければ undefined、あれば更新後の最新レコードを返す */
+function reloadIfChanged(
+	changes: number,
+	userId: string,
+	botId: string,
+	id: number,
+): TodoRecord | undefined {
+	return changes === 0 ? undefined : getTodoById(userId, botId, id);
 }
 
 /**
@@ -269,8 +295,7 @@ export function updateTodo(
 			`UPDATE todos SET ${sets.join(", ")} WHERE user_id = ? AND bot_id = ? AND id = ?`,
 		)
 		.run(...params, userId, botId, id);
-	if (result.changes === 0) return undefined;
-	return getTodoById(userId, botId, id);
+	return reloadIfChanged(result.changes, userId, botId, id);
 }
 
 /** タグを上書き保存する（§3.2.4: LLM自動付与の保存先。autoTagService から呼ばれる） */
@@ -329,8 +354,7 @@ export function completeTodo(
        WHERE user_id = ? AND bot_id = ? AND id = ?`,
 		)
 		.run(userId, botId, id);
-	if (result.changes === 0) return undefined;
-	return getTodoById(userId, botId, id);
+	return reloadIfChanged(result.changes, userId, botId, id);
 }
 
 /**
@@ -626,4 +650,88 @@ export function markDueReminded(id: number): void {
 	db.prepare(
 		`UPDATE todos SET due_reminded = 1, updated_at = datetime('now', 'localtime') WHERE id = ?`,
 	).run(id);
+}
+
+// ─── ルーチン（繰り返し）タスク（§3.2 v16） ──────────────────────────────────
+
+/**
+ * 期日を過ぎた繰り返し（repeat_rule 付き）の親タスクを全ユーザー横断で取得する。
+ * ※ cron（todoRecurrenceService）用の全件走査につき user_id スコープの例外。
+ * サブタスク（parent_id あり）は対象外（ルーチンは親タスクのみ）。
+ * status は問わない（完了済みでも未完了でも次回期日へ進める＝期日駆動）。
+ */
+export function listOverdueRoutinesAcrossUsers(): TodoRecord[] {
+	const db = getDb();
+	return db
+		.prepare(
+			`SELECT * FROM todos
+       WHERE repeat_rule IS NOT NULL
+         AND parent_id IS NULL
+         AND due_date IS NOT NULL
+         AND datetime(due_date) <= datetime('now', 'localtime')
+       ORDER BY datetime(due_date) ASC`,
+		)
+		.all() as TodoRecord[];
+}
+
+/**
+ * ルーチンタスクを次回期日へ進める（期日駆動の自動更新）。
+ * 同一行の due_date を nextDue へ更新し、状態・進捗・リマインド済みフラグをリセットして
+ * 次サイクルを開始する（reminder の rescheduleRepeat と同方針＝行を増やさず山積みを防ぐ）。
+ * nextCount（残り回数。NULL=無制限）を渡すと repeat_count を更新する。
+ * ※ todoRecurrenceService が取得済みIDに対して呼ぶ前提のため user_id スコープの例外。
+ */
+export function advanceRoutine(
+	id: number,
+	nextDue: string,
+	nextCount: number | null,
+): TodoRecord | undefined {
+	const db = getDb();
+	db.prepare(
+		`UPDATE todos SET
+       due_date = ?,
+       status = 'open',
+       progress = 0,
+       due_reminded = 0,
+       repeat_count = ?,
+       updated_at = datetime('now', 'localtime')
+     WHERE id = ?`,
+	).run(nextDue, nextCount, id);
+	return db.prepare("SELECT * FROM todos WHERE id = ?").get(id) as
+		| TodoRecord
+		| undefined;
+}
+
+/**
+ * ルーチンを終了する（cron 用・id スコープ）。repeat_* をクリアして単発タスクに戻す。
+ * 終了日超過・回数消化での自動終了に使う（現在の1件はそのまま残す）。
+ * ※ todoRecurrenceService が取得済みIDに対して呼ぶ前提のため user_id スコープの例外。
+ */
+export function endRoutineById(id: number): void {
+	const db = getDb();
+	db.prepare(
+		`UPDATE todos SET repeat_rule = NULL, repeat_until = NULL, repeat_count = NULL,
+       updated_at = datetime('now', 'localtime')
+     WHERE id = ?`,
+	).run(id);
+}
+
+/**
+ * ルーチンを終了する（終了指示）。repeat_* をクリアして通常の単発タスクに戻す。
+ * タスク自体は削除しない（現在の1件はそのまま残る）。
+ */
+export function stopRoutine(
+	userId: string,
+	botId: string,
+	id: number,
+): TodoRecord | undefined {
+	const db = getDb();
+	const result = db
+		.prepare(
+			`UPDATE todos SET repeat_rule = NULL, repeat_until = NULL, repeat_count = NULL,
+         updated_at = datetime('now', 'localtime')
+       WHERE user_id = ? AND bot_id = ? AND id = ? AND repeat_rule IS NOT NULL`,
+		)
+		.run(userId, botId, id);
+	return reloadIfChanged(result.changes, userId, botId, id);
 }
