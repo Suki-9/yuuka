@@ -261,6 +261,9 @@ pub struct YuukaApp {
     net_rx: mpsc::Receiver<NetEvent>,
     /// 直前フレームのビュー（collapsed↔expanded のサイズ切替を検知する）。
     last_view: Option<View>,
+    /// 現在ウィンドウへ適用中の装飾（タイトルバー）有無（変化時のみ送信）。
+    /// パネル系（Login/Chat/Settings）は枠付き＝移動/フォーカス確実、オーブのみ枠なし。
+    last_decorated: Option<bool>,
 }
 
 impl YuukaApp {
@@ -276,6 +279,7 @@ impl YuukaApp {
             ui_tx,
             net_rx,
             last_view: None,
+            last_decorated: None,
         }
     }
 
@@ -586,6 +590,16 @@ impl eframe::App for YuukaApp {
         // 透明かつクリック可能な通常窓として扱い、egui が直接マウスイベントを受け取る
         // （ホバー/クリック/ドラッグで再描画されるので定期ポーリングも不要）。詳細は
         // main.rs のビューポート設定コメントを参照。
+
+        // --- 装飾（タイトルバー）の切替 ---
+        // パネル系（Login/Chat/Settings）は**枠付きの通常窓**にして、タイトルバーで
+        // 移動・フォーカス・クローズが確実にできるようにする（枠なしだとドラッグ移動
+        // できず操作不能に見える）。オーブ（Overlay）だけ枠なし＝透明な円として出す。
+        let want_decorated = !matches!(self.state.view, View::Overlay);
+        if self.last_decorated != Some(want_decorated) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(want_decorated));
+            self.last_decorated = Some(want_decorated);
+        }
 
         // --- ビューのルーティング ---
         // オーバーレイ（オーブ/チャット）には不透明度を適用する（設定スライダ。
