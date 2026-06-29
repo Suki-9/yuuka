@@ -361,6 +361,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (termsOverlay) termsOverlay.classList.remove("active");
 		const privacyOverlay = document.getElementById("privacy-overlay");
 		if (privacyOverlay) privacyOverlay.classList.remove("active");
+		const taskGuideOverlay = document.getElementById("task-guide-overlay");
+		if (taskGuideOverlay) taskGuideOverlay.classList.remove("active");
 		const integratedOverlay = document.getElementById("integrated-overlay");
 		if (integratedOverlay) integratedOverlay.classList.remove("active");
 		const adminOverlay = document.getElementById("admin-overlay");
@@ -434,6 +436,19 @@ document.addEventListener("DOMContentLoaded", () => {
 			);
 			if (botSetupTabContent) botSetupTabContent.classList.remove("active");
 			if (privacyOverlay) privacyOverlay.classList.add("active");
+			return;
+		}
+
+		// タスクの使い方ガイド（ログイン不要の公開ページ。PUBLIC_PATHS 参照）
+		if (cleanPath === "/tasks/guide") {
+			appContainer.classList.add("hidden");
+			botSelectionOverlay.classList.remove("active");
+			loginOverlay.classList.remove("active");
+			const botSetupTabContent = document.getElementById(
+				"bot-setup-tab-content",
+			);
+			if (botSetupTabContent) botSetupTabContent.classList.remove("active");
+			if (taskGuideOverlay) taskGuideOverlay.classList.add("active");
 			return;
 		}
 
@@ -574,6 +589,24 @@ document.addEventListener("DOMContentLoaded", () => {
 		btnUsageBackLogin.addEventListener("click", (e) => {
 			e.preventDefault();
 			navigateTo("/login");
+		});
+	}
+
+	// タスクの使い方ガイド（公開ページ）リンク／戻るボタン
+	const linkTasksGuide = document.getElementById("link-tasks-guide");
+	if (linkTasksGuide) {
+		linkTasksGuide.addEventListener("click", (e) => {
+			e.preventDefault();
+			navigateTo("/tasks/guide");
+		});
+	}
+
+	const btnTaskGuideBack = document.getElementById("btn-task-guide-back");
+	if (btnTaskGuideBack) {
+		btnTaskGuideBack.addEventListener("click", (e) => {
+			e.preventDefault();
+			// ログイン中はタスク管理へ、未ログインならログイン画面へ戻す
+			navigateTo(activeUserId ? "/bot/tasks" : "/login");
 		});
 	}
 
@@ -1277,6 +1310,20 @@ document.addEventListener("DOMContentLoaded", () => {
 	}
 
 	// App Session Initialization
+	// ログイン不要でアクセスできる公開ページのパス一覧。
+	// 未ログインで直リンクされた場合でもログインへリダイレクトせずに表示する。
+	const PUBLIC_PATHS = ["/usage", "/terms", "/privacy", "/tasks/guide"];
+
+	/** 現在のパスが公開ページなら描画して true を返す（未ログイン時のリダイレクト抑止用） */
+	function applyPublicRouteIfAny() {
+		const cp = window.location.pathname.replace(/\/$/, "") || "/";
+		if (PUBLIC_PATHS.includes(cp)) {
+			applyRoute(cp);
+			return true;
+		}
+		return false;
+	}
+
 	async function initAppSession() {
 		try {
 			const res = await originalFetch("/api/me");
@@ -1352,6 +1399,8 @@ document.addEventListener("DOMContentLoaded", () => {
 				}
 			} else {
 				activeUserId = "";
+				// 未ログインでも公開ページ（使い方ガイド等）への直リンクはそのまま表示する
+				if (applyPublicRouteIfAny()) return;
 				const needSetup = await checkSetupStatus();
 				if (!needSetup) {
 					const btnTabLogin = document.getElementById("btn-tab-login");
@@ -1363,6 +1412,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 		} catch (err) {
 			activeUserId = "";
+			if (applyPublicRouteIfAny()) return;
 			await checkSetupStatus();
 			navigateTo("/login", false);
 		}
