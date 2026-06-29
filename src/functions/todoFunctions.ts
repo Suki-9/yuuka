@@ -68,6 +68,21 @@ function asOptionalString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** Function 応答（失敗）のJSON整形。message のみの定型エラー */
+function fail(message: string): string {
+	return JSON.stringify({ success: false, message });
+}
+
+/** Function 応答（成功）のJSON整形。message ＋任意の追加フィールド（順序は message が先） */
+function ok(message: string, extra: Record<string, unknown> = {}): string {
+	return JSON.stringify({ success: true, message, ...extra });
+}
+
+/** Function Call 引数を数値ID（数値でなければ NaN）として取り出す */
+function asTodoId(value: unknown): number {
+	return typeof value === "number" ? value : NaN;
+}
+
 /** タグ配列を正規化する（文字列化・trim・空除去・重複除去、最大8件） */
 function normalizeTags(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
@@ -574,30 +589,21 @@ const handlers: FunctionModule["handlers"] = {
 		args: Record<string, unknown>,
 	): Promise<string> {
 		const title = asOptionalString(args.title);
-		if (!title) {
-			return JSON.stringify({
-				success: false,
-				message: "タイトルを指定してください。",
-			});
-		}
+		if (!title) return fail("タイトルを指定してください。");
 
 		// ルーチン（繰り返し）指定の検証
 		const repeatRule = asOptionalString(args.repeat_rule);
 		const dueDate = asOptionalString(args.due_date);
 		if (repeatRule) {
 			if (!isValidCron(repeatRule)) {
-				return JSON.stringify({
-					success: false,
-					message:
-						"repeat_rule は cron式（分 時 日 月 曜日。例 '0 9 * * 1'=毎週月曜）で指定してください。",
-				});
+				return fail(
+					"repeat_rule は cron式（分 時 日 月 曜日。例 '0 9 * * 1'=毎週月曜）で指定してください。",
+				);
 			}
 			if (!dueDate) {
-				return JSON.stringify({
-					success: false,
-					message:
-						"ルーチンタスクには初回の due_date（期日）も指定してください。",
-				});
+				return fail(
+					"ルーチンタスクには初回の due_date（期日）も指定してください。",
+				);
 			}
 		}
 		const repeatUntil = asOptionalString(args.repeat_until);
@@ -623,11 +629,10 @@ const handlers: FunctionModule["handlers"] = {
 		// タグ自動付与をバックグラウンドで起動（awaitしない。§3.2.4: 応答をブロックしない）
 		scheduleAutoTagging(ctx.userId, ctx.botId, todo.id);
 
-		return JSON.stringify({
-			success: true,
-			message: `ToDo「${todo.title}」を追加しました (ID: #${todo.id}、優先度: ${priorityLabel(todo.priority)}${dueLabel(todo.due_date)}${routineLabel(todo)})。タグはバックグラウンドで自動付与されます。`,
-			todo: toTodoEntry(todo),
-		});
+		return ok(
+			`ToDo「${todo.title}」を追加しました (ID: #${todo.id}、優先度: ${priorityLabel(todo.priority)}${dueLabel(todo.due_date)}${routineLabel(todo)})。タグはバックグラウンドで自動付与されます。`,
+			{ todo: toTodoEntry(todo) },
+		);
 	},
 
 	// サブタスク追加（§3.2 v12）。親が存在し本人のものであることを確認してから追加する
@@ -636,23 +641,13 @@ const handlers: FunctionModule["handlers"] = {
 		args: Record<string, unknown>,
 	): Promise<string> {
 		const title = asOptionalString(args.title);
-		const parentId =
-			typeof args.parent_todo_id === "number" ? args.parent_todo_id : NaN;
-		if (!title) {
-			return JSON.stringify({
-				success: false,
-				message: "サブタスクのタイトルを指定してください。",
-			});
-		}
+		const parentId = asTodoId(args.parent_todo_id);
+		if (!title) return fail("サブタスクのタイトルを指定してください。");
 		const parent = Number.isFinite(parentId)
 			? todoRepo.getTodoById(ctx.userId, ctx.botId, parentId)
 			: undefined;
-		if (!parent) {
-			return JSON.stringify({
-				success: false,
-				message: `親タスク #${args.parent_todo_id} が見つかりません。`,
-			});
-		}
+		if (!parent)
+			return fail(`親タスク #${args.parent_todo_id} が見つかりません。`);
 
 		const subtask = todoRepo.addTodo(ctx.userId, ctx.botId, {
 			title,
@@ -671,12 +666,10 @@ const handlers: FunctionModule["handlers"] = {
 			effectiveParentId,
 		);
 		const done = siblings.filter((s) => s.status === "done").length;
-		return JSON.stringify({
-			success: true,
-			message: `サブタスク「${subtask.title}」(#${subtask.id}) を タスク#${effectiveParentId} に追加しました。${dueLabel(subtask.due_date)}（このタスクのサブタスク: ${done}/${siblings.length} 完了）`,
-			subtask: toTodoEntry(subtask),
-			parent_todo_id: effectiveParentId,
-		});
+		return ok(
+			`サブタスク「${subtask.title}」(#${subtask.id}) を タスク#${effectiveParentId} に追加しました。${dueLabel(subtask.due_date)}（このタスクのサブタスク: ${done}/${siblings.length} 完了）`,
+			{ subtask: toTodoEntry(subtask), parent_todo_id: effectiveParentId },
+		);
 	},
 
 	// ToDo一覧（§3.2.1: 一覧・タグ別・グループ別表示）
@@ -691,21 +684,19 @@ const handlers: FunctionModule["handlers"] = {
 
 		const todos = todoRepo.listTodoTree(ctx.userId, ctx.botId, { status, tag });
 		if (todos.length === 0) {
-			return JSON.stringify({
-				success: true,
-				message: tag
+			return ok(
+				tag
 					? `タグ「${tag}」のToDoはありません。listTodoTags で存在するタグを確認できます。`
 					: "該当するToDoはありません。",
-				todos: [],
-			});
+				{ todos: [] },
+			);
 		}
 
 		const lines = todos.map(todoTreeLines);
-		return JSON.stringify({
-			success: true,
-			message: `ToDo一覧 (親タスク ${todos.length}件${tag ? `、タグ: ${tag}` : ""}):\n${lines.join("\n")}`,
-			todos: todos.map(toTodoTreeEntry),
-		});
+		return ok(
+			`ToDo一覧 (親タスク ${todos.length}件${tag ? `、タグ: ${tag}` : ""}):\n${lines.join("\n")}`,
+			{ todos: todos.map(toTodoTreeEntry) },
+		);
 	},
 
 	// ToDo完了（§3.2.1）
@@ -713,17 +704,10 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		const todoId = asTodoId(args.todo_id);
 		const todo = todoRepo.completeTodo(ctx.userId, ctx.botId, todoId);
-		if (!todo) {
-			return JSON.stringify({
-				success: false,
-				message: `ToDo #${args.todo_id} が見つかりません。`,
-			});
-		}
-		return JSON.stringify({
-			success: true,
-			message: `ToDo「${todo.title}」(#${todo.id}) を完了にしました✅`,
+		if (!todo) return fail(`ToDo #${args.todo_id} が見つかりません。`);
+		return ok(`ToDo「${todo.title}」(#${todo.id}) を完了にしました✅`, {
 			todo: toTodoEntry(todo),
 		});
 	},
@@ -733,18 +717,10 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		const todoId = asTodoId(args.todo_id);
 		const deleted = todoRepo.deleteTodo(ctx.userId, ctx.botId, todoId);
-		if (!deleted) {
-			return JSON.stringify({
-				success: false,
-				message: `ToDo #${args.todo_id} が見つかりません。`,
-			});
-		}
-		return JSON.stringify({
-			success: true,
-			message: `ToDo #${args.todo_id} を削除しました🗑️`,
-		});
+		if (!deleted) return fail(`ToDo #${args.todo_id} が見つかりません。`);
+		return ok(`ToDo #${args.todo_id} を削除しました🗑️`);
 	},
 
 	// ToDo更新（§3.2.1）。内容変更時はタグを自動で付け直す（§3.2.4: 更新のたびに付与）
@@ -752,18 +728,16 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		const todoId = asTodoId(args.todo_id);
 
 		const statusArg = asOptionalString(args.status);
 		const status =
 			statusArg === "open" || statusArg === "done" ? statusArg : undefined;
 		const priorityArg = asOptionalString(args.priority);
 		if (priorityArg && !asOptionalPriority(priorityArg)) {
-			return JSON.stringify({
-				success: false,
-				message:
-					"優先度は 'high' | 'medium' | 'low' のいずれかで指定してください。",
-			});
+			return fail(
+				"優先度は 'high' | 'medium' | 'low' のいずれかで指定してください。",
+			);
 		}
 
 		const title = asOptionalString(args.title);
@@ -782,10 +756,7 @@ const handlers: FunctionModule["handlers"] = {
 			priorityArg === undefined &&
 			status === undefined
 		) {
-			return JSON.stringify({
-				success: false,
-				message: "変更する項目を1つ以上指定してください。",
-			});
+			return fail("変更する項目を1つ以上指定してください。");
 		}
 
 		const todo = todoRepo.updateTodo(ctx.userId, ctx.botId, todoId, {
@@ -796,21 +767,14 @@ const handlers: FunctionModule["handlers"] = {
 			priority: asOptionalPriority(priorityArg),
 			status,
 		});
-		if (!todo) {
-			return JSON.stringify({
-				success: false,
-				message: `ToDo #${args.todo_id} が見つかりません。`,
-			});
-		}
+		if (!todo) return fail(`ToDo #${args.todo_id} が見つかりません。`);
 
 		// タイトル・説明が変わった場合はタグを付け直す（バックグラウンド・awaitしない）
 		if (title !== undefined || description !== undefined) {
 			scheduleAutoTagging(ctx.userId, ctx.botId, todo.id);
 		}
 
-		return JSON.stringify({
-			success: true,
-			message: `ToDo「${todo.title}」(#${todo.id}) を更新しました📝`,
+		return ok(`ToDo「${todo.title}」(#${todo.id}) を更新しました📝`, {
 			todo: toTodoEntry(todo),
 		});
 	},
@@ -820,30 +784,21 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		const todoId = asTodoId(args.todo_id);
 		const rawProgress = typeof args.progress === "number" ? args.progress : NaN;
 		if (!Number.isFinite(todoId) || !Number.isFinite(rawProgress)) {
-			return JSON.stringify({
-				success: false,
-				message: "todo_id と progress（0〜100の数値）を指定してください。",
-			});
+			return fail("todo_id と progress（0〜100の数値）を指定してください。");
 		}
 
 		const todo = todoRepo.getTodoById(ctx.userId, ctx.botId, todoId);
-		if (!todo) {
-			return JSON.stringify({
-				success: false,
-				message: `タスク #${args.todo_id} が見つかりません。`,
-			});
-		}
+		if (!todo) return fail(`タスク #${args.todo_id} が見つかりません。`);
 		// 親タスク（サブタスクあり）は進捗が自動算出されるため手動更新を拒否する
 		const subtasks = todoRepo.listSubtasks(ctx.userId, ctx.botId, todoId);
 		if (subtasks.length > 0) {
 			const done = subtasks.filter((s) => s.status === "done").length;
-			return JSON.stringify({
-				success: false,
-				message: `タスク#${todoId}「${todo.title}」はサブタスクを ${subtasks.length} 件持つため、進捗は『完了サブタスク数/全体』(現在 ${done}/${subtasks.length}) で自動算出されます。該当サブタスクを完了/進捗更新してください。`,
-			});
+			return fail(
+				`タスク#${todoId}「${todo.title}」はサブタスクを ${subtasks.length} 件持つため、進捗は『完了サブタスク数/全体』(現在 ${done}/${subtasks.length}) で自動算出されます。該当サブタスクを完了/進捗更新してください。`,
+			);
 		}
 
 		const note = asOptionalString(args.note);
@@ -854,18 +809,13 @@ const handlers: FunctionModule["handlers"] = {
 			rawProgress,
 			note,
 		);
-		if (!updated) {
-			return JSON.stringify({
-				success: false,
-				message: `タスク #${args.todo_id} の進捗更新に失敗しました。`,
-			});
-		}
+		if (!updated)
+			return fail(`タスク #${args.todo_id} の進捗更新に失敗しました。`);
 		const doneSuffix = updated.status === "done" ? "（完了にしました✅）" : "";
-		return JSON.stringify({
-			success: true,
-			message: `タスク「${updated.title}」(#${updated.id}) の進捗を ${updated.progress}% に更新しました📊${note ? `（メモ: ${note}）` : ""}${doneSuffix}`,
-			todo: toTodoEntry(updated),
-		});
+		return ok(
+			`タスク「${updated.title}」(#${updated.id}) の進捗を ${updated.progress}% に更新しました📊${note ? `（メモ: ${note}）` : ""}${doneSuffix}`,
+			{ todo: toTodoEntry(updated) },
+		);
 	},
 
 	// タスク詳細（サブタスク・算出進捗・進捗履歴）（§3.2 v12）
@@ -873,50 +823,41 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		const todoId = asTodoId(args.todo_id);
 		const todo = Number.isFinite(todoId)
 			? todoRepo.getTodoById(ctx.userId, ctx.botId, todoId)
 			: undefined;
-		if (!todo) {
-			return JSON.stringify({
-				success: false,
-				message: `タスク #${args.todo_id} が見つかりません。`,
-			});
-		}
+		if (!todo) return fail(`タスク #${args.todo_id} が見つかりません。`);
 		const subtasks = todoRepo.listSubtasks(ctx.userId, ctx.botId, todoId);
 		const logs = todoRepo.listProgressLogs(ctx.userId, ctx.botId, todoId);
 		const effectiveProgress = todoRepo.computeEffectiveProgress(todo, subtasks);
 
-		return JSON.stringify({
-			success: true,
-			message: `タスク「${todo.title}」(#${todo.id}) の詳細です。進捗 ${effectiveProgress}%、サブタスク ${subtasks.filter((s) => s.status === "done").length}/${subtasks.length} 完了、進捗履歴 ${logs.length} 件。`,
-			todo: toTodoEntry(todo),
-			effective_progress: effectiveProgress,
-			subtasks: subtasks.map(toTodoEntry),
-			progress_logs: logs.map((l) => ({
-				progress: l.progress,
-				note: l.note,
-				created_at: l.created_at,
-			})),
-		});
+		return ok(
+			`タスク「${todo.title}」(#${todo.id}) の詳細です。進捗 ${effectiveProgress}%、サブタスク ${subtasks.filter((s) => s.status === "done").length}/${subtasks.length} 完了、進捗履歴 ${logs.length} 件。`,
+			{
+				todo: toTodoEntry(todo),
+				effective_progress: effectiveProgress,
+				subtasks: subtasks.map(toTodoEntry),
+				progress_logs: logs.map((l) => ({
+					progress: l.progress,
+					note: l.note,
+					created_at: l.created_at,
+				})),
+			},
+		);
 	},
 
 	// タグ一覧と件数（§3.2.4: グループ表示用）
 	async listTodoTags(ctx: ToolContext): Promise<string> {
 		const tags = todoRepo.listAllTags(ctx.userId, ctx.botId);
 		if (tags.length === 0) {
-			return JSON.stringify({
-				success: true,
-				message: "タグの付いた未完了ToDoはありません。",
-				tags: [],
-			});
+			return ok("タグの付いた未完了ToDoはありません。", { tags: [] });
 		}
 		const lines = tags.map((t) => `🏷️ ${t.tag} (${t.count}件)`);
-		return JSON.stringify({
-			success: true,
-			message: `タグ一覧 (${tags.length}種類):\n${lines.join("\n")}\n特定タグのToDoは listTodos の tag 引数で絞り込めます。`,
-			tags,
-		});
+		return ok(
+			`タグ一覧 (${tags.length}種類):\n${lines.join("\n")}\n特定タグのToDoは listTodos の tag 引数で絞り込めます。`,
+			{ tags },
+		);
 	},
 
 	// タグ手動修正（§3.2.4）。set/add/remove で現在のタグを編集し上書き保存する
@@ -924,36 +865,22 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
-		if (!Number.isFinite(todoId)) {
-			return JSON.stringify({
-				success: false,
-				message: "todo_id（#番号）を指定してください。",
-			});
-		}
+		const todoId = asTodoId(args.todo_id);
+		if (!Number.isFinite(todoId))
+			return fail("todo_id（#番号）を指定してください。");
 		const modeArg = asOptionalString(args.mode) ?? "set";
 		if (modeArg !== "set" && modeArg !== "add" && modeArg !== "remove") {
-			return JSON.stringify({
-				success: false,
-				message:
-					"mode は 'set' | 'add' | 'remove' のいずれかで指定してください。",
-			});
+			return fail(
+				"mode は 'set' | 'add' | 'remove' のいずれかで指定してください。",
+			);
 		}
 		const inputTags = normalizeTags(args.tags);
 		if (modeArg !== "set" && inputTags.length === 0) {
-			return JSON.stringify({
-				success: false,
-				message: `${modeArg} には tags を1つ以上指定してください。`,
-			});
+			return fail(`${modeArg} には tags を1つ以上指定してください。`);
 		}
 
 		const todo = todoRepo.getTodoById(ctx.userId, ctx.botId, todoId);
-		if (!todo) {
-			return JSON.stringify({
-				success: false,
-				message: `タスク #${args.todo_id} が見つかりません。`,
-			});
-		}
+		if (!todo) return fail(`タスク #${args.todo_id} が見つかりません。`);
 
 		const current = parseTodoTags(todo);
 		let next: string[];
@@ -966,20 +893,19 @@ const handlers: FunctionModule["handlers"] = {
 			next = current.filter((t) => !remove.has(t));
 		}
 
-		const ok = todoRepo.updateTodoTags(ctx.userId, ctx.botId, todoId, next);
-		if (!ok) {
-			return JSON.stringify({
-				success: false,
-				message: `タスク #${args.todo_id} のタグ更新に失敗しました。`,
-			});
-		}
+		const updated = todoRepo.updateTodoTags(
+			ctx.userId,
+			ctx.botId,
+			todoId,
+			next,
+		);
+		if (!updated)
+			return fail(`タスク #${args.todo_id} のタグ更新に失敗しました。`);
 		const tagLabel = next.length > 0 ? next.join(", ") : "（タグなし）";
-		return JSON.stringify({
-			success: true,
-			message: `タスク「${todo.title}」(#${todo.id}) のタグを更新しました🏷️ → ${tagLabel}`,
-			todo_id: todo.id,
-			tags: next,
-		});
+		return ok(
+			`タスク「${todo.title}」(#${todo.id}) のタグを更新しました🏷️ → ${tagLabel}`,
+			{ todo_id: todo.id, tags: next },
+		);
 	},
 
 	// タグ別グルーピング（§3.2.4: グループ表示）。複数タグ持ちは各グループに重複して入る
@@ -993,11 +919,7 @@ const handlers: FunctionModule["handlers"] = {
 
 		const todos = todoRepo.listTodoTree(ctx.userId, ctx.botId, { status });
 		if (todos.length === 0) {
-			return JSON.stringify({
-				success: true,
-				message: "該当するToDoはありません。",
-				groups: [],
-			});
+			return ok("該当するToDoはありません。", { groups: [] });
 		}
 
 		// タグ → タスク群へ振り分け（タグ無しは「未分類」へ）
@@ -1029,9 +951,7 @@ const handlers: FunctionModule["handlers"] = {
 			)
 			.join("\n\n");
 
-		return JSON.stringify({
-			success: true,
-			message: `タグ別グループ (${groups.length}グループ):\n${message}`,
+		return ok(`タグ別グループ (${groups.length}グループ):\n${message}`, {
 			groups: groups.map((g) => ({
 				tag: g.tag,
 				count: g.items.length,
@@ -1042,14 +962,10 @@ const handlers: FunctionModule["handlers"] = {
 
 	// タスクの使い方ガイド（§3.2）。本文MDとページURLを返し、LLMがペルソナ口調で案内する
 	async getTaskUsageGuide(): Promise<string> {
-		const url = taskGuideUrl();
-		return JSON.stringify({
-			success: true,
-			message:
-				"タスク機能の使い方ガイドです。guide_markdown の内容を、あなた自身の口調・人格に合わせて自然に言い換えてユーザーに伝え、最後に guide_url のリンクも必ず案内してください（要点は省略しないこと）。",
-			guide_markdown: TASK_USAGE_GUIDE_MD,
-			guide_url: url,
-		});
+		return ok(
+			"タスク機能の使い方ガイドです。guide_markdown の内容を、あなた自身の口調・人格に合わせて自然に言い換えてユーザーに伝え、最後に guide_url のリンクも必ず案内してください（要点は省略しないこと）。",
+			{ guide_markdown: TASK_USAGE_GUIDE_MD, guide_url: taskGuideUrl() },
+		);
 	},
 
 	// ルーチン終了（§3.2 v16）。repeat_* をクリアして単発タスクへ戻す（タスク自体は残す）
@@ -1057,50 +973,39 @@ const handlers: FunctionModule["handlers"] = {
 		ctx: ToolContext,
 		args: Record<string, unknown>,
 	): Promise<string> {
-		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
-		if (!Number.isFinite(todoId)) {
-			return JSON.stringify({
-				success: false,
-				message: "todo_id（#番号）を指定してください。",
-			});
-		}
+		const todoId = asTodoId(args.todo_id);
+		if (!Number.isFinite(todoId))
+			return fail("todo_id（#番号）を指定してください。");
 		const stopped = todoRepo.stopRoutine(ctx.userId, ctx.botId, todoId);
 		if (!stopped) {
 			// 対象なし＝存在しない or 既にルーチンでない
 			const exists = todoRepo.getTodoById(ctx.userId, ctx.botId, todoId);
-			return JSON.stringify({
-				success: false,
-				message: exists
+			return fail(
+				exists
 					? `タスク #${args.todo_id} はルーチン（繰り返し）ではありません。`
 					: `タスク #${args.todo_id} が見つかりません。`,
-			});
+			);
 		}
-		return JSON.stringify({
-			success: true,
-			message: `タスク「${stopped.title}」(#${stopped.id}) の繰り返しを終了しました🏁（このタスクは単発として残ります）`,
-			todo: toTodoEntry(stopped),
-		});
+		return ok(
+			`タスク「${stopped.title}」(#${stopped.id}) の繰り返しを終了しました🏁（このタスクは単発として残ります）`,
+			{ todo: toTodoEntry(stopped) },
+		);
 	},
 
 	// タスク優先度整理・第一段階: 分析用データの取得（§3.2.3: 提案のみ・確定はユーザー承認後）
 	async organizeTaskPriorities(ctx: ToolContext): Promise<string> {
 		const todos = todoRepo.listTodos(ctx.userId, ctx.botId, { status: "open" });
 		if (todos.length === 0) {
-			return JSON.stringify({
-				success: true,
-				message: "未完了のToDoがないため、優先度整理の対象はありません。",
+			return ok("未完了のToDoがないため、優先度整理の対象はありません。", {
 				todos: [],
 			});
 		}
 
-		return JSON.stringify({
-			success: true,
-			message:
-				`未完了ToDo ${todos.length}件を取得しました。期限の近さ・タイトルや説明から読み取れる重要度・タグを考慮して各ToDoの優先度（high/medium/low）を分析し、提案として理由付きでユーザーに提示してください。` +
+		return ok(
+			`未完了ToDo ${todos.length}件を取得しました。期限の近さ・タイトルや説明から読み取れる重要度・タグを考慮して各ToDoの優先度（high/medium/low）を分析し、提案として理由付きでユーザーに提示してください。` +
 				`ユーザーの承認を得てから applyTaskPriorities で確定すること。承認前に勝手に確定してはいけません（§3.2.3）。`,
-			now: new Date().toISOString(),
-			todos: todos.map(toTodoEntry),
-		});
+			{ now: new Date().toISOString(), todos: todos.map(toTodoEntry) },
+		);
 	},
 
 	// タスク優先度整理・第二段階: ユーザー承認後の一括確定（§3.2.3）
@@ -1109,23 +1014,20 @@ const handlers: FunctionModule["handlers"] = {
 		args: Record<string, unknown>,
 	): Promise<string> {
 		if (!Array.isArray(args.items) || args.items.length === 0) {
-			return JSON.stringify({
-				success: false,
-				message:
-					"items に {todo_id, priority} の配列を1件以上指定してください。",
-			});
+			return fail(
+				"items に {todo_id, priority} の配列を1件以上指定してください。",
+			);
 		}
 
 		const items: { id: number; priority: TodoPriority }[] = [];
 		for (const raw of args.items as unknown[]) {
 			const item = raw as Record<string, unknown>;
-			const id = typeof item.todo_id === "number" ? item.todo_id : NaN;
+			const id = asTodoId(item.todo_id);
 			const priority = asOptionalPriority(item.priority);
 			if (!Number.isFinite(id) || !priority) {
-				return JSON.stringify({
-					success: false,
-					message: `不正な項目があります: ${JSON.stringify(item)}（todo_id は数値、priority は 'high'|'medium'|'low'）`,
-				});
+				return fail(
+					`不正な項目があります: ${JSON.stringify(item)}（todo_id は数値、priority は 'high'|'medium'|'low'）`,
+				);
 			}
 			items.push({ id, priority });
 		}
@@ -1133,23 +1035,19 @@ const handlers: FunctionModule["handlers"] = {
 		// トランザクションで一括更新（未完了ToDoのみ対象）
 		const updated = todoRepo.updateTodoPriorities(ctx.userId, ctx.botId, items);
 		if (updated === 0) {
-			return JSON.stringify({
-				success: false,
-				message:
-					"更新対象が見つかりませんでした。IDが正しいか、ToDoが未完了かを確認してください。",
-			});
+			return fail(
+				"更新対象が見つかりませんでした。IDが正しいか、ToDoが未完了かを確認してください。",
+			);
 		}
 
 		const skipped = items.length - updated;
-		return JSON.stringify({
-			success: true,
-			message:
-				`${updated}件のToDoの優先度を確定しました🗂️` +
+		return ok(
+			`${updated}件のToDoの優先度を確定しました🗂️` +
 				(skipped > 0
 					? `（${skipped}件は見つからない・完了済みのためスキップ）`
 					: ""),
-			updated_count: updated,
-		});
+			{ updated_count: updated },
+		);
 	},
 };
 

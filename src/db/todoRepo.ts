@@ -193,6 +193,16 @@ export function getTodoById(
 		.get(userId, botId, id) as TodoRecord | undefined;
 }
 
+/** スコープ更新の共通後処理: 変更が無ければ undefined、あれば更新後の最新レコードを返す */
+function reloadIfChanged(
+	changes: number,
+	userId: string,
+	botId: string,
+	id: number,
+): TodoRecord | undefined {
+	return changes === 0 ? undefined : getTodoById(userId, botId, id);
+}
+
 /**
  * ToDo 一覧を取得する（§3.2.1: 未完了・完了済み・タグ別表示）。
  * tag 指定時は tags JSON 配列に該当タグを含むもののみ返す（json_each で展開して照合）。
@@ -285,8 +295,7 @@ export function updateTodo(
 			`UPDATE todos SET ${sets.join(", ")} WHERE user_id = ? AND bot_id = ? AND id = ?`,
 		)
 		.run(...params, userId, botId, id);
-	if (result.changes === 0) return undefined;
-	return getTodoById(userId, botId, id);
+	return reloadIfChanged(result.changes, userId, botId, id);
 }
 
 /** タグを上書き保存する（§3.2.4: LLM自動付与の保存先。autoTagService から呼ばれる） */
@@ -345,8 +354,7 @@ export function completeTodo(
        WHERE user_id = ? AND bot_id = ? AND id = ?`,
 		)
 		.run(userId, botId, id);
-	if (result.changes === 0) return undefined;
-	return getTodoById(userId, botId, id);
+	return reloadIfChanged(result.changes, userId, botId, id);
 }
 
 /**
@@ -725,6 +733,5 @@ export function stopRoutine(
        WHERE user_id = ? AND bot_id = ? AND id = ? AND repeat_rule IS NOT NULL`,
 		)
 		.run(userId, botId, id);
-	if (result.changes === 0) return undefined;
-	return getTodoById(userId, botId, id);
+	return reloadIfChanged(result.changes, userId, botId, id);
 }

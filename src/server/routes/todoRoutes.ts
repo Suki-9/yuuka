@@ -40,6 +40,12 @@ function resolveBotId(ctx: RouteRequestCtx, userId: string): string {
 		: "system_default";
 }
 
+/** ハンドラ共通: 認証済みユーザーIDと解決済みBotIDを取り出す */
+function scope(ctx: RouteRequestCtx): { userId: string; botId: string } {
+	const userId = ctx.user!.discordId;
+	return { userId, botId: resolveBotId(ctx, userId) };
+}
+
 /** 任意フィールドを文字列として取り出す（未指定は undefined、それ以外は文字列化なし） */
 function optString(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
@@ -51,8 +57,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const statusParam = ctx.url.searchParams.get("status") || "all";
 			// 旧UI互換: pending → open
 			const status =
@@ -76,8 +81,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/gantt",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const tasks = listGanttTasks(userId, botId);
 			sendJson(ctx.res, 200, { success: true, tasks });
 		},
@@ -88,8 +92,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/someday",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const tasks = listSomedayTasks(userId, botId);
 			sendJson(ctx.res, 200, { success: true, tasks });
 		},
@@ -100,8 +103,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/detail",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const id = Number(ctx.url.searchParams.get("id"));
 			if (!id)
 				return sendJson(ctx.res, 400, {
@@ -130,8 +132,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/add",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const body = ctx.body as Record<string, unknown>;
 			const { title } = body;
 			if (!title || typeof title !== "string") {
@@ -162,8 +163,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/update",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const body = ctx.body as Record<string, unknown>;
 			const id = Number(body.id);
 			if (!id)
@@ -196,8 +196,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/progress",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const body = ctx.body as Record<string, unknown>;
 			const id = Number(body.id);
 			const progress = Number(body.progress);
@@ -233,8 +232,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/complete",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const id = Number(ctx.body.id);
 			if (!id)
 				return sendJson(ctx.res, 400, {
@@ -250,8 +248,7 @@ export const todoRoutes: RouteDef[] = [
 		path: "/api/tasks/delete",
 		auth: "user",
 		async handler(ctx) {
-			const userId = ctx.user!.discordId;
-			const botId = resolveBotId(ctx, userId);
+			const { userId, botId } = scope(ctx);
 			const id = Number(ctx.body.id);
 			if (!id)
 				return sendJson(ctx.res, 400, {
