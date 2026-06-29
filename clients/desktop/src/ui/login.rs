@@ -48,6 +48,12 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) {
                     ui.label("承認待ち…");
                 });
             }
+            LoginUiState::Connecting => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("接続中…");
+                });
+            }
             LoginUiState::Error(msg) => {
                 ui.colored_label(egui::Color32::LIGHT_RED, msg);
                 if ui.button("再試行").clicked() {

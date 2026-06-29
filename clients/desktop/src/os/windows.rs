@@ -12,11 +12,13 @@
 //! `cargo check` では評価されない（プラットフォームゲートで除外）。
 
 use windows::core::HSTRING;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HWND};
+use windows::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HWND, POINT,
+};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SWP_NOMOVE,
-    SWP_NOSIZE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
+    SWP_NOMOVE, SWP_NOSIZE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
 };
 
 use super::{InstanceLock, OsError, OsIntegration, SingleInstanceGuard};
@@ -103,6 +105,14 @@ impl OsIntegration for WindowsOs {
             // 堅牢な最前面（位置/サイズは保持）。
             let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         }
+    }
+
+    fn cursor_pos_physical(&self) -> Option<(f32, f32)> {
+        let mut pt = POINT { x: 0, y: 0 };
+        // SAFETY: pt は有効なスタック変数。GetCursorPos は成功時に物理スクリーン座標
+        // （仮想デスクトップ原点）を書き込む。失敗（稀）なら None。
+        unsafe { GetCursorPos(&mut pt) }.ok()?;
+        Some((pt.x as f32, pt.y as f32))
     }
 }
 

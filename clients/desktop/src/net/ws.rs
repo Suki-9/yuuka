@@ -51,10 +51,16 @@ pub async fn run_ws_loop(
     mut bot_id: String,
     ui_rx: &mut mpsc::Receiver<UiEvent>,
     net_tx: &mpsc::Sender<NetEvent>,
+    http: &reqwest::Client,
+    fetched_avatars: &std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> WsExit {
     let mut backoff = BACKOFF_INITIAL;
     // 切断中に積まれた送信を退避するキュー（NFR-6: 再接続後に再送）。
     let mut outbox: Vec<ClientFrame> = Vec::new();
+    // 403 を通知済みの botId（同一 Bot への再試行ごとに ⚠ を出し続けない）。
+    let mut forbidden_notified: Option<String> = None;
+    // 直近で接続に成功した botId。403 で行き止まりにしないため、ここへ自動で戻す。
+    let mut last_good_bot: Option<String> = None;
 
     loop {
         let _ = net_tx
@@ -64,6 +70,8 @@ pub async fn run_ws_loop(
         match connect(token, &bot_id).await {
             Ok(stream) => {
                 backoff = BACKOFF_INITIAL; // 接続成功でバックオフをリセット。
+                forbidden_notified = None; // 以後この Bot が 403 になれば再通知する。
+                last_good_bot = Some(bot_id.clone()); // 403 時の自動復帰先として記憶。
                 let _ = net_tx
                     .send(NetEvent::Connection(ConnectionState::Connected {
                         bot_id: bot_id.clone(),
@@ -71,7 +79,7 @@ pub async fn run_ws_loop(
                     .await;
 
                 // 退避していた送信を先頭に注入して、1 接続分のセッションを回す。
-                match run_session(stream, ui_rx, net_tx, &mut outbox).await {
+                match run_session(stream, ui_rx, net_tx, &mut outbox, http, fetched_avatars).await {
                     SessionOutcome::Shutdown => return WsExit::Shutdown,
                     SessionOutcome::LoggedOut => return WsExit::LoggedOut,
                     SessionOutcome::SwitchBot(new_id) => {
@@ -89,6 +97,32 @@ pub async fn run_ws_loop(
                 // upgrade が 401 を返した = トークン失効。再ログインへ。
                 if is_unauthorized(&e) {
                     return WsExit::LoggedOut;
+                }
+                // 403 = この Bot へのアクセス権が無い（共有取消・無効 ID 等）。
+                if is_forbidden(&e) {
+                    // NetError は UI に出ないため、エラーフレームを合成して履歴に可視化する
+                    // （沈黙の無限リトライで「選んでも切り替わらない」ように見えるのを防ぐ）。
+                    // 同一 Bot の再試行ごとに繰り返さないよう、通知は botId 単位で 1 度だけ。
+                    if forbidden_notified.as_deref() != Some(bot_id.as_str()) {
+                        forbidden_notified = Some(bot_id.clone());
+                        let _ = net_tx
+                            .send(NetEvent::Frame(crate::model::ServerFrame::Error {
+                                code: crate::model::ErrorCode::Internal,
+                                message: "この Bot に接続できません（アクセス権限がありません）。直前の Bot に戻ります。"
+                                    .into(),
+                            }))
+                            .await;
+                    }
+                    // 直前に正常接続できていた別 Bot があれば、そこへ即座に戻す
+                    // （切替先が 403 でもユーザーを行き止まりにせず、selector も追従する）。
+                    if let Some(prev) = last_good_bot.clone() {
+                        if prev != bot_id {
+                            bot_id = prev;
+                            outbox.clear();
+                            backoff = BACKOFF_INITIAL;
+                            continue;
+                        }
+                    }
                 }
                 let _ = net_tx
                     .send(NetEvent::NetError(format!("connect failed: {e}")))
@@ -132,6 +166,13 @@ fn is_unauthorized(e: &tokio_tungstenite::tungstenite::Error) -> bool {
     matches!(e, Error::Http(resp) if resp.status() == StatusCode::UNAUTHORIZED)
 }
 
+/// upgrade レスポンスが 403 か（この Bot へのアクセス権が無い判定。server.ts upgrade）。
+fn is_forbidden(e: &tokio_tungstenite::tungstenite::Error) -> bool {
+    use tokio_tungstenite::tungstenite::http::StatusCode;
+    use tokio_tungstenite::tungstenite::Error;
+    matches!(e, Error::Http(resp) if resp.status() == StatusCode::FORBIDDEN)
+}
+
 /// 1 接続分のセッション内ループの結果。
 enum SessionOutcome {
     /// アプリ終了。
@@ -172,6 +213,8 @@ async fn run_session(
     ui_rx: &mut mpsc::Receiver<UiEvent>,
     net_tx: &mpsc::Sender<NetEvent>,
     outbox: &mut Vec<ClientFrame>,
+    http: &reqwest::Client,
+    fetched_avatars: &std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> SessionOutcome {
     let (mut sink, mut source) = stream.split();
     let mut ping_timer = tokio::time::interval(PING_INTERVAL);
@@ -228,6 +271,11 @@ async fn run_session(
                 Some(Ok(Message::Text(text))) => {
                     match serde_json::from_str::<crate::model::ServerFrame>(&text) {
                         Ok(frame) => {
+                            // ready を受けたら束縛 Bot と一覧のアイコンを Net 側で先読みする
+                            // （UI スレッドを塞がない・重複は fetched_avatars で抑止）。
+                            if let crate::model::ServerFrame::Ready { bot, bots, .. } = &frame {
+                                spawn_avatar_fetches(http, bot, bots, fetched_avatars, net_tx);
+                            }
                             // トークン失効通知は UI へ転送しつつセッションを畳んで再ログインへ。
                             let unauthorized = matches!(
                                 &frame,
@@ -261,6 +309,58 @@ async fn run_session(
                 }
             },
         }
+    }
+}
+
+/// `ready` の束縛 Bot + 一覧について、未取得のアイコンをバックグラウンドで取得する。
+///
+/// 各取得は独立タスクで走り、完了ぶんから [`NetEvent::Avatar`] で UI へ流す。`fetched`
+/// には**取得に成功した** bot_id だけを記録して再接続/切替での重複取得を避ける。
+/// 重要: 以前は取得前に楽観的に `fetched.insert` していたため、初回の一過性失敗
+/// （ネットワーク瞬断・CDN 一時不調等）で「取得済み」と誤記録され、以後そのセッション中は
+/// 二度と再取得されず**アイコンが永久に出ない**事故になっていた。記録は成功時のみに修正。
+fn spawn_avatar_fetches(
+    http: &reqwest::Client,
+    bound: &crate::model::BotInfo,
+    bots: &[crate::model::BotInfo],
+    fetched: &std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    net_tx: &mpsc::Sender<NetEvent>,
+) {
+    let mut targets: Vec<(String, String)> = Vec::new();
+    {
+        // 成功済み集合を参照して未取得ぶんだけ選ぶ（ロックは選別中だけ・短時間保持）。
+        let done = fetched.lock().unwrap_or_else(|e| e.into_inner());
+        for b in std::iter::once(bound).chain(bots.iter()) {
+            if done.contains(&b.id) {
+                continue;
+            }
+            match b.discord_avatar_url.as_deref() {
+                Some(url) if !url.is_empty() => targets.push((b.id.clone(), url.to_string())),
+                _ => log::info!("bot {} has no avatar url; orb will show initial", b.id),
+            }
+        }
+    }
+    if !targets.is_empty() {
+        log::info!("fetching {} bot avatar(s)", targets.len());
+    }
+    for (bot_id, url) in targets {
+        let http = http.clone();
+        let net_tx = net_tx.clone();
+        let fetched = std::sync::Arc::clone(fetched);
+        tokio::spawn(async move {
+            match crate::net::rest::fetch_avatar(&http, &url).await {
+                Ok(bytes) => {
+                    log::info!("avatar fetched for {bot_id} ({} bytes)", bytes.len());
+                    // 成功時にだけ記録（ロックは insert の間だけ・await をまたがない）。
+                    fetched
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(bot_id.clone());
+                    let _ = net_tx.send(NetEvent::Avatar { bot_id, bytes }).await;
+                }
+                Err(e) => log::warn!("avatar fetch failed for {bot_id} ({url}): {e}"),
+            }
+        });
     }
 }
 

@@ -8,12 +8,13 @@
 //! 2. **単一インスタンスロック**（botId キー）を取得。既起動なら終了。
 //! 3. tokio ランタイムを**別スレッド**で起動し、Net タスク（WS/REST/Auth）を回す。
 //! 4. トレイ + ホットキー初期化（ホットキーは**プライマリ Bot のみ登録** TODO）。
-//! 5. eframe（透明・最前面・枠なし・クリック透過）を起動し UI スレッドで描画。
+//! 5. eframe（透明・最前面・枠なし）を起動し UI スレッドで描画。
 
 // Windows のリリースビルドではコンソールウィンドウを出さない（常駐 GUI）。
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod attach;
 mod audio;
 mod config;
 mod model;
@@ -77,15 +78,23 @@ fn main() -> eframe::Result<()> {
     //                  global-hotkey を登録する（client_design.md §4.3「プライマリが吸う」）。
     //    TODO(tray):   tray-icon メニュー「表示 / Bot 一覧 / 設定 / ログアウト / 終了」。
 
-    // 6) eframe 起動。透明・最前面・枠なし・クリック透過のオーバーレイ。
+    // 6) eframe 起動。透明・最前面・枠なしのオーバーレイ。
+    //
+    // クリック透過（mouse_passthrough）は意図的に**使わない**。Windows では winit が
+    // クリック透過を `WS_EX_LAYERED | WS_EX_TRANSPARENT` で実装するが、レイヤード
+    // ウィンドウは OpenGL(glow) サーフェスの**ピクセル毎アルファを合成しない**ため、
+    // 透過が効かず窓が不透明になる（→ Windows 11 が角を丸めるので「角丸の四角」に見える）。
+    // さらに透過状態のままだとオーブ自体もクリックできない。glow 透過とレイヤード透過は
+    // Windows では両立しないので、オーブ窓は「透明＋クリック可能」な通常窓として出す。
+    // （オーブ窓は 76px 角と小さく、移動も可能なので背面が塞がれる影響は軽微。）
     let viewport = egui::ViewportBuilder::default()
-        .with_transparent(true) // 透明背景
+        .with_transparent(true) // 透明背景（glow のアルファを DWM が合成）
         .with_always_on_top() // 最前面
         .with_decorations(false) // 枠なし
         .with_taskbar(false) // タスクバー非表示（常駐演出）
-        .with_mouse_passthrough(true) // オーブ以外クリック透過（モーダル展開時に false へ）
-        .with_inner_size([360.0, 520.0])
-        .with_min_inner_size([72.0, 72.0]);
+        // 起動直後はログインビュー（パネル大）。ready 後に Overlay へ縮小する（app.rs が制御）。
+        .with_inner_size(app::PANEL_WINDOW_SIZE)
+        .with_min_inner_size([app::ORB_WINDOW_SIZE, app::ORB_WINDOW_SIZE]);
 
     let native_options = eframe::NativeOptions {
         viewport,
@@ -99,6 +108,8 @@ fn main() -> eframe::Result<()> {
         Box::new(move |cc| {
             // 日本語フォントを登録（未登録だと CJK が豆腐 □ になる）。
             app::install_fonts(&cc.egui_ctx);
+            // 画像ローダを登録（オーブの Bot アイコン・受信画像の表示に必要）。
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(app::YuukaApp::new(settings, ui_tx, net_rx)))
         }),
     )

@@ -45,6 +45,8 @@ pub enum NetEvent {
     NetError(String),
     /// ログイン（デバイスフロー）の進捗（ログインビューの状態遷移に使う）。
     Login(LoginEvent),
+    /// Bot アイコン画像の取得完了（オーブ/セレクタ描画用。`bytes` は生の PNG/WebP/JPEG）。
+    Avatar { bot_id: String, bytes: Vec<u8> },
 }
 
 /// デバイスフローの進捗通知（`ui/login.rs` の [`crate::app::LoginUiState`] を駆動）。
@@ -97,6 +99,11 @@ pub async fn run(
     // デバイスフロー/REST 用の HTTP クライアント（rustls・OS 非依存）。
     let http = reqwest::Client::builder().build().unwrap_or_default();
     let mut bot_id = startup_bot_id;
+    // 取得「成功」済み Bot アイコンの bot_id 集合（再接続/切替で重複取得しないため全体で保持）。
+    // 取得は別タスクで走り、成功時にだけここへ記録する。`Arc<Mutex>` なのは、その記録を
+    // バックグラウンドの取得タスクから行うため（失敗は記録せず＝次の再接続で再試行できる）。
+    let fetched_avatars: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
 
     loop {
         // 1) トークン取得（keyring → 無ければデバイスフロー）。
@@ -177,7 +184,16 @@ pub async fn run(
         };
 
         // 3) WS セッション（ログアウト/失効/終了で復帰）。
-        match ws::run_ws_loop(&token, active_bot, &mut ui_rx, &net_tx).await {
+        match ws::run_ws_loop(
+            &token,
+            active_bot,
+            &mut ui_rx,
+            &net_tx,
+            &http,
+            &fetched_avatars,
+        )
+        .await
+        {
             ws::WsExit::Shutdown => return,
             ws::WsExit::LoggedOut => {
                 // トークン失効 or 明示ログアウト → 破棄して再ログインへ。
