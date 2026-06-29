@@ -8,12 +8,27 @@ import { assertSafeOutboundUrl } from "../utils/ssrfGuard.js";
 const SCREENSHOT_DIR = path.resolve(process.cwd(), "data/screenshots");
 const DEBUG_SCRAPES_DIR = path.resolve(process.cwd(), "data/debug_scrapes");
 
-// 保存用ディレクトリの確保
-[SCREENSHOT_DIR, DEBUG_SCRAPES_DIR].forEach((dir) => {
-	if (!fs.existsSync(dir)) {
+/**
+ * 保存用ディレクトリを確保する。失敗（権限不足など）してもプロセスは落とさず警告にとどめる。
+ * data/ は外部マウントのため、コンテナの uid 次第で書込不可になり得る。ここで throw すると
+ * モジュール読込時に未捕捉例外となりアプリ全体が起動できなくなるため、スクリーンショット/
+ * デバッグ保存だけを諦めて本体は動かす方針にする。
+ * @returns 作成に成功（または既存）すれば true、利用不可なら false
+ */
+function ensureDir(dir: string): boolean {
+	try {
 		fs.mkdirSync(dir, { recursive: true });
+		return true;
+	} catch (err: any) {
+		console.warn(
+			`[browserService] ディレクトリを確保できません（この機能はスキップされます）: ${dir} - ${err.message}`,
+		);
+		return false;
 	}
-});
+}
+
+// 起動時に保存用ディレクトリを用意（失敗しても起動は継続する）
+[SCREENSHOT_DIR, DEBUG_SCRAPES_DIR].forEach(ensureDir);
 
 // 1時間以上経過した不要な画像やMDファイルを削除する
 function cleanupOldFiles() {
@@ -714,6 +729,7 @@ export async function fetchCleanPageContent(
 
 	// 結果のMarkdownファイルをデバッグ用に保存する
 	try {
+		ensureDir(DEBUG_SCRAPES_DIR);
 		const lastFetchPath = path.join(DEBUG_SCRAPES_DIR, "debug_last_fetch.md");
 		fs.writeFileSync(lastFetchPath, result.markdown, "utf-8");
 
@@ -742,6 +758,7 @@ export async function takePageScreenshot(
 	await assertSafeOutboundUrl(url);
 	const safeFilename = path.basename(filename);
 	const savePath = path.join(SCREENSHOT_DIR, safeFilename);
+	ensureDir(SCREENSHOT_DIR);
 
 	// まず Rust（Chrome CLI直接呼び出し）でスクリーンショットを試みる
 	try {
@@ -1231,6 +1248,7 @@ export async function browserInteractiveStatus(userId: string): Promise<{
 	// スクリーンショットの撮影と保存
 	const filename = `interactive_screenshot_${Date.now()}.png`;
 	const savePath = path.join(SCREENSHOT_DIR, filename);
+	ensureDir(SCREENSHOT_DIR);
 	await page.screenshot({ path: savePath, fullPage: false });
 	const relativeImagePath = path.relative(process.cwd(), savePath);
 
