@@ -1,6 +1,7 @@
 import type { FunctionDeclaration } from "@google/generative-ai";
 import { SchemaType } from "@google/generative-ai";
 import { CronExpressionParser } from "cron-parser";
+import { config } from "../config.js";
 import * as todoRepo from "../db/todoRepo.js";
 import {
 	parseTodoTags,
@@ -18,6 +19,45 @@ import { formatDateTime } from "../utils/formatters.js";
 // タグ自動付与（§3.2.4）は autoTagService がバックグラウンドで行い、応答をブロックしない。
 // 優先度整理（§3.2.3）は organizeTaskPriorities（提案用データ取得）→ ユーザー承認 →
 // applyTaskPriorities（一括確定）の2段階方式とする。
+
+// ─── タスクの使い方ガイド（§3.2: 公開ガイドページ /tasks/guide と同一内容のMD版） ──
+//
+// LLMが「タスクの使い方」を聞かれた時に getTaskUsageGuide で取得して案内する。
+// 内容は src/public/index.html の #task-guide-overlay と対応させる（更新時は両方を直す）。
+
+/** 使い方ガイドページのURL（BASE_URL 未設定時は相対パス） */
+function taskGuideUrl(): string {
+	const base = config.baseUrl ? config.baseUrl.replace(/\/$/, "") : "";
+	return `${base}/tasks/guide`;
+}
+
+/** タスクの使い方ガイド本文（Markdown） */
+const TASK_USAGE_GUIDE_MD = `## タスク管理の使い方
+
+### 1. タスクの基本
+「やること」を登録して、期限・優先度・進捗とともに管理できます。「〇〇をタスクに追加して」で登録、「〇〇終わった」で完了にできます。
+- **期限・開始日**: 期限と開始日を設定でき、両方あるタスクはガントチャートにバーで表示されます。
+- **優先度**: 🔴高 / 🟡中 / 🔵低。「タスクを整理して」でAIが優先度を提案します（確定は承認後）。
+- **いつかやる**: 期限も開始日も決めていないタスクは「🕗 いつかやる」にまとまります。
+
+### 2. サブタスクと進捗
+- **サブタスク**: 大きなタスクを小さな手順に分解できます（1段まで）。親の進捗は「完了サブタスク数 ÷ 全体」で自動計算。
+- **進捗**: サブタスクのないタスクは 0〜100% で更新でき、メモとともに履歴に残ります。
+
+### 3. タグでグループ分け
+- **自動タグ付け**: 追加・更新時に内容からAIが自動でタグを付けます。
+- **手動修正**: 「#3のタグを『買い物』に変えて」「『緊急』タグを足して」「『仮』タグを外して」のように直せます。
+- **グループ表示**: 「タスクをグループ別に見せて」でタグごとに確認できます（タグ無しは「未分類」）。
+
+### 4. ルーチン（繰り返し）タスク
+「毎週月曜の朝に〇〇」のように伝えると繰り返しタスクとして登録され、期日が来ると自動で次回ぶんへ更新されます。
+- **終わり方を決めて登録**: 「年末まで毎週」（終了日）や「毎日5回だけ」（回数）を指定すると自動で止まります。
+- **あとから終了**: 「もう毎週の〇〇はやらなくていい」で繰り返しを終了（タスク自体は単発として残ります）。
+- **リマインド**: 期限が近づくと自動でDM／チャンネルに通知されます。
+
+### 5. 表示モード
+- **一覧**: 優先度・期限順。「全て / 未完了 / 完了済み」で絞り込み。
+- **ガント**: 開始日〜期限をバーで時系列表示。`;
 
 // ─── ヘルパー ────────────────────────────────────────────────────────────────
 
@@ -448,6 +488,18 @@ const declarations: FunctionDeclaration[] = [
 						"絞り込む状態: 'open'（未完了）| 'done'（完了済み）| 'all'（すべて）。省略='open'",
 				},
 			},
+		},
+	},
+	{
+		name: "getTaskUsageGuide",
+		description:
+			"タスク管理機能の「使い方」を案内する。\n" +
+			"・例:「タスクってどう使うの？」「タスクの使い方教えて」「ルーチンタスクのやり方は？」など、タスク機能の操作方法・説明を求められた時に呼ぶ。\n" +
+			"・返ってくる guide_markdown（使い方本文）と guide_url（詳しい説明ページのリンク）を必ず両方ユーザーに伝える。\n" +
+			"・本文はあなた自身の口調・人格（ペルソナ）に合わせて自然に言い換えて返すこと（要点は省略しない）。最後にページのリンクも案内する。",
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {},
 		},
 	},
 	{
@@ -985,6 +1037,18 @@ const handlers: FunctionModule["handlers"] = {
 				count: g.items.length,
 				todos: g.items.map(toTodoTreeEntry),
 			})),
+		});
+	},
+
+	// タスクの使い方ガイド（§3.2）。本文MDとページURLを返し、LLMがペルソナ口調で案内する
+	async getTaskUsageGuide(): Promise<string> {
+		const url = taskGuideUrl();
+		return JSON.stringify({
+			success: true,
+			message:
+				"タスク機能の使い方ガイドです。guide_markdown の内容を、あなた自身の口調・人格に合わせて自然に言い換えてユーザーに伝え、最後に guide_url のリンクも必ず案内してください（要点は省略しないこと）。",
+			guide_markdown: TASK_USAGE_GUIDE_MD,
+			guide_url: url,
 		});
 	},
 
