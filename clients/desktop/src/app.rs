@@ -13,20 +13,7 @@ use tokio::sync::mpsc;
 use crate::config::Settings;
 use crate::model::{BotInfo, ServerFrame, StatusState};
 use crate::net::{ConnectionState, LoginEvent, NetEvent, UiEvent};
-use crate::os::{self, OsIntegration};
 use crate::ui::{self, ChatEntry};
-
-/// オーブのヒット領域を視覚サイズより広げる余白（**物理ピクセル**）。
-///
-/// カーソルがオーブへ到達する少し手前でクリック透過を解除し、「ホバーした瞬間に
-/// 押せない」体感（透過 ON→OFF の 1 フレーム遅延）を緩和する。
-const ORB_HOVER_MARGIN_PX: f32 = 10.0;
-
-/// オーバーレイ表示中に OS カーソルをポーリングする間隔。
-///
-/// クリック透過中は egui がマウス移動を受け取れず再描画も起きないため、自前で
-/// 定期再描画してカーソルのオーブ進入を検知する（collapsed の間だけの軽い負荷）。
-const OVERLAY_CURSOR_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// 日本語フォントの縦位置補正量（font_size に対する割合・正=下方向）。
 ///
@@ -216,9 +203,11 @@ pub struct AppState {
     pub request_login_start: bool,
     pub request_logout: bool,
 
-    /// 直近フレームでオーブが描かれたウィンドウ内矩形（egui points）。
-    /// クリック透過をオーブ上だけ解除するためのヒット判定に使う（overlay::view が更新）。
-    pub orb_rect: Option<egui::Rect>,
+    /// オーブ押下中の累積移動量（論理 px・`Some`＝押下中）。これがしきい値未満のまま
+    /// 離されたら「タップ＝モーダルを開く」、超えたら「ドラッグ＝窓移動」と overlay::view が
+    /// 自前判定する。egui の click/drag 判定（6px・0.8s）に依存せず、手ブレや長押しでも
+    /// 確実にタップを拾うため（「クリックしてもモーダルが出ない」対策）。
+    pub orb_press_travel: Option<f32>,
 
     /// Bot アイコン画像のキャッシュ（bot_id → 生バイト列）。Net 側が取得して送る
     /// （`NetEvent::Avatar`）。オーブ/セレクタは egui の画像ローダ越しに円形描画する。
@@ -253,7 +242,7 @@ impl AppState {
             max_upload_mb: 20,
             request_login_start: false,
             request_logout: false,
-            orb_rect: None,
+            orb_press_travel: None,
             avatars: std::collections::HashMap::new(),
             pending_attachment: None,
             recording: None,
@@ -270,11 +259,6 @@ pub struct YuukaApp {
     ui_tx: mpsc::Sender<UiEvent>,
     /// Net → UI（フレーム・接続状態・エラー）。
     net_rx: mpsc::Receiver<NetEvent>,
-    /// 現在ウィンドウへ適用中のクリック透過状態（変化時のみ送信する）。
-    /// 起動時は main.rs の `with_mouse_passthrough(true)` に揃える。
-    passthrough_active: bool,
-    /// OS 統合（オーブ上ホバー判定のための物理カーソル取得に使う）。
-    os: os::PlatformOs,
     /// 直前フレームのビュー（collapsed↔expanded のサイズ切替を検知する）。
     last_view: Option<View>,
 }
@@ -291,8 +275,6 @@ impl YuukaApp {
             state: AppState::new(settings),
             ui_tx,
             net_rx,
-            passthrough_active: true,
-            os: os::platform(),
             last_view: None,
         }
     }
@@ -348,23 +330,6 @@ impl YuukaApp {
             self.state.settings.overlay_pos.x,
             self.state.settings.overlay_pos.y,
         )
-    }
-
-    /// OS のカーソルがオーブの上にあるか。判定不能（OS 非対応・窓位置やオーブ矩形が
-    /// 未確定）なら `None`。
-    ///
-    /// クリック透過中は egui がマウス座標を受け取れないため、OS から**物理ピクセル**の
-    /// カーソル位置を取り、オーブのスクリーン矩形（少し広げたヒット領域）と内外判定する。
-    /// `inner_rect` は monitor 空間の points なので、`pixels_per_point` を掛けて物理 px へ
-    /// 揃えてから比較する（`GetCursorPos` と同じ仮想デスクトップ原点・物理スケール）。
-    fn cursor_over_orb(&self, ctx: &egui::Context) -> Option<bool> {
-        let orb = self.state.orb_rect?; // ウィンドウ内 points（左上=窓左上）
-        let inner = ctx.input(|i| i.viewport().inner_rect)?; // monitor 空間 points
-        let (cx, cy) = self.os.cursor_pos_physical()?; // 物理スクリーン px
-        let ppp = ctx.pixels_per_point();
-        let screen_points = egui::Rect::from_min_size(inner.min + orb.min.to_vec2(), orb.size());
-        let hit = (screen_points * ppp).expand(ORB_HOVER_MARGIN_PX);
-        Some(hit.contains(egui::pos2(cx, cy)))
     }
 
     /// Net から届いたイベントを排出して状態へ反映する。
@@ -615,27 +580,12 @@ impl eframe::App for YuukaApp {
             self.state.bots.clear();
         }
 
-        // --- クリック透過の切り替え（オーブ上だけヒット・周囲は透過）---
-        // Overlay（collapsed）は背面アプリを操作できるよう周囲を透過させるが、
-        // ウィンドウ単位の透過は全域に効くため、素朴に透過 ON にするとオーブ自身も
-        // クリックできずモーダルを開けない。そこで OS カーソルがオーブの上にある間
-        // だけ透過 OFF にして、オーブへのクリックを通す（client_design.md §4.2）。
-        // OS カーソルを取れない環境（非 Windows 等）や矩形未確定時は安全側＝透過 OFF
-        // （オーブは確実に押せる。代わりにウィンドウ矩形がクリックを奪う）。
-        // それ以外のビュー（Login/Chat/Settings）は常に不透過（ボタン操作のため）。
-        let want_passthrough = match self.state.view {
-            View::Overlay => self.cursor_over_orb(ctx).map(|over| !over).unwrap_or(false),
-            _ => false,
-        };
-        if want_passthrough != self.passthrough_active {
-            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(want_passthrough));
-            self.passthrough_active = want_passthrough;
-        }
-        // 透過中は egui がマウス移動を受け取れず再描画も起きないため、Overlay の間は
-        // 定期再描画して OS カーソルのオーブ進入をポーリングする（collapsed 限定の軽負荷）。
-        if matches!(self.state.view, View::Overlay) {
-            ctx.request_repaint_after(OVERLAY_CURSOR_POLL);
-        }
+        // クリック透過（mouse_passthrough）は使わない。Windows ではクリック透過＝
+        // `WS_EX_LAYERED` で、レイヤード窓は glow(OpenGL) のアルファを合成せず透過が
+        // 壊れる（不透明な「角丸の四角」になりオーブも押せない）。そのためオーブ窓は
+        // 透明かつクリック可能な通常窓として扱い、egui が直接マウスイベントを受け取る
+        // （ホバー/クリック/ドラッグで再描画されるので定期ポーリングも不要）。詳細は
+        // main.rs のビューポート設定コメントを参照。
 
         // --- ビューのルーティング ---
         // オーバーレイ（オーブ/チャット）には不透明度を適用する（設定スライダ。

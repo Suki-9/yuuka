@@ -4,10 +4,9 @@
 //!
 //! - collapsed（オーブ）: **接続中 Bot のアイコン**を円形に描画。右上に通知バッジ
 //!   （未読件数）。ドラッグで移動・位置記憶。クリックでモーダルを開く。
-//! - 周囲は透過し、オーブ部のみヒットさせる。eframe の `mouse_passthrough` は
-//!   ウィンドウ単位（全域）にしか効かないため、`app.rs` 側で OS カーソル位置と
-//!   このオーブ矩形（`AppState::orb_rect` に毎フレーム記録）を突き合わせ、カーソルが
-//!   オーブ上にある間だけ透過を解除する（client_design.md §4.2 / `os::cursor_pos_physical`）。
+//! - オーブ窓は「透明＋クリック可能」な通常窓（クリック透過は使わない）。Windows では
+//!   クリック透過＝`WS_EX_LAYERED` で glow のアルファ合成が壊れ、透過が効かず窓が
+//!   不透明になる（オーブも押せない）ため。詳細は main.rs / app.rs のコメント参照。
 //!
 //! アイコンは Net 側が取得した画像バイト（`AppState::avatars`）を egui の画像ローダ越しに
 //! 円形描画する。未取得/デコード中は背景円＋Bot 名頭文字のプレースホルダを見せる。
@@ -26,10 +25,6 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
     let rect = egui::Rect::from_center_size(full.center(), egui::vec2(ORB_DIAMETER, ORB_DIAMETER));
     let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
 
-    // app.rs のクリック透過判定（オーブ上だけ透過 OFF）に使うため、描画した
-    // オーブ矩形（ウィンドウ内 points）を記録する。
-    state.orb_rect = Some(rect);
-
     let center = rect.center();
     let radius = ORB_DIAMETER / 2.0;
 
@@ -41,7 +36,23 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
     };
     ui.painter().circle_filled(center, radius, fill);
 
-    // 接続中 Bot のアイコンが取得済みなら、背景円の上へ円形にクリップして重ねる。
+    // 頭文字プレースホルダを常に下地として描く。アイコン未取得・取得失敗・デコード失敗の
+    // いずれでもオーブが「ただの空の円」に見えないようにするため（取得できれば下の画像が覆う）。
+    let initial = state
+        .bot
+        .as_ref()
+        .and_then(|b| b.name.chars().next())
+        .unwrap_or('Y')
+        .to_string();
+    ui.painter().text(
+        center,
+        egui::Align2::CENTER_CENTER,
+        initial,
+        egui::FontId::proportional(24.0),
+        egui::Color32::WHITE,
+    );
+
+    // 接続中 Bot のアイコンが取得済みなら、頭文字の上へ円形にクリップして重ねる。
     let bound_id = state.bot.as_ref().map(|b| b.id.clone());
     let avatar = bound_id
         .as_ref()
@@ -54,21 +65,6 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
         })
         .rounding(egui::Rounding::same(radius))
         .paint_at(ui, rect);
-    } else {
-        // 頭文字プレースホルダ（アイコン未取得時）。
-        let initial = state
-            .bot
-            .as_ref()
-            .and_then(|b| b.name.chars().next())
-            .unwrap_or('Y')
-            .to_string();
-        ui.painter().text(
-            center,
-            egui::Align2::CENTER_CENTER,
-            initial,
-            egui::FontId::proportional(24.0),
-            egui::Color32::WHITE,
-        );
     }
 
     // 通知バッジ（右上に未読件数）。モーダルを開くとクリアされる（app.rs 側）。
@@ -85,17 +81,44 @@ pub fn view(state: &mut AppState, ui: &mut egui::Ui) -> bool {
         );
     }
 
+    // --- タップ（押して開く）とドラッグ（掴んで動かす）を自前で切り分ける ---
+    //
+    // 以前は egui の `click_and_drag` に委ね、`clicked()` でモーダルを開き
+    // `drag_started()` で OS ネイティブの `StartDrag` 移動ループへ入れていた。しかし
+    //   1. egui は押下が 6px 動く／0.8 秒を超えた時点で「ドラッグ確定」にし、その押下では
+    //      二度と `clicked()` を返さない（少しの手ブレ・わずかな長押しでもクリックが消える）。
+    //   2. `StartDrag` の OS 移動ループはボタンの release（WM_LBUTTONUP）を食べてしまう。
+    // ため「クリックしてもモーダルが出ない」事故になっていた。そこで押下中の生の移動量を
+    // 自前で積算し、しきい値未満のまま離されたらタップ＝モーダルを開き、しきい値を超えた
+    // ときだけネイティブ移動を開始する（egui の click/drag 判定の 6px・0.8s ゲートに依存しない）。
+    const ORB_DRAG_THRESHOLD: f32 = 8.0; // 論理 px。これ未満の移動はタップ扱い。
+
+    // is_pointer_button_down_on＝押下起点がオーブの間 true。primary_down と AND して、
+    // OS 移動ループ後に万一フラグが残っても確実に release 側（タップ判定）へ倒す。
+    let pressing = response.is_pointer_button_down_on()
+        && ui.ctx().input(|i| i.pointer.primary_down());
+    if pressing {
+        let moved = ui.ctx().input(|i| i.pointer.delta()).length();
+        let travel = state.orb_press_travel.get_or_insert(0.0);
+        let before = *travel;
+        *travel += moved;
+        // しきい値を初めて超えた瞬間にだけネイティブ窓移動を開始する（以後は OS の移動
+        // ループが引き継ぐので二重送出しない）。移動後の左上座標は app.rs が `outer_rect`
+        // から読み取り `overlay_pos` へ記憶する。
+        if before < ORB_DRAG_THRESHOLD && *travel >= ORB_DRAG_THRESHOLD {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+    } else if let Some(travel) = state.orb_press_travel.take() {
+        // 離した: 移動が小さければタップ＝モーダルを開く。
+        if travel < ORB_DRAG_THRESHOLD {
+            clicked = true;
+        }
+    }
+    // 1 フレーム内で完結した素早いクリックの取りこぼし防止（egui が click 判定したら開く）。
     if response.clicked() {
         clicked = true;
     }
 
-    // ドラッグ開始で OS ネイティブのウィンドウ移動を始める（枠なし窓を掴んで動かす）。
-    // 移動後の左上座標は app.rs が `outer_rect` から読み取り `overlay_pos` へ記憶する。
-    // タップ（移動なし）は `clicked`、しきい値を超える動きは `drag_started` に分かれるため
-    // 「掴んで動かす」と「押して開く」が衝突しない。
-    if response.drag_started() {
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-    }
     // 移動可能であることを示すためカーソルを grab 表示にする。
     if response.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);

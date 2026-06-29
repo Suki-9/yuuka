@@ -52,7 +52,7 @@ pub async fn run_ws_loop(
     ui_rx: &mut mpsc::Receiver<UiEvent>,
     net_tx: &mpsc::Sender<NetEvent>,
     http: &reqwest::Client,
-    fetched_avatars: &mut std::collections::HashSet<String>,
+    fetched_avatars: &std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> WsExit {
     let mut backoff = BACKOFF_INITIAL;
     // 切断中に積まれた送信を退避するキュー（NFR-6: 再接続後に再送）。
@@ -214,7 +214,7 @@ async fn run_session(
     net_tx: &mpsc::Sender<NetEvent>,
     outbox: &mut Vec<ClientFrame>,
     http: &reqwest::Client,
-    fetched_avatars: &mut std::collections::HashSet<String>,
+    fetched_avatars: &std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> SessionOutcome {
     let (mut sink, mut source) = stream.split();
     let mut ping_timer = tokio::time::interval(PING_INTERVAL);
@@ -315,35 +315,50 @@ async fn run_session(
 /// `ready` の束縛 Bot + 一覧について、未取得のアイコンをバックグラウンドで取得する。
 ///
 /// 各取得は独立タスクで走り、完了ぶんから [`NetEvent::Avatar`] で UI へ流す。`fetched`
-/// に bot_id を記録して再接続/切替での重複取得を避ける（アイコンは滅多に変わらない）。
+/// には**取得に成功した** bot_id だけを記録して再接続/切替での重複取得を避ける。
+/// 重要: 以前は取得前に楽観的に `fetched.insert` していたため、初回の一過性失敗
+/// （ネットワーク瞬断・CDN 一時不調等）で「取得済み」と誤記録され、以後そのセッション中は
+/// 二度と再取得されず**アイコンが永久に出ない**事故になっていた。記録は成功時のみに修正。
 fn spawn_avatar_fetches(
     http: &reqwest::Client,
     bound: &crate::model::BotInfo,
     bots: &[crate::model::BotInfo],
-    fetched: &mut std::collections::HashSet<String>,
+    fetched: &std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     net_tx: &mpsc::Sender<NetEvent>,
 ) {
     let mut targets: Vec<(String, String)> = Vec::new();
-    for b in std::iter::once(bound).chain(bots.iter()) {
-        if fetched.contains(&b.id) {
-            continue;
-        }
-        if let Some(url) = b.discord_avatar_url.as_deref() {
-            if !url.is_empty() {
-                fetched.insert(b.id.clone());
-                targets.push((b.id.clone(), url.to_string()));
+    {
+        // 成功済み集合を参照して未取得ぶんだけ選ぶ（ロックは選別中だけ・短時間保持）。
+        let done = fetched.lock().unwrap_or_else(|e| e.into_inner());
+        for b in std::iter::once(bound).chain(bots.iter()) {
+            if done.contains(&b.id) {
+                continue;
+            }
+            match b.discord_avatar_url.as_deref() {
+                Some(url) if !url.is_empty() => targets.push((b.id.clone(), url.to_string())),
+                _ => log::info!("bot {} has no avatar url; orb will show initial", b.id),
             }
         }
+    }
+    if !targets.is_empty() {
+        log::info!("fetching {} bot avatar(s)", targets.len());
     }
     for (bot_id, url) in targets {
         let http = http.clone();
         let net_tx = net_tx.clone();
+        let fetched = std::sync::Arc::clone(fetched);
         tokio::spawn(async move {
             match crate::net::rest::fetch_avatar(&http, &url).await {
                 Ok(bytes) => {
+                    log::info!("avatar fetched for {bot_id} ({} bytes)", bytes.len());
+                    // 成功時にだけ記録（ロックは insert の間だけ・await をまたがない）。
+                    fetched
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(bot_id.clone());
                     let _ = net_tx.send(NetEvent::Avatar { bot_id, bytes }).await;
                 }
-                Err(e) => log::warn!("avatar fetch failed for {bot_id}: {e}"),
+                Err(e) => log::warn!("avatar fetch failed for {bot_id} ({url}): {e}"),
             }
         });
     }
