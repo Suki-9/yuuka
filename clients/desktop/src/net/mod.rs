@@ -20,7 +20,9 @@ use auth::LoginProgress;
 /// UI → Net の要求イベント。
 #[derive(Debug, Clone)]
 pub enum UiEvent {
-    /// WS でフレームを送る（`msg`/`reset`/`ping`）。
+    /// WS でフレームを送る（`msg`/`reset`/`ping`/`interaction`）。
+    /// ボタン押下（`UiIntent::Interaction`）も `ClientFrame::Interaction` として
+    /// この経路を通る（ws_components.md §6）。
     Send(ClientFrame),
     /// 別 Bot へ切替（現 WS を閉じ `?botId=` を変えて張り直す。client_design.md §9）。
     SwitchBot { bot_id: String },

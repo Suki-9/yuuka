@@ -61,6 +61,15 @@ pub enum ClientFrame {
 
     /// keepalive（任意。WS ping/pong を使うなら不要だがプロトコルには存在）。
     Ping,
+
+    /// ボタン押下（コンポーネント・インタラクション。ws_components.md §3）。
+    /// `{"type":"interaction","messageId":"...","customId":"..."}`。
+    Interaction {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "customId")]
+        custom_id: String,
+    },
 }
 
 impl ClientFrame {
@@ -114,6 +123,131 @@ pub struct Embed {
     /// インライン画像参照。
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<EmbedImage>,
+}
+
+// ===========================================================================
+// 対話コンポーネント（action row / button）— ws_components.md §1
+// ===========================================================================
+//
+// Discord API JSON（`.toJSON()` 出力）をそのまま運ぶ。`type` 数値で分岐し、
+// 未知の `type`（セレクト等）は受信で落ちないよう `Component::Unknown` へ握りつぶす。
+
+/// アクション行（`{type:1, components:[...]}`）。中の `components` がボタン列。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ActionRow {
+    #[serde(default)]
+    pub components: Vec<Component>,
+}
+
+/// 行内コンポーネント。Discord の数値 `type` で分岐する
+/// （1=row, 2=button, それ以外=Unknown でスキップ）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Component {
+    /// ネストした action row（`type:1`）。
+    Row(ActionRow),
+    /// ボタン（`type:2`）。
+    Button {
+        /// 1=Primary 2=Secondary 3=Success 4=Danger 5=Link。
+        style: u8,
+        label: Option<String>,
+        /// Discord JSON は snake_case の `custom_id`。Link ボタンには無い。
+        custom_id: Option<String>,
+        /// Link（style 5）ボタンの遷移先 URL。
+        url: Option<String>,
+        /// 非活性フラグ。省略時 false。
+        disabled: bool,
+    },
+    /// 未知の `type`（セレクト等）。受信で落とさないため保持だけする（描画しない）。
+    Unknown,
+}
+
+// Component は Discord の数値タグ `type` で内容が変わるため、中間表現を経由して
+// 手書きの serde を実装する（`#[serde(tag=...)]` は数値タグを取れないため）。
+#[derive(Deserialize)]
+struct ComponentRepr {
+    #[serde(rename = "type")]
+    kind: u8,
+    #[serde(default)]
+    components: Vec<Component>,
+    #[serde(default)]
+    style: u8,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    custom_id: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    disabled: bool,
+}
+
+impl<'de> Deserialize<'de> for Component {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let r = ComponentRepr::deserialize(deserializer)?;
+        Ok(match r.kind {
+            1 => Component::Row(ActionRow {
+                components: r.components,
+            }),
+            2 => Component::Button {
+                style: r.style,
+                label: r.label,
+                custom_id: r.custom_id,
+                url: r.url,
+                disabled: r.disabled,
+            },
+            _ => Component::Unknown,
+        })
+    }
+}
+
+impl Serialize for Component {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Component::Row(row) => {
+                let mut m = serializer.serialize_map(Some(2))?;
+                m.serialize_entry("type", &1u8)?;
+                m.serialize_entry("components", &row.components)?;
+                m.end()
+            }
+            Component::Button {
+                style,
+                label,
+                custom_id,
+                url,
+                disabled,
+            } => {
+                let mut m = serializer.serialize_map(None)?;
+                m.serialize_entry("type", &2u8)?;
+                m.serialize_entry("style", style)?;
+                if let Some(label) = label {
+                    m.serialize_entry("label", label)?;
+                }
+                if let Some(custom_id) = custom_id {
+                    m.serialize_entry("custom_id", custom_id)?;
+                }
+                if let Some(url) = url {
+                    m.serialize_entry("url", url)?;
+                }
+                if *disabled {
+                    m.serialize_entry("disabled", disabled)?;
+                }
+                m.end()
+            }
+            // Unknown は元の型情報を保持していないため出力できない。受信専用。
+            Component::Unknown => {
+                let mut m = serializer.serialize_map(Some(1))?;
+                m.serialize_entry("type", &0u8)?;
+                m.end()
+            }
+        }
+    }
 }
 
 /// 受信ファイル（チャート PNG 等）。`data` は base64。
@@ -219,6 +353,9 @@ pub enum ServerFrame {
         embeds: Vec<Embed>,
         #[serde(default)]
         files: Vec<FilePayload>,
+        /// 任意の対話コンポーネント（action row）。省略時は空（ws_components.md §2）。
+        #[serde(default)]
+        components: Vec<ActionRow>,
         /// `true` の場合、後続で `push` フレームが届く（重い処理）。
         #[serde(default)]
         deferred: bool,
@@ -226,11 +363,31 @@ pub enum ServerFrame {
 
     /// 重い処理（`done` で `deferred:true` を返した後）の最終結果。
     Push {
+        /// components を載せる場合の突合キー（ws_components.md §2）。
+        #[serde(rename = "messageId", default)]
+        message_id: Option<String>,
         text: String,
         #[serde(default)]
         embeds: Vec<Embed>,
         #[serde(default)]
         files: Vec<FilePayload>,
+        /// 任意の対話コンポーネント（action row）。
+        #[serde(default)]
+        components: Vec<ActionRow>,
+    },
+
+    /// 既存メッセージの書き換え（interaction の結果。ws_components.md §2）。
+    /// `messageId` で履歴中の該当メッセージを探し、存在するフィールドのみ差し替える。
+    Update {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(default)]
+        text: Option<String>,
+        /// `Some(vec![])` でボタン除去、`None` で components 据え置き。
+        #[serde(default)]
+        components: Option<Vec<ActionRow>>,
+        #[serde(default)]
+        embeds: Option<Vec<Embed>>,
     },
 
     /// エラー（コード＋人間向けメッセージ）。
@@ -428,6 +585,102 @@ mod tests {
             ServerFrame::Push { text, .. } => assert_eq!(text, "完了しました。"),
             _ => panic!("expected push"),
         }
+    }
+
+    #[test]
+    fn server_done_with_components() {
+        // done に action row（Primary ボタン）が載るケース（ws_components.md §1-2）。
+        let json = r#"{
+            "type":"done","messageId":"m3","text":"確認してください。",
+            "components":[{"type":1,"components":[
+                {"type":2,"style":1,"label":"確認","custom_id":"demo_echo:abc"},
+                {"type":2,"style":5,"label":"開く","url":"https://x/y"},
+                {"type":3,"custom_id":"select:ignored"}
+            ]}]
+        }"#;
+        let frame: ServerFrame = serde_json::from_str(json).unwrap();
+        match frame {
+            ServerFrame::Done {
+                message_id,
+                components,
+                ..
+            } => {
+                assert_eq!(message_id, "m3");
+                assert_eq!(components.len(), 1);
+                let comps = &components[0].components;
+                // 未知 type:3 は Unknown へ握りつぶされる（落ちない）。
+                assert_eq!(comps.len(), 3);
+                assert_eq!(
+                    comps[0],
+                    Component::Button {
+                        style: 1,
+                        label: Some("確認".into()),
+                        custom_id: Some("demo_echo:abc".into()),
+                        url: None,
+                        disabled: false,
+                    }
+                );
+                assert!(matches!(
+                    comps[1],
+                    Component::Button {
+                        style: 5,
+                        url: Some(_),
+                        ..
+                    }
+                ));
+                assert_eq!(comps[2], Component::Unknown);
+            }
+            _ => panic!("expected done"),
+        }
+    }
+
+    #[test]
+    fn server_update_parse() {
+        // update フレーム: text 差し替え + components:[] でボタン除去。
+        let json = r#"{"type":"update","messageId":"m3","text":"受け取りました","components":[]}"#;
+        let frame: ServerFrame = serde_json::from_str(json).unwrap();
+        match frame {
+            ServerFrame::Update {
+                message_id,
+                text,
+                components,
+                embeds,
+            } => {
+                assert_eq!(message_id, "m3");
+                assert_eq!(text.as_deref(), Some("受け取りました"));
+                assert_eq!(components, Some(vec![]));
+                assert!(embeds.is_none());
+            }
+            _ => panic!("expected update"),
+        }
+
+        // フィールド省略は据え置き（None）として解釈される。
+        let f2: ServerFrame =
+            serde_json::from_str(r#"{"type":"update","messageId":"m4"}"#).unwrap();
+        match f2 {
+            ServerFrame::Update {
+                text, components, ..
+            } => {
+                assert!(text.is_none());
+                assert!(components.is_none());
+            }
+            _ => panic!("expected update"),
+        }
+    }
+
+    #[test]
+    fn client_interaction_serialize() {
+        let frame = ClientFrame::Interaction {
+            message_id: "m3".into(),
+            custom_id: "demo_echo:abc".into(),
+        };
+        let json = serde_json::to_string(&frame).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"interaction","messageId":"m3","customId":"demo_echo:abc"}"#
+        );
+        let back: ClientFrame = serde_json::from_str(&json).unwrap();
+        assert_eq!(frame, back);
     }
 
     #[test]
