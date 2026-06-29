@@ -27,6 +27,22 @@ function asOptionalString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** タグ配列を正規化する（文字列化・trim・空除去・重複除去、最大8件） */
+function normalizeTags(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const raw of value) {
+		if (typeof raw !== "string") continue;
+		const tag = raw.trim();
+		if (tag.length === 0 || seen.has(tag)) continue;
+		seen.add(tag);
+		result.push(tag);
+		if (result.length >= 8) break;
+	}
+	return result;
+}
+
 /** 優先度引数の検証（high/medium/low 以外は undefined） */
 function asOptionalPriority(value: unknown): TodoPriority | undefined {
 	if (value === "high" || value === "medium" || value === "low") return value;
@@ -346,6 +362,55 @@ const declarations: FunctionDeclaration[] = [
 		},
 	},
 	{
+		name: "editTodoTags",
+		description:
+			"タスクに付いているタグ（グループ）を手動で直す。\n" +
+			"・例:「#3のタグを『買い物』に変えて」「このタスクに『緊急』タグを足して」「『仮』タグを外して」などの依頼で呼ぶ。\n" +
+			"・mode で操作を選ぶ: 'set'（指定タグで丸ごと置き換え）| 'add'（追加）| 'remove'（指定タグを外す）。省略時は 'set'。\n" +
+			"・tags には対象のタグ名を配列で渡す（例: ['業務','緊急']）。\n" +
+			"・注意: この後にタイトルや説明を updateTodo で変えると、タグは自動で付け直されて手動修正が上書きされることがある。",
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				todo_id: {
+					type: SchemaType.NUMBER,
+					description: "タグを直すタスクのID（#番号）",
+				},
+				mode: {
+					type: SchemaType.STRING,
+					description:
+						"操作: 'set'（置き換え）| 'add'（追加）| 'remove'（削除）。省略='set'",
+				},
+				tags: {
+					type: SchemaType.ARRAY,
+					description:
+						"対象のタグ名の配列（例: ['業務','緊急']）。set では空配列でタグを全消去できる",
+					items: { type: SchemaType.STRING },
+				},
+			},
+			required: ["todo_id", "tags"],
+		},
+	},
+	{
+		name: "listTasksByTag",
+		description:
+			"タスクをタグ（グループ）ごとにまとめて取り出す。\n" +
+			"・例:「タスクをグループ別に見せて」「タグごとにまとめて」などの依頼で呼ぶ。\n" +
+			"・1つのタスクが複数タグを持つ場合は、それぞれのグループに現れる。\n" +
+			"・タグの付いていないタスクは『未分類』グループにまとめて返す。\n" +
+			"・特定の1タグだけ見たい時 → 代わりに listTodos の tag 引数を使う。",
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				status: {
+					type: SchemaType.STRING,
+					description:
+						"絞り込む状態: 'open'（未完了）| 'done'（完了済み）| 'all'（すべて）。省略='open'",
+				},
+			},
+		},
+	},
+	{
 		name: "organizeTaskPriorities",
 		description:
 			"優先度の整理の1段目。未完了タスク全部を、期限・タグ・今の優先度つきで取り出す。\n" +
@@ -372,7 +437,10 @@ const declarations: FunctionDeclaration[] = [
 					items: {
 						type: SchemaType.OBJECT,
 						properties: {
-							todo_id: { type: SchemaType.NUMBER, description: "対象タスクのID" },
+							todo_id: {
+								type: SchemaType.NUMBER,
+								description: "対象タスクのID",
+							},
 							priority: {
 								type: SchemaType.STRING,
 								description:
@@ -613,8 +681,7 @@ const handlers: FunctionModule["handlers"] = {
 		args: Record<string, unknown>,
 	): Promise<string> {
 		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
-		const rawProgress =
-			typeof args.progress === "number" ? args.progress : NaN;
+		const rawProgress = typeof args.progress === "number" ? args.progress : NaN;
 		if (!Number.isFinite(todoId) || !Number.isFinite(rawProgress)) {
 			return JSON.stringify({
 				success: false,
@@ -709,6 +776,127 @@ const handlers: FunctionModule["handlers"] = {
 			success: true,
 			message: `タグ一覧 (${tags.length}種類):\n${lines.join("\n")}\n特定タグのToDoは listTodos の tag 引数で絞り込めます。`,
 			tags,
+		});
+	},
+
+	// タグ手動修正（§3.2.4）。set/add/remove で現在のタグを編集し上書き保存する
+	async editTodoTags(
+		ctx: ToolContext,
+		args: Record<string, unknown>,
+	): Promise<string> {
+		const todoId = typeof args.todo_id === "number" ? args.todo_id : NaN;
+		if (!Number.isFinite(todoId)) {
+			return JSON.stringify({
+				success: false,
+				message: "todo_id（#番号）を指定してください。",
+			});
+		}
+		const modeArg = asOptionalString(args.mode) ?? "set";
+		if (modeArg !== "set" && modeArg !== "add" && modeArg !== "remove") {
+			return JSON.stringify({
+				success: false,
+				message:
+					"mode は 'set' | 'add' | 'remove' のいずれかで指定してください。",
+			});
+		}
+		const inputTags = normalizeTags(args.tags);
+		if (modeArg !== "set" && inputTags.length === 0) {
+			return JSON.stringify({
+				success: false,
+				message: `${modeArg} には tags を1つ以上指定してください。`,
+			});
+		}
+
+		const todo = todoRepo.getTodoById(ctx.userId, ctx.botId, todoId);
+		if (!todo) {
+			return JSON.stringify({
+				success: false,
+				message: `タスク #${args.todo_id} が見つかりません。`,
+			});
+		}
+
+		const current = parseTodoTags(todo);
+		let next: string[];
+		if (modeArg === "set") {
+			next = inputTags;
+		} else if (modeArg === "add") {
+			next = normalizeTags([...current, ...inputTags]);
+		} else {
+			const remove = new Set(inputTags);
+			next = current.filter((t) => !remove.has(t));
+		}
+
+		const ok = todoRepo.updateTodoTags(ctx.userId, ctx.botId, todoId, next);
+		if (!ok) {
+			return JSON.stringify({
+				success: false,
+				message: `タスク #${args.todo_id} のタグ更新に失敗しました。`,
+			});
+		}
+		const tagLabel = next.length > 0 ? next.join(", ") : "（タグなし）";
+		return JSON.stringify({
+			success: true,
+			message: `タスク「${todo.title}」(#${todo.id}) のタグを更新しました🏷️ → ${tagLabel}`,
+			todo_id: todo.id,
+			tags: next,
+		});
+	},
+
+	// タグ別グルーピング（§3.2.4: グループ表示）。複数タグ持ちは各グループに重複して入る
+	async listTasksByTag(
+		ctx: ToolContext,
+		args: Record<string, unknown>,
+	): Promise<string> {
+		const statusArg = asOptionalString(args.status);
+		const status: "open" | "done" | "all" =
+			statusArg === "done" || statusArg === "all" ? statusArg : "open";
+
+		const todos = todoRepo.listTodoTree(ctx.userId, ctx.botId, { status });
+		if (todos.length === 0) {
+			return JSON.stringify({
+				success: true,
+				message: "該当するToDoはありません。",
+				groups: [],
+			});
+		}
+
+		// タグ → タスク群へ振り分け（タグ無しは「未分類」へ）
+		const UNTAGGED = "未分類";
+		const buckets = new Map<string, TodoWithSubtasks[]>();
+		for (const todo of todos) {
+			const tags = parseTodoTags(todo);
+			const keys = tags.length > 0 ? tags : [UNTAGGED];
+			for (const key of keys) {
+				const bucket = buckets.get(key);
+				if (bucket) bucket.push(todo);
+				else buckets.set(key, [todo]);
+			}
+		}
+
+		// 件数の多い順（未分類は常に最後）にグループを並べる
+		const groups = [...buckets.entries()]
+			.sort((a, b) => {
+				if (a[0] === UNTAGGED) return 1;
+				if (b[0] === UNTAGGED) return -1;
+				return b[1].length - a[1].length || a[0].localeCompare(b[0]);
+			})
+			.map(([tag, items]) => ({ tag, items }));
+
+		const message = groups
+			.map(
+				(g) =>
+					`🏷️ ${g.tag} (${g.items.length}件)\n${g.items.map(todoTreeLines).join("\n")}`,
+			)
+			.join("\n\n");
+
+		return JSON.stringify({
+			success: true,
+			message: `タグ別グループ (${groups.length}グループ):\n${message}`,
+			groups: groups.map((g) => ({
+				tag: g.tag,
+				count: g.items.length,
+				todos: g.items.map(toTodoTreeEntry),
+			})),
 		});
 	},
 
