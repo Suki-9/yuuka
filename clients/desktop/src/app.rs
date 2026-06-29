@@ -672,10 +672,12 @@ impl eframe::App for YuukaApp {
                     ui.set_opacity(overlay_opacity);
                     // ヘッダにオーバーレイへ戻る / 設定導線。
                     ui.horizontal(|ui| {
-                        if ui.button("× 閉じる").clicked() {
+                        // 先頭に記号を付けると、記号(数式中央/絵文字)と日本語ラベル
+                        // (ベースライン)で縦基準が異なり縦ズレになるため、テキストのみ。
+                        if ui.button("閉じる").clicked() {
                             self.state.view = View::Overlay;
                         }
-                        if ui.button("⚙ 設定").clicked() {
+                        if ui.button("設定").clicked() {
                             self.state.view = View::Settings;
                         }
                     });
@@ -686,7 +688,7 @@ impl eframe::App for YuukaApp {
             View::Settings => {
                 window_titlebar(ctx, "win-chrome-settings");
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    if ui.button("← 戻る").clicked() {
+                    if ui.button("戻る").clicked() {
                         self.state.view = View::Chat;
                     }
                     ui.separator();
