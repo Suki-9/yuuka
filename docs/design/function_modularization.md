@@ -1,9 +1,9 @@
 # 機能モジュール化 設計書（Function Modularization）
 
 - ステータス: P1〜P6 実装済み（秘書モード・ユーザー×Bot単位）。汎用モード・MCP は次フェーズ
-- ブランチ: `feature/function-modularization`
+- ブランチ: `feature/function-modularization`（カタログ分割リファクタは `refactor/function-modularization-cleanup`）
 - 作成日: 2026-06-30
-- 関連: `src/functions/index.ts`, `src/services/botCapabilities.ts`, `src/server/routes/botAttributeRoutes.ts`
+- 関連: `src/functions/moduleCatalog.ts`, `src/functions/index.ts`, `src/services/botModules.ts`, `src/services/botCapabilities.ts`, `src/server/routes/botAttributeRoutes.ts`
 
 ## 1. 背景と目的
 
@@ -65,6 +65,14 @@ export const MODULE_CATALOG: ModuleCatalogEntry[] = [ /* … */ ];
 
 `src/functions/index.ts` の `MODULE_CAPABILITY_MAP` はこのカタログから導出する（重複定義を避ける）。
 モジュールIDは永続化キーになるため**リネーム禁止**（移行が必要な場合はエイリアス表を別途用意）。
+
+> **実装メモ（refactor）**: 当初カタログ・各モジュール定義・解決ロジックは `index.ts` に同居していたが、
+> 肥大化したため以下へ分割した（挙動不変）。
+> - `src/functions/moduleCatalog.ts`: `MODULE_CATALOG` ＋ 解決関数
+>   （`getFunctionModulesForCapabilities` / `getGuildAssistantFunctionModules` / `listSelectableModules` / `isKnownSelectableModule` / `getBaseFunctionModules`）。
+> - `src/functions/browserModule.ts`: ブラウザ操作アダプタ（§3.5）。
+> - `src/functions/richContentModule.ts`: リッチ返信（core・常時有効）。
+> - `src/functions/index.ts`: 既存 import パス互換のための再エクスポート用ファサード。
 
 ### 3.3 候補モジュールID一覧（初期案）
 
