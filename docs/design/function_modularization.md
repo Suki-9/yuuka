@@ -1,6 +1,6 @@
 # 機能モジュール化 設計書（Function Modularization）
 
-- ステータス: ドラフト
+- ステータス: P1〜P5 実装済み（秘書モード）。P6 / 汎用モード・MCP は次フェーズ
 - ブランチ: `feature/function-modularization`
 - 作成日: 2026-06-30
 - 関連: `src/functions/index.ts`, `src/services/botCapabilities.ts`, `src/server/routes/botAttributeRoutes.ts`
