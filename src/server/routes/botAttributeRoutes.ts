@@ -20,9 +20,14 @@ import {
 	type BotRecord,
 	getBotById,
 	hasBotAccess,
+	setBotEnabledModules,
 	setBotPersona,
 	updateBotGeminiKey,
 } from "../../db/botRepo.js";
+import {
+	isKnownSelectableModule,
+	listSelectableModules,
+} from "../../functions/index.js";
 import { listServersGrantedToBot } from "../../db/mcpRepo.js";
 import {
 	countBotDailyUsage,
@@ -42,8 +47,13 @@ import {
 	listPresets,
 	parseCapabilities,
 	presetIdForCapabilities,
+	resolveBotCapabilities,
 	setPresetDisplayName,
 } from "../../services/botCapabilities.js";
+import {
+	invalidateBotEnabledModulesCache,
+	parseEnabledModules,
+} from "../../services/botModules.js";
 import {
 	getRateLimitSettings,
 	RATE_LIMIT_DEFAULTS,
@@ -179,6 +189,92 @@ export const botAttributeRoutes: RouteDef[] = [
 				message: ok
 					? `Botの属性を変更しました（次のメッセージ処理から反映されます）。${preset === "mcp_assistant" ? " 汎用モードの応答にはBot専用のGemini APIキー・応答許可ギルドの設定が必要です。" : ""}`
 					: "属性の変更に失敗しました。",
+			});
+		},
+	},
+
+	// ── 有効モジュール: 取得（function_modularization.md §5.1。閲覧は owner / Admin のみ） ──
+	// 当該Botの capability 配下の selectable モジュールと、その有効/無効状態を返す。
+	{
+		method: "GET",
+		path: "/api/bots/modules",
+		auth: "user",
+		async handler(ctx) {
+			const bot = requireOwnedBot(ctx);
+			if (!bot) return;
+			const caps = resolveBotCapabilities(bot.id);
+			const enabled = parseEnabledModules(bot.enabled_modules); // null = 全有効
+			const modules = listSelectableModules()
+				.filter((m) => m.cap === "core" || caps.has(m.cap))
+				.map((m) => ({
+					...m,
+					enabled: enabled == null ? true : enabled.has(m.id),
+				}));
+			sendJson(ctx.res, 200, {
+				success: true,
+				// 未設定(NULL)＝全有効。UIの「初期状態」表示に使う。
+				all_enabled: enabled == null,
+				modules,
+			});
+		},
+	},
+
+	// ── 有効モジュール: 更新（owner / Admin のみ。即時反映＝次メッセージから §5.1） ──
+	{
+		method: "POST",
+		path: "/api/bots/modules",
+		auth: "user",
+		async handler(ctx) {
+			const bot = requireOwnedBot(ctx);
+			if (!bot) return;
+			const raw = ctx.body.enabledModules;
+			// null（または明示の "all"）= 全モジュール有効へ戻す
+			if (raw === null || raw === "all") {
+				setBotEnabledModules(bot.id, null);
+				invalidateBotEnabledModulesCache(bot.id);
+				addAuditLog(
+					ctx.user!.discordId,
+					"bot.modules_change",
+					bot.id,
+					"all",
+				);
+				return sendJson(ctx.res, 200, {
+					success: true,
+					message:
+						"全機能を有効にしました（次のメッセージ処理から反映されます）。",
+				});
+			}
+			if (!Array.isArray(raw)) {
+				return sendJson(ctx.res, 400, {
+					success: false,
+					message: "enabledModules は配列または null が必要です。",
+				});
+			}
+			const caps = resolveBotCapabilities(bot.id);
+			// 既知の selectable かつ当該Botの capability 配下のIDのみ採用（重複排除）。
+			const accepted = [
+				...new Set(
+					raw
+						.map(String)
+						.filter((id) => isKnownSelectableModule(id))
+						.filter((id) => {
+							const meta = listSelectableModules().find((m) => m.id === id);
+							return meta != null && (meta.cap === "core" || caps.has(meta.cap));
+						}),
+				),
+			];
+			setBotEnabledModules(bot.id, accepted);
+			invalidateBotEnabledModulesCache(bot.id);
+			addAuditLog(
+				ctx.user!.discordId,
+				"bot.modules_change",
+				bot.id,
+				accepted.join(","),
+			);
+			sendJson(ctx.res, 200, {
+				success: true,
+				enabledModules: accepted,
+				message: "有効な機能を更新しました（次のメッセージ処理から反映されます）。",
 			});
 		},
 	},
