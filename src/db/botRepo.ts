@@ -21,6 +21,8 @@ export interface BotRecord {
 	capabilities: string;
 	/** Bot単位ペルソナ（汎用モード用。要件 §4.4） */
 	persona_id: number | null;
+	/** 有効モジュールIDのJSON配列。NULL = 全モジュール有効（function_modularization.md §4.1） */
+	enabled_modules: string | null;
 	/** Bot専用Gemini APIキー（システム鍵で暗号化。要件 §4.3.3） */
 	gemini_api_key_encrypted: string | null;
 	gemini_api_key_iv: string | null;
@@ -255,6 +257,25 @@ export function setBotPersona(
 				`UPDATE bots SET persona_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`,
 			)
 			.run(personaId, botId).changes > 0
+	);
+}
+
+/**
+ * 有効モジュール選択を更新する（function_modularization.md §4.1）。
+ * null を渡すと全モジュール有効（後方互換）。認可・キャッシュ無効化は呼び出し側で行う。
+ */
+export function setBotEnabledModules(
+	botId: string,
+	enabledModules: string[] | null,
+): boolean {
+	const db = getDb();
+	return (
+		db
+			.prepare(
+				`UPDATE bots SET enabled_modules = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`,
+			)
+			.run(enabledModules == null ? null : JSON.stringify(enabledModules), botId)
+			.changes > 0
 	);
 }
 
