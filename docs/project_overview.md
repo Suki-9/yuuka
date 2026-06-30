@@ -11,9 +11,11 @@
 **Yuuka** は Google **Gemini API** を使った **Discord 秘書ボット** と **Web 管理ダッシュボード** を 1 プロセスで統合運用するソフトウェアです。
 
 - 1 つの Node.js プロセスが「Discord Bot ランタイム」「LLM 対話エンジン」「HTTP 管理サーバ」「多数のバックグラウンド常駐ジョブ」を同時に動かす。
-- LLM は **Function Calling** で約 75 種のツール（ToDo・家計・予定・リマインド・ブラウザ操作・パスワードマネージャ・MCP・リッチ表示 等）を呼び出して秘書業務を遂行する。
+- LLM は **Function Calling** で約 80 種のツール（ToDo・家計・予定・リマインド・ブラウザ操作・パスワードマネージャ・MCP・リッチ表示 等）を呼び出して秘書業務を遂行する。ツールは**機能モジュール単位（約14）でユーザー×Bot ごとに ON/OFF** でき、有効分の宣言のみ LLM へ渡る（[function_modularization.md](../docs/design/function_modularization.md)、architecture §14）。
 - 全ユーザーデータは **Discord ユーザー ID 単位で完全分離**。これは設計の最重要不変条件（§8 参照）。
 - Bot は 2 つの動作モードを持つ: **秘書モード（secretary）**＝個人 DM 中心・ユーザー自身の Gemini 鍵、**汎用モード（MCP アシスタント）**＝ギルド常駐・Bot 専用 Gemini 鍵。
+- Discord に加え、**クライアント非依存の汎用チャット API**（WebSocket `/ws/chat` + OAuth デバイスフロー）をバックエンド実装済み（デスクトップクライアント向け。architecture §15）。
+- 記憶は **シナプス認知アーキテクチャ**（Rust 製 `yuuka-synapse` エンジンによる L2 連想想起）を R0/R1 まで実装（architecture §13）。
 
 ---
 
@@ -29,12 +31,15 @@
 | Discord | `discord.js` v14 |
 | Web サーバ | **生 `node:http`**（フレームワーク不使用、独自ルータ） |
 | フロントエンド | **依存ゼロのバニラ JS SPA**（PWA / Service Worker 付き） |
-| ブラウザ自動操作 | **Rust 製クローラーデーモン** → `puppeteer` フォールバック |
+| ブラウザ自動操作 | **Rust 製クローラーデーモン**（`yuuka-crawler`） → `puppeteer` フォールバック |
+| 記憶エンジン | **Rust 製シナプスエンジン**（`yuuka-synapse`、埋め込み + RAM ベクトル索引 + 1st Hop 連想。子プロセス IPC） |
+| 汎用チャット | **WebSocket**（`ws`）`/ws/chat` + OAuth デバイスフロー（デスクトップクライアント用バックエンド） |
 | グラフ描画 | `chart.js` + `@napi-rs/canvas`（PNG 生成） |
 | 暗号 | `@node-rs/argon2`（PW マネージャ用）/ Node `crypto`（AES-256-GCM） |
 | 認証 | `bcryptjs`(cost 12) + Redis セッション |
 | スケジューラ | `node-cron`（ジョブ登録）+ `cron-parser`（次回時刻計算） |
 | Lint / Format / 型 | **Biome**（`@biomejs/biome`、`pnpm lint`/`format`）+ **tsgo**（`@typescript/native-preview`、`pnpm typecheck`） |
+| テスト | **Vitest**（`pnpm test`/`test:watch`。`*.test.ts` を併置） |
 
 ---
 
@@ -43,7 +48,8 @@
 ```bash
 pnpm install            # 依存導入（Puppeteer が Chromium も取得）
 pnpm dev                # 開発: tsx watch src/index.ts（ホットリロード）
-pnpm build              # 本番ビルド: Rustクローラー(cargo) → アセットコピー → tsgo
+pnpm build              # 本番ビルド: Rustクローラー+シナプス(cargo) → バイナリ/アセットコピー → tsgo
+pnpm test               # Vitest（*.test.ts）
 pnpm start              # 本番起動: node dist/index.js
 pnpm typecheck          # 型チェックのみ（tsgo --noEmit）
 pnpm lint / lint:fix    # Biome lint（--write で自動修正）
@@ -51,11 +57,11 @@ pnpm format             # Biome でコード整形
 pnpm check              # typecheck + lint をまとめて実行
 ```
 
-- **Rust ツールチェイン（stable / `cargo`）が `pnpm build` に必須**（`src/rust_crawler` をビルド）。
+- **Rust ツールチェイン（stable / `cargo`）が `pnpm build` に必須**（`src/rust_crawler` と `src/rust_synapse` をビルドし `dist/bin/` へ配置。バイナリ不在時はシナプスは現行挙動へ自動デグレード）。
 - 起動には **環境変数 `YUUKA_ENCRYPTION_SECRET` が必須**。未設定だと `src/index.ts` が即 `exit(1)`（§8）。
 - 設定は `config.yaml`（一般設定・git 管理外）と `.env`（機密・git 管理外）。テンプレは [example.yaml](../example.yaml) / [.env.example](../.env.example)。
 - 既定ポートはコード上 `3000`（[src/config.ts](../src/config.ts)）だが、本デプロイは `config.yaml` で **7854** に上書き。
-- テストフレームワークは未導入（テストランナー無し）。
+- テストは **Vitest**（`pnpm test`）。`financeFunctions.test.ts` / `paymentRecurrenceService.test.ts` / `turnPlanner.test.ts` / `webhookSignature.test.ts` 等を該当ファイルへ併置。
 
 ---
 
@@ -85,7 +91,10 @@ pnpm check              # typecheck + lint をまとめて実行
 
    別系統(常時稼働):
      ・src/server.ts (生http) ─ Web管理ダッシュボード(SPA) / Webhook受信
-     ・src/services/*Service.ts ─ node-cron 常駐ジョブ(リマインド/朝報/日報/家計/バックアップ等)
+                              └ WebSocket /ws/chat ─ 汎用チャットAPI(デスクトップ等)
+                                  → chatChannelService → processMessage (会話コア無改修で再利用)
+     ・src/services/synapseEngine.ts ─ Rust yuuka-synapse 子プロセス(記憶/連想想起)
+     ・src/services/*Service.ts ─ node-cron 常駐ジョブ(リマインド/朝報/日報/家計/バックアップ/ルーチン等)
 ```
 
 実行の中心は次の 2 つのライフサイクル（§6）と、独立して回るバックグラウンドジョブ群（§7「services」）。
@@ -110,7 +119,7 @@ pnpm check              # typecheck + lint をまとめて実行
 
 ### 5.2 `src/functions/` — LLM ツール（Function Calling 宣言＋ハンドラ）
 
-各モジュールは `FunctionModule { declarations, handlers }` を export。[src/functions/index.ts](../src/functions/index.ts) が能力（capability）別にマージし、[src/functions/registry.ts](../src/functions/registry.ts) の `dispatch` が実行する。
+各モジュールは `FunctionModule { declarations, handlers }` を export。モジュールのカタログ（ID・能力・UI メタ・解決関数）は [src/functions/moduleCatalog.ts](../src/functions/moduleCatalog.ts) が一元管理し、能力 + 有効モジュールでフィルタした結果を [src/functions/registry.ts](../src/functions/registry.ts) の `dispatch` が実行する。[src/functions/index.ts](../src/functions/index.ts) は import 互換のための再エクスポートファサード。
 
 | ファイル | 主なツール |
 |---|---|
@@ -129,15 +138,18 @@ pnpm check              # typecheck + lint をまとめて実行
 | [briefingFunctions.ts](../src/functions/briefingFunctions.ts) | 朝報・日報・週報の設定 `configureBriefing` / `configureReport` / `runBriefingNow` |
 | [botAssistantFunctions.ts](../src/functions/botAssistantFunctions.ts) | 汎用モード専用。ギルドメンバー管理 / 個人ノート / ギルド共有ノート / ギルド内会話要約（`requireGuild` ガード） |
 | [mcpDynamic.ts](../src/functions/mcpDynamic.ts) | 登録済み MCP サーバの Tool を動的に `FunctionDeclaration` 化（JSON Schema→Gemini 変換、実行前確認フラグ、呼出時の可用性再チェック） |
-| [registry.ts](../src/functions/registry.ts) / [index.ts](../src/functions/index.ts) | レジストリ構築・宣言の重複排除・能力別フィルタ・`dispatch` ループ |
+| [browserModule.ts](../src/functions/browserModule.ts) | ブラウザ操作アダプタ（カタログ用に browserFunctions を `FunctionModule` 化） |
+| [richContentModule.ts](../src/functions/richContentModule.ts) | リッチ返信（`core` capability・`selectable=false`＝常時有効） |
+| [moduleCatalog.ts](../src/functions/moduleCatalog.ts) | `MODULE_CATALOG`（約14モジュールの ID/能力/UI メタ）＋ 解決関数（`getFunctionModulesForCapabilities` / `getGuildAssistantFunctionModules` / `listSelectableModules` / `getBaseFunctionModules`）。永続化キー（ID）は**リネーム禁止** |
+| [registry.ts](../src/functions/registry.ts) / [index.ts](../src/functions/index.ts) | レジストリ構築・宣言の重複排除・能力別フィルタ・`dispatch` ループ / 再エクスポートファサード |
 
 ### 5.3 `src/db/` — リポジトリ層（SQLite, ユーザー単位分離）
 
-スキーマの**唯一の定義元は** [src/db/migrations.ts](../src/db/migrations.ts)（**schema v9** / 各 Repo はテーブルを再定義しない）。各 Repo は `xxxRepo.ts` + 型 `xxxRecord`。
+スキーマの**唯一の定義元は** [src/db/migrations.ts](../src/db/migrations.ts)（**schema v16** / 各 Repo はテーブルを再定義しない）。各 Repo は `xxxRepo.ts` + 型 `xxxRecord`。
 
 | ファイル | 役割 |
 |---|---|
-| [migrations.ts](../src/db/migrations.ts) | スキーマ v9 全定義。冪等な `migrate*` 段階移行（v3 bot_id 化 → v4 MCP bot 化 → v5 owner リソース許可/Google複数 → v8 ペルソナ bot 化 → v9 手動停止）・暗号化列レジストリ（鍵ローテ用）。⚠️ **変更は統合フェーズのみ** |
+| [migrations.ts](../src/db/migrations.ts) | スキーマ v16 全定義。冪等な `migrate*` 段階移行（v3 bot_id 化 → v4 MCP bot 化 → v5 owner リソース許可/Google複数 → v8 ペルソナ bot 化 → v9 手動停止 → **v10 シナプス記憶層 → v11 時刻文脈 → v12 タスク進捗/サブタスク → v13 デスクトップトークン → v14 ギルド利用申請 → v15 利用可能ロール → v16 ルーチンタスク**）・機能モジュール化（enabled_modules / bot_user_modules）・暗号化列レジストリ（鍵ローテ用）。⚠️ **変更は統合フェーズのみ** |
 | [database.ts](../src/db/database.ts) | `better-sqlite3` 初期化、WAL / `foreign_keys=ON`、`getDb()` / `closeDb()` |
 | [redis.ts](../src/db/redis.ts) | Redis クライアント・再接続バックオフ。未接続時は `null` を返しフォールバック誘導 |
 | [userRepo.ts](../src/db/userRepo.ts) | ユーザー CRUD、bcrypt(cost12)、role(RBAC)、Gemini 鍵/Google OAuth(暗号化)、salt、通知先・各種設定 |
@@ -146,8 +158,11 @@ pnpm check              # typecheck + lint をまとめて実行
 | [reminderRepo.ts](../src/db/reminderRepo.ts) / [scheduleRepo.ts](../src/db/scheduleRepo.ts) | リマインド（cron・複数 source）/ Google カレンダー同期予定 |
 | [contactRepo.ts](../src/db/contactRepo.ts) / [contextNoteRepo.ts](../src/db/contextNoteRepo.ts) / [clipboardRepo.ts](../src/db/clipboardRepo.ts) | 連絡先 / コンテキストノート(≤10k) / 揮発クリップボード(TTL) |
 | [credentialRepo.ts](../src/db/credentialRepo.ts) / [credentialAccessRepo.ts](../src/db/credentialAccessRepo.ts) | PW マネージャ永続化（Argon2id+AES-256-GCM、一覧は暗号列を SELECT しない）/ Bot ごとの認証情報利用許可（`bot_credential_access`） |
-| [botRepo.ts](../src/db/botRepo.ts) | Bot インスタンス CRUD、トークン暗号化、Bot 共有（pending/active/revoked）、`hasBotAccess`、手動停止フラグ `stopped`（v9）、Bot 専用 Gemini 鍵・Bot 単位ペルソナ |
-| [botAttributesRepo.ts](../src/db/botAttributesRepo.ts) / [botNoteRepo.ts](../src/db/botNoteRepo.ts) | Bot 能力プリセット・ギルド許可/メンバー / Bot スコープのノート（個人・ギルド共有） |
+| [botRepo.ts](../src/db/botRepo.ts) | Bot インスタンス CRUD、トークン暗号化、Bot 共有（pending/active/revoked）、`hasBotAccess`、手動停止フラグ `stopped`（v9）、Bot 専用 Gemini 鍵・Bot 単位ペルソナ・Bot 既定の有効モジュール `enabled_modules` |
+| [botUserModulesRepo.ts](../src/db/botUserModulesRepo.ts) | **機能モジュール化のユーザー×Bot 上書き層**（`bot_user_modules`）。行があれば採用、無ければ Bot 既定へフォールバック |
+| [botAttributesRepo.ts](../src/db/botAttributesRepo.ts) / [botNoteRepo.ts](../src/db/botNoteRepo.ts) / [botMemberRequestRepo.ts](../src/db/botMemberRequestRepo.ts) | Bot 能力プリセット・ギルド許可/メンバー・利用可能ロール（v15）/ Bot スコープのノート（個人・ギルド共有）/ ギルド利用申請（v14） |
+| [synapseRepo.ts](../src/db/synapseRepo.ts) / [toolOutcomeRepo.ts](../src/db/toolOutcomeRepo.ts) | シナプス記憶（v10。content/embedding BLOB/鮮度）/ ツール実行実績・トピック別勝率（Node のみ書き手、Rust は read-only） |
+| [desktopTokenRepo.ts](../src/db/desktopTokenRepo.ts) | デスクトップクライアントの長命トークン（v13。OAuth デバイスフロー、ハッシュ保存） |
 | [googleAccountRepo.ts](../src/db/googleAccountRepo.ts) | Google 複数アカウント連携（`user_google_accounts` 〔owner 単位・primary フラグ〕、Bot ごとのアカウント割り当て `bot_google_account`。v5） |
 | [personaRepo.ts](../src/db/personaRepo.ts) | ペルソナ（≤20k、公開フラグ、マーケットプレイス） |
 | [webhookRepo.ts](../src/db/webhookRepo.ts) / [mcpRepo.ts](../src/db/mcpRepo.ts) | 受信 Webhook エンドポイント・配信監査 / MCP サーバ（system/user スコープ・tools キャッシュ） |
@@ -167,6 +182,8 @@ pnpm check              # typecheck + lint をまとめて実行
 | [pendingRegistration.ts](../src/services/pendingRegistration.ts) | ユーザー登録の DM チャレンジ（Discord ID 所有確認）。ワンタイムコードを DM 送信し、検証成功時のみ実ユーザーを作成 |
 | [browserService.ts](../src/services/browserService.ts) | **ブラウザ自動操作の中核**（1054 行）。Rust デーモン IPC / Puppeteer フォールバック / `data-yuuka-id` 注釈 / 永続セッション。⚠️ §8 不変層 |
 | [botCapabilities.ts](../src/services/botCapabilities.ts) / [botRateLimit.ts](../src/services/botRateLimit.ts) | Bot 能力プリセット解決（secretary / mcp_assistant）/ 3 段レート制限 |
+| [botModules.ts](../src/services/botModules.ts) | **機能モジュールの有効/無効解決＋キャッシュ**。`resolveEnabledModulesForUser`（ユーザー上書き→Bot 既定→全有効の 3 段）/ `setUserModules` / `invalidate*Cache` |
+| [memberRequest.ts](../src/services/memberRequest.ts) | 汎用モードのギルド利用申請（承認制）。`bot_member_requests` |
 | [actionRecorder.ts](../src/services/actionRecorder.ts) | マクロ学習用に直近 Function Call 履歴を記録（認証系・記録系は除外） |
 | [reminderEngine.ts](../src/services/reminderEngine.ts) | 🔔 毎分。期限・ToDo・予定リマインド配信（全ユーザー横断 = cron 例外） |
 | [briefingService.ts](../src/services/briefingService.ts) | 🌅 朝報。Open-Meteo 天気 + RSS を LLM 要約して配信 |
@@ -182,12 +199,17 @@ pnpm check              # typecheck + lint をまとめて実行
 | [mcpClient.ts](../src/services/mcpClient.ts) | MCP クライアント（JSON-RPC 2.0 over HTTP/SSE: initialize / tools/list / tools/call） |
 | [chartService.ts](../src/services/chartService.ts) | chart.js + canvas でダークテーマ PNG 生成 |
 | [playbookService.ts](../src/services/playbookService.ts) | マクロ（Playbook）CRUD の基盤 |
+| [todoRecurrenceService.ts](../src/services/todoRecurrenceService.ts) | 🔁 ルーチン（繰り返し）タスクの次回生成（v16。repeat_rule/until/count） |
+| [synapseEngine.ts](../src/services/synapseEngine.ts) / [synapseExtractor.ts](../src/services/synapseExtractor.ts) / [metrics.ts](../src/services/metrics.ts) | **シナプス記憶**（§架構 §13）: Rust `yuuka-synapse` の子プロセス IPC（health/assemble/index/forget/reindex）/ 会話ターンからのヒューリスティック抽出 / メトリクス。エンジン不在時は直近15件の生履歴注入へデグレード |
+| [chatChannelService.ts](../src/services/chatChannelService.ts) / [componentInteractionService.ts](../src/services/componentInteractionService.ts) | **汎用チャット API**（§架構 §15）: WS フレーム ↔ `processMessage` 橋渡し / ボタン等コンポーネント操作の処理 |
+| [desktopAuthService.ts](../src/services/desktopAuthService.ts) | デスクトップクライアントの OAuth デバイスフロー認証・トークン検証（`desktop_tokens`） |
+| [turnPlanner.ts](../src/services/turnPlanner.ts) | 対話ターンの計画補助（gemini.ts の Function Calling ループ周辺。会話コアにつき改修慎重） |
 
 ### 5.5 `src/server/` — HTTP ルーティング
 
 [src/server/routeRegistry.ts](../src/server/routeRegistry.ts) が `RouteDef[]` を集約しパス照合・ボディ解析・認可・`ctx` 構築。[src/server/httpHelpers.ts](../src/server/httpHelpers.ts) がセッション Cookie 解決。各機能のルートは `src/server/routes/*.ts`:
 
-`authRoutes`（ログイン/登録・DM チャレンジ）, `settingsRoutes`（個人設定・アカウント管理〔表示名/テーマ/パスワード/本人によるアカウント削除〕・最大）, `botRoutes`（Bot 管理・招待リンク導出）, `botAttributeRoutes`, `integratedRoutes`（統合管理: Bot 起動/停止/再起動・会話履歴クリア・MCP/認証情報/Google アカウントの Bot 別利用許可）, `adminRoutes`（管理・監査ログ）, `todoRoutes`, `scheduleRoutes`, `financeRoutes`, `reminderRoutes`, `personalRoutes`（ノート/クリップボード/連絡先）, `personaRoutes`, `playbookRoutes`, `credentialRoutes`, `deliveryRoutes`（朝報/日報）, `webhookRoutes`（`POST /hook/:token` のみ `auth:"none"`）, `mcpRoutes`。
+`authRoutes`（ログイン/登録・DM チャレンジ）, `settingsRoutes`（個人設定・アカウント管理〔表示名/テーマ/パスワード/本人によるアカウント削除〕・最大）, `botRoutes`（Bot 管理・招待リンク導出）, `botAttributeRoutes`（Bot 属性・**有効モジュール `GET/POST /api/bots/modules`**）, `integratedRoutes`（統合管理: Bot 起動/停止/再起動・会話履歴クリア・MCP/認証情報/Google アカウントの Bot 別利用許可）, `memberRequestRoutes`（ギルド利用申請の承認）, `adminRoutes`（管理・監査ログ）, `todoRoutes`, `scheduleRoutes`, `financeRoutes`, `reminderRoutes`, `personalRoutes`（ノート/クリップボード/連絡先）, `personaRoutes`, `playbookRoutes`, `credentialRoutes`, `deliveryRoutes`（朝報/日報）, `webhookRoutes`（`POST /hook/:token` のみ `auth:"none"`）, `mcpRoutes`, **`deviceAuthRoutes`（OAuth デバイスフロー認証 `auth:"none"`）, `deviceMgmtRoutes`（接続デバイス管理）, `desktopClientRoutes`（クライアント配布）**。WebSocket `GET /ws/chat` は [src/server/chatWebSocket.ts](../src/server/chatWebSocket.ts) が `server.ts` の upgrade で受理（Bearer + `?botId=` 検証）。
 
 認可は `RouteAuth`: `"none"` / `"user"`（セッション必須）/ `"admin"`（role 確認）。`auth:"user"` のリソースは必ず `ctx.user.discordId` でスコープする。
 
@@ -198,7 +220,8 @@ pnpm check              # typecheck + lint をまとめて実行
 | [src/public/](../src/public/) | **依存ゼロのバニラ JS SPA**。`app.js`（History API ルーティング・`fetch` ラッパが `botId` を自動注入・タブ別データ取得）、`index.html`、`styles.css`、`sw.js`（PWA）、`manifest.json` |
 | [.cursorrules](../.cursorrules) | **UI デザイン制約**: Material Design 2 ダーク。⚠️ **カードコンポーネント禁止**（フラットリスト + 下線区切り） |
 | [src/rust_crawler/](../src/rust_crawler/) | Rust 製クローラー（`src/main.rs`: デーモン IPC・fetch・fetch-js・screenshot・Google+DuckDuckGo 検索を RRF ランキング） |
-| [src/utils/](../src/utils/) | `crypto.ts`(暗号), `embeds.ts`(Discord Embed・色規約), `formatters.ts`, `datetime.ts`(`YYYY-MM-DD HH:MM:SS`), `discordMarkdown.ts`, `yamlParser.ts`(依存ゼロ YAML) |
+| [src/rust_synapse/](../src/rust_synapse/) | Rust 製シナプスエンジン（`main.rs`/`embedder.rs`/`index.rs`/`storage.rs`: 埋め込み生成・per-scope ブルートフォース cosine KNN・1st Hop 連想。SQLite は read-only 参照） |
+| [src/utils/](../src/utils/) | `crypto.ts`(暗号), `embeds.ts`(Discord Embed・色規約), `formatters.ts`, `datetime.ts`/`timezone.ts`(`YYYY-MM-DD HH:MM:SS`・タイムゾーン), `discordMarkdown.ts`, `yamlParser.ts`(依存ゼロ YAML), `secretGuard.ts`/`toolArgRedaction.ts`(秘匿値の形状/キー名マスク), `ssrfGuard.ts`(SSRF 防御), `webhookSignature.ts`(HMAC), `oauthStateStore.ts`, `googleHttpFix.ts` |
 | [src/assets/](../src/assets/) | `common-passwords-10k.txt`（PW ブラックリスト） |
 
 ---
@@ -232,11 +255,11 @@ pnpm check              # typecheck + lint をまとめて実行
 
 ## 7. データモデルの要点
 
-- **正規の定義元は [src/db/migrations.ts](../src/db/migrations.ts)（schema v9）**。Repo はテーブルを再定義しない。テーブル一覧と列の概要は [docs/architecture/architecture_v2.md](../docs/architecture/architecture_v2.md) §2 にも表がある。
+- **正規の定義元は [src/db/migrations.ts](../src/db/migrations.ts)（schema v16）**。Repo はテーブルを再定義しない。テーブル一覧と列の概要は [docs/architecture/architecture_v2.md](../docs/architecture/architecture_v2.md) §2 にも表がある。
 - 日時は一貫して **`'YYYY-MM-DD HH:MM:SS'`（ローカル時刻テキスト、`datetime('now','localtime')`）**。
 - 暗号化列は `[encrypted, iv, auth_tag]` の 3 つ組。種類により鍵が異なる（§8）。
 - `message_logs` / `bot_context_notes` / `bot_members` は **`users` への FK を持たない**（Web 未登録の Discord ユーザーも記録するため）。これは意図的（汎用モードの分離キー仕様）。
-- スキーマ進化: 初版 v2 を基盤に、Bot スコープ拡張で `(user_id)` 制約を `(user_id, bot_id)` へ再構築（既定 `bot_id='system_default'`）。以降 v4=MCP bot 化 / v5=owner リソース許可・Google 複数アカウント / v8=ペルソナ bot 化 / v9=手動停止フラグ と段階移行し、**現在 v9**（履歴は [architecture_v2.md](../docs/architecture/architecture_v2.md) §2 末尾）。
+- スキーマ進化: 初版 v2 を基盤に、Bot スコープ拡張で `(user_id)` 制約を `(user_id, bot_id)` へ再構築（既定 `bot_id='system_default'`）。以降 v4=MCP bot 化 / v5=owner リソース許可・Google 複数アカウント / v8=ペルソナ bot 化 / v9=手動停止フラグ / v10=シナプス記憶層 / v12=タスク進捗・サブタスク / v13=デスクトップトークン / v14=ギルド利用申請 / v15=利用可能ロール / v16=ルーチンタスク と段階移行し、**現在 v16**（履歴は [architecture_v2.md](../docs/architecture/architecture_v2.md) §2 末尾）。
 
 ---
 
@@ -310,4 +333,4 @@ pnpm check              # typecheck + lint をまとめて実行
 
 ---
 
-_最終更新: 2026-06-22 / このファイルはリポジトリ解析に基づく AI 向け索引です。実装が動けば、まず該当ファイルの実コードを正とし、本書とズレがあれば本書を更新してください。_
+_最終更新: 2026-06-30 / このファイルはリポジトリ解析に基づく AI 向け索引です。実装が動けば、まず該当ファイルの実コードを正とし、本書とズレがあれば本書を更新してください。_

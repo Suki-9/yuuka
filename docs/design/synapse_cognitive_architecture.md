@@ -1,7 +1,7 @@
 # シナプス駆動 認知アーキテクチャ 設計方針書
 
-> **文書種別:** 設計方針書（提案 / RFC）。**Phase 0/1（R0/R1）実装済み** — schema v10 のシナプス記憶層・Rust シナプスエンジン・1st Hop 連想・経験統計の素地が実装され、実装規範 [`architecture/architecture_v2.md`](../architecture/architecture_v2.md) §13 へ昇格済み（いずれも機能フラグ既定 OFF）。Phase 2（2nd Hop 勝率提示）・Phase 3（ローカル SLM ハイブリッド）・Phase 4（投機/キャッシュ）は未実装。本書は設計思想の原典として維持する。
-> **位置づけ:** 本書は将来構想の設計方針であり、現行の実装規範 [`architecture/architecture_v2.md`](../architecture/architecture_v2.md)（schema v9）を**まだ置き換えない**。実装着手時に本書の内容を architecture_v2 へ昇格・統合する。矛盾した場合、現時点では architecture_v2 が優先。
+> **文書種別:** 設計方針書（提案 / RFC）。**Phase 0/1（R0/R1）実装済み** — schema v10 のシナプス記憶層・Rust シナプスエンジン・1st Hop 連想・経験統計の素地が実装され、実装規範 [`architecture/architecture_v2.md`](../architecture/architecture_v2.md) §13 へ昇格済み（R0/R1 コンポーネントは**常時有効**。エンジンバイナリ不在・未起動・タイムアウト時のみ現行挙動〔直近15件の生履歴注入〕へ自動デグレード）。Phase 2（2nd Hop 勝率提示）・Phase 3（ローカル SLM ハイブリッド）・Phase 4（投機/キャッシュ）は未実装。本書は設計思想の原典として維持する。
+> **位置づけ:** 本書は設計思想の原典（why/what）。実装済み部分（R0/R1）の現行規範は [`architecture/architecture_v2.md`](../architecture/architecture_v2.md) §13（現 schema v16）が正であり、矛盾時は architecture_v2 が優先。未実装の Phase 2 以降は本書を指針とし、着手時に architecture_v2 へ昇格する。実装着手時に本書の内容を architecture_v2 へ昇格・統合する。矛盾した場合、現時点では architecture_v2 が優先。
 > **対象読者:** 設計判断を行う開発者・実装エージェント。
 > **決定済みの前提（本書の3つの軸）:**
 > 1. **ハイブリッドLLM構成** — 重い推論は Gemini、ルーティング/前処理/分類はローカル軽量LLM。

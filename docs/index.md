@@ -18,9 +18,11 @@ docs/
 │   └── bot_attributes_requirements.md
 ├── skills/                  ← LLM 実行時に注入されるスキル仕様
 │   └── search_skills.md
-└── design/                  ← 将来構想の設計方針（提案 / 未実装）
-    ├── synapse_cognitive_architecture.md   ← 設計思想・研究裏付け
-    └── architecture_renewal_v3.md          ← 全体アーキテクチャ一新案（Rustエンジン/トポロジ）
+└── design/                  ← 設計方針（一部は実装済み・架構規範へ昇格）
+    ├── function_modularization.md          ← 機能モジュール化（P1〜P6 実装済み）
+    ├── synapse_cognitive_architecture.md   ← 設計思想・研究裏付け（R0/R1 実装済み）
+    ├── architecture_renewal_v3.md          ← 全体アーキテクチャ一新案（Rustエンジン/トポロジ）
+    └── desktop_client/                     ← 汎用チャットAPI/デスクトップ（Phase 0/1 実装済み）
 ```
 
 ---
@@ -34,6 +36,9 @@ docs/
 | 各機能の詳細仕様（ToDo・家計・ブラウザ操作 等） | [spec/discordbot_spec.md](spec/discordbot_spec.md) |
 | Bot の動作モード（秘書 / MCP アシスタント）・能力 | [spec/bot_attributes_requirements.md](spec/bot_attributes_requirements.md) |
 | 検索クロール時の LLM 指示（天気・運行・ニュース） | [skills/search_skills.md](skills/search_skills.md) |
+| 機能モジュールのユーザー×Bot単位ON/OFF（設計・実装済み） | [design/function_modularization.md](design/function_modularization.md) |
+| シナプス認知アーキテクチャ（記憶層 R0/R1 実装済み） | [architecture/architecture_v2.md](architecture/architecture_v2.md) §13 |
+| 汎用チャットAPI・デスクトップクライアント（Phase 0/1 実装済み） | [architecture/architecture_v2.md](architecture/architecture_v2.md) §15 / [design/desktop_client/](design/desktop_client/index.md) |
 
 ---
 
@@ -59,10 +64,11 @@ LLM が `searchWeb` / `fetchDynamicPage` を使う際の推奨ドメイン・ク
 
 ---
 
-## 🧪 提案・将来構想（未実装 / 権威順序の外）
+## 🧪 設計文書（一部実装済み / 一部は将来構想）
 
-実装規範ではなく、まだ確定していない設計方針。現行コードへの拘束力はない（着手時に architecture へ昇格）。
+設計の why/what を記す文書群。**実装済み部分の規範は architecture へ昇格済み**（下記の参照先）。未実装部分は現行コードへの拘束力を持たない。
 
-- [design/synapse_cognitive_architecture.md](design/synapse_cognitive_architecture.md) — **シナプス駆動 認知アーキテクチャ設計方針書**（思想・研究裏付け）。軽量LLMの思考補助を「生履歴注入」から「データ層へ外付けしたシナプス記憶＋2-Hop連想」へ刷新する提案。ハイブリッドLLM構成（重い推論=Gemini / 前処理=ローカル軽量LLM）、記憶エンジン比較（SQLite+sqlite-vec vs DuckDB）、構造化出力の推論劣化回避＋ペルソナ両立、投機的実行、評価指標、段階導入ロードマップを研究裏付け付きで記述。
-- [design/architecture_renewal_v3.md](design/architecture_renewal_v3.md) — **全体アーキテクチャ一新案（v3 提案）**（システム実装面）。シナプス関連を **Rust の独立プロセス**（埋め込み/USearch索引/2-Hop/勝率集計）として切り出し、Node(V8)のメモリトラブルを回避する 3 プロセス構成（Node / Rustシナプスエンジン / ローカルSLM）。プロセストポロジ・制御フロー・Rustエンジン設計・メモリ安全設計・データ所有/不変条件保全・Stranglerパターンの段階移行を記述。
-- [design/desktop_client/](design/desktop_client/index.md) — **Yuuka Desktop（デスクトップオーバーレイクライアント）設計資料**（新クライアント開発・第一弾）。Discord 以外の対話入口として、Windows 向け常駐オーバーレイ型チャットクライアントを **Rust / egui（最軽量志向）**で実装する提案。**クライアント非依存の汎用チャット API**（OAuth デバイスフロー認証 + WebSocket `/ws/chat`）を新設し、Discord 非依存な会話コア `processMessage()` を**無改修で再利用**する。要件定義・全体アーキテクチャ・バックエンド API 増設仕様・egui クライアント設計・段階導入ロードマップを収録（[index](design/desktop_client/index.md) / [requirements](design/desktop_client/requirements.md) / [architecture](design/desktop_client/architecture.md) / [backend_api](design/desktop_client/backend_api.md) / [client_design](design/desktop_client/client_design.md) / [roadmap](design/desktop_client/roadmap.md)）。
+- [design/function_modularization.md](design/function_modularization.md) — **機能モジュール化 設計書**（**P1〜P6 実装済み**）。ユーザーが Bot ごとに有効な機能モジュール（todo/finance/…約14）を選び、有効分の宣言のみ LLM へ渡し UI も該当設定のみ表示する。ユーザー×Bot 単位の上書き層（`bot_user_modules`）でデフォルト Bot 含む全 Bot を個別切替。**実装規範は [architecture_v2.md §14](architecture/architecture_v2.md)**。
+- [design/synapse_cognitive_architecture.md](design/synapse_cognitive_architecture.md) — **シナプス駆動 認知アーキテクチャ設計方針書**（思想・研究裏付け）。思考補助を「生履歴注入」から「データ層へ外付けしたシナプス記憶＋2-Hop連想」へ刷新。**記憶層 R0/R1（ツール実績記録・Rust エンジン＋L2 想起注入・シナプス抽出）は実装済み**で、規範は [architecture_v2.md §13](architecture/architecture_v2.md)。R2（2nd Hop 勝率提示）以降は将来フェーズ。
+- [design/architecture_renewal_v3.md](design/architecture_renewal_v3.md) — **全体アーキテクチャ一新案（v3 提案）**（システム実装面）。シナプス関連を **Rust の独立プロセス**（`src/rust_synapse/` として実装済み）に切り出し、Node(V8)のメモリトラブルを回避する 3 プロセス構成（Node / Rustシナプスエンジン / ローカルSLM）。プロセストポロジ・Rustエンジン設計・メモリ安全設計・Strangler 段階移行を記述。ローカル SLM ハイブリッド等は未実装。
+- [design/desktop_client/](design/desktop_client/index.md) — **Yuuka Desktop / 汎用チャット API 設計資料**。Discord 以外の対話入口として、**クライアント非依存の汎用チャット API**（OAuth デバイスフロー認証 + WebSocket `/ws/chat`）を新設し、会話コア `processMessage()` を**無改修で再利用**する。**バックエンド（Phase 0 認証 / Phase 1 WS チャット）は実装済み**（規範は [architecture_v2.md §15](architecture/architecture_v2.md)）。Windows 向け egui クライアント本体（Phase 2 以降）は未実装。収録: [index](design/desktop_client/index.md) / [requirements](design/desktop_client/requirements.md) / [architecture](design/desktop_client/architecture.md) / [backend_api](design/desktop_client/backend_api.md) / [client_design](design/desktop_client/client_design.md) / [roadmap](design/desktop_client/roadmap.md)。

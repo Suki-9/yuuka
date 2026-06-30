@@ -1,11 +1,12 @@
 # DiscordBot 統合管理ソフトウェア 仕様書
 
-**バージョン:** 0.6.2-draft  
-**最終更新:** 2026-06-22  
+**バージョン:** 0.6.3-draft  
+**最終更新:** 2026-06-30  
 **ステータス:** Draft
 
 **改訂履歴:**
-- 0.6.2 — 実装の進捗を反映。アカウント管理（表示名/テーマ/パスワード集約・本人によるアカウント削除＝最後の管理者は不可）、Bot のオーナー手動停止の永続化、汎用モードの会話履歴クリア、登録時の DM 所有確認チャレンジ、Webhook シークレット必須化、HSTS・認証のタイミングオラクル対策を追記。シナプス認知アーキテクチャ（R0/R1・schema v10・既定 OFF、architecture_v2.md §13）の追加に伴い、受動的な会話ログ全文検索 `searchConversationLogs` を廃止し L2 連想想起へ統合（時系列要約 `summarizeConversationTopic` は維持。§3.12）。DB スキーマは v9（シナプス層 v10 は architecture_v2.md §13 を正、履歴は同 §2）。汎用モード（MCPアシスタント）の詳細は [bot_attributes_requirements.md](bot_attributes_requirements.md) を正とする。
+- 0.6.3 — 実装の進捗を反映（DB スキーマ **v16**）。**機能モジュール化**（ユーザー×Bot 単位で機能モジュール約14を ON/OFF。enabled_modules / bot_user_modules。design/function_modularization.md・architecture_v2.md §14）、**タスク進捗・サブタスク・ガント / ルーチン（繰り返し）タスク**（§3.2）、**汎用チャット API / デスクトップクライアント**バックエンド（WebSocket `/ws/chat` + OAuth デバイスフロー。design/desktop_client/・architecture_v2.md §15）、汎用モードの**ギルド利用申請（承認制）・利用可能ロール**を追記。シナプス認知アーキは R0/R1 が**常時有効**である旨を明確化（下記 0.6.2 の「既定 OFF」を訂正）。
+- 0.6.2 — 実装の進捗を反映。アカウント管理（表示名/テーマ/パスワード集約・本人によるアカウント削除＝最後の管理者は不可）、Bot のオーナー手動停止の永続化、汎用モードの会話履歴クリア、登録時の DM 所有確認チャレンジ、Webhook シークレット必須化、HSTS・認証のタイミングオラクル対策を追記。シナプス認知アーキテクチャ（R0/R1・schema v10・**常時有効**〔バイナリ不在時のみ現行挙動へ自動デグレード〕、architecture_v2.md §13）の追加に伴い、受動的な会話ログ全文検索 `searchConversationLogs` を廃止し L2 連想想起へ統合（時系列要約 `summarizeConversationTopic` は維持。§3.12）。汎用モード（MCPアシスタント）の詳細は [bot_attributes_requirements.md](bot_attributes_requirements.md) を正とする。
 - 0.6.1 — 初版ドラフト。
 
 ---
