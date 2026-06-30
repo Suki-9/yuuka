@@ -323,17 +323,19 @@ export interface ModuleCatalogEntry {
 	description: string;
 	/** false = 常時有効・選択不可（core 等。UIに出さず enabled_modules で無効化できない） */
 	selectable: boolean;
+	/** 管理UIサイドバーの対応タブ（data-tab値）。無効化時にそのタブを隠す。無い場合は省略 */
+	settingsKey?: string;
 }
 
 const MODULE_CATALOG: ModuleCatalogEntry[] = [
-	{ id: "todo", module: todoFunctions, cap: "secretary", label: "ToDo・タスク管理", description: "タスクの登録・タグ・優先度・ルーチン管理", selectable: true },
-	{ id: "schedule", module: scheduleFunctions, cap: "secretary", label: "スケジュール", description: "予定の管理（Googleカレンダー連携）", selectable: true },
-	{ id: "reminder", module: reminderFunctions, cap: "secretary", label: "リマインダー", description: "通知のスケジュール・お知らせ", selectable: true },
-	{ id: "finance", module: financeFunctions, cap: "secretary", label: "家計・支出管理", description: "支出の記録・集計・予算管理", selectable: true },
+	{ id: "todo", module: todoFunctions, cap: "secretary", label: "ToDo・タスク管理", description: "タスクの登録・タグ・優先度・ルーチン管理", selectable: true, settingsKey: "tasks" },
+	{ id: "schedule", module: scheduleFunctions, cap: "secretary", label: "スケジュール", description: "予定の管理（Googleカレンダー連携）", selectable: true, settingsKey: "schedules" },
+	{ id: "reminder", module: reminderFunctions, cap: "secretary", label: "リマインダー", description: "通知のスケジュール・お知らせ", selectable: true, settingsKey: "reminders" },
+	{ id: "finance", module: financeFunctions, cap: "secretary", label: "家計・支出管理", description: "支出の記録・集計・予算管理", selectable: true, settingsKey: "expenses" },
 	{ id: "browser", module: browserModule, cap: "secretary", label: "ブラウザ操作・Web検索", description: "Web検索・ページ取得・ブラウザ自動操作", selectable: true },
 	{ id: "credential", module: credentialFunctions, cap: "secretary", label: "認証情報の保管", description: "ログイン情報の暗号化保存・管理", selectable: true },
-	{ id: "playbook", module: playbookFunctions, cap: "secretary", label: "プレイブック・自動化", description: "定型ワークフロー・自動化スクリプト", selectable: true },
-	{ id: "note", module: noteFunctions, cap: "memory", label: "個人メモ", description: "メモの記録・参照", selectable: true },
+	{ id: "playbook", module: playbookFunctions, cap: "secretary", label: "プレイブック・自動化", description: "定型ワークフロー・自動化スクリプト", selectable: true, settingsKey: "playbooks" },
+	{ id: "note", module: noteFunctions, cap: "memory", label: "個人メモ", description: "メモの記録・参照", selectable: true, settingsKey: "personal" },
 	{ id: "clipboard", module: clipboardFunctions, cap: "secretary", label: "クリップボード共有", description: "テキストの一時共有", selectable: true },
 	{ id: "contact", module: contactFunctions, cap: "secretary", label: "連絡先", description: "連絡先の管理", selectable: true },
 	{ id: "conversation", module: conversationFunctions, cap: "memory", label: "会話履歴・記憶検索", description: "過去の会話の検索・記憶", selectable: true },
@@ -352,10 +354,19 @@ const MODULE_BY_ID: ReadonlyMap<string, ModuleCatalogEntry> = new Map(
  * cap で絞り込みたい場合は呼び出し側でフィルタする。
  */
 export function listSelectableModules(): Array<
-	Pick<ModuleCatalogEntry, "id" | "cap" | "label" | "description">
+	Pick<
+		ModuleCatalogEntry,
+		"id" | "cap" | "label" | "description" | "settingsKey"
+	>
 > {
 	return MODULE_CATALOG.filter((e) => e.selectable).map(
-		({ id, cap, label, description }) => ({ id, cap, label, description }),
+		({ id, cap, label, description, settingsKey }) => ({
+			id,
+			cap,
+			label,
+			description,
+			settingsKey,
+		}),
 	);
 }
 

@@ -4136,6 +4136,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			"config-assistant-persona-card",
 		);
 		if (attrCard) attrCard.classList.add("hidden");
+		const modulesCard = document.getElementById("config-bot-modules-card");
+		if (modulesCard) modulesCard.classList.add("hidden");
+		// Bot切替時はモジュールによるタブ非表示を一旦解除（下で再評価する）
+		applyModuleTabVisibility([]);
 		if (assistantCard) assistantCard.classList.add("hidden");
 		if (nameCard) nameCard.classList.add("hidden");
 		if (inviteCard) inviteCard.classList.add("hidden");
@@ -4210,6 +4214,9 @@ document.addEventListener("DOMContentLoaded", () => {
 				}
 			}
 
+			// ── 有効な機能（モジュール選択）カード ──
+			await loadBotModules(botId);
+
 			// ── 汎用モード設定カード（本体は「Bot設定」、ギルド/メンバー/ノートは「Discord連携」、
 			//     Bot単位ペルソナは「ペルソナ」タブに分割配置。loadAssistantConfig が ID 単位で全カードを描画する） ──
 			if (bot.preset === "mcp_assistant") {
@@ -4248,6 +4255,73 @@ document.addEventListener("DOMContentLoaded", () => {
 
 		// 招待リンク・プロフィールカード＋汎用モードDiscord設定（ギルド/メンバー/共有ノート）を描画
 		await fetchBotAttributeConfig();
+	}
+
+	/**
+	 * 左メニューの機能タブ表示を、有効モジュールの settingsKey に応じて切り替える。
+	 * disabledKeys に含まれる data-tab のメニュー項目を隠す（function_modularization.md §5.2）。
+	 */
+	function applyModuleTabVisibility(disabledKeys) {
+		const set = new Set(disabledKeys || []);
+		document.querySelectorAll(".menu-item[data-tab]").forEach((el) => {
+			const key = el.getAttribute("data-tab");
+			if (set.has(key)) el.classList.add("hidden");
+			else if (el.dataset.moduleManaged === "1") el.classList.remove("hidden");
+		});
+	}
+
+	/** 有効な機能（モジュール選択）カードを描画する */
+	async function loadBotModules(botId) {
+		const card = document.getElementById("config-bot-modules-card");
+		const list = document.getElementById("bot-modules-list");
+		if (!card || !list) return;
+		try {
+			const res = await originalFetch(
+				`/api/bots/modules?botId=${encodeURIComponent(botId)}`,
+			);
+			const data = await res.json();
+			if (!data.success) return;
+			card.classList.remove("hidden");
+			list.innerHTML = "";
+			const disabledKeys = [];
+			(data.modules || []).forEach((m) => {
+				const label = document.createElement("label");
+				label.className = "module-toggle";
+				label.style.cssText =
+					"display:flex; gap:8px; align-items:flex-start; padding:8px; border:1px solid var(--border-color,#333); border-radius:8px; cursor:pointer;";
+				const cb = document.createElement("input");
+				cb.type = "checkbox";
+				cb.checked = !!m.enabled;
+				cb.dataset.moduleId = m.id;
+				cb.dataset.settingsKey = m.settingsKey || "";
+				const text = document.createElement("div");
+				text.innerHTML = `<div style="font-weight:600;">${m.label}</div><div class="field-sub">${m.description || ""}</div>`;
+				label.appendChild(cb);
+				label.appendChild(text);
+				list.appendChild(label);
+				// このメニュー項目はモジュール選択で管理される印を付ける
+				if (m.settingsKey) {
+					const menu = document.querySelector(
+						`.menu-item[data-tab="${m.settingsKey}"]`,
+					);
+					if (menu) menu.dataset.moduleManaged = "1";
+					if (!m.enabled) disabledKeys.push(m.settingsKey);
+				}
+			});
+			updateBotModulesCountBadge();
+			applyModuleTabVisibility(disabledKeys);
+		} catch (e) {
+			console.error("有効な機能の読み込みに失敗しました:", e);
+		}
+	}
+
+	function updateBotModulesCountBadge() {
+		const badge = document.getElementById("bot-modules-count-badge");
+		const boxes = document.querySelectorAll(
+			"#bot-modules-list input[type=checkbox]",
+		);
+		const on = [...boxes].filter((b) => b.checked).length;
+		if (badge) badge.textContent = `${on} / ${boxes.length}`;
 	}
 
 	/** 汎用モード設定タブの内容を取得して描画する */
@@ -4823,6 +4897,56 @@ document.addEventListener("DOMContentLoaded", () => {
 				alert("通信エラーが発生しました。");
 			}
 		});
+	}
+
+	// ── 有効な機能（モジュール選択）の保存・操作 ──
+	const botModulesList = document.getElementById("bot-modules-list");
+	if (botModulesList) {
+		botModulesList.addEventListener("change", (e) => {
+			if (e.target && e.target.type === "checkbox") updateBotModulesCountBadge();
+		});
+	}
+	async function saveBotModules(enabledModules) {
+		const fb = document.getElementById("bot-modules-feedback");
+		try {
+			const res = await originalFetch("/api/bots/modules", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					botId: window.currentBotId,
+					enabledModules,
+				}),
+			});
+			const data = await res.json();
+			if (fb) {
+				fb.style.display = "";
+				fb.textContent = data.message || (data.success ? "保存しました。" : "保存に失敗しました。");
+				fb.style.color = data.success ? "#22c55e" : "#f59e0b";
+			}
+			if (data.success) await loadBotModules(window.currentBotId);
+		} catch (e) {
+			if (fb) {
+				fb.style.display = "";
+				fb.textContent = "通信エラーが発生しました。";
+				fb.style.color = "#f59e0b";
+			}
+		}
+	}
+	const btnSaveBotModules = document.getElementById("btn-save-bot-modules");
+	if (btnSaveBotModules) {
+		btnSaveBotModules.addEventListener("click", () => {
+			const boxes = document.querySelectorAll(
+				"#bot-modules-list input[type=checkbox]",
+			);
+			const enabled = [...boxes]
+				.filter((b) => b.checked)
+				.map((b) => b.dataset.moduleId);
+			saveBotModules(enabled);
+		});
+	}
+	const btnBotModulesAll = document.getElementById("btn-bot-modules-all");
+	if (btnBotModulesAll) {
+		btnBotModulesAll.addEventListener("click", () => saveBotModules("all"));
 	}
 
 	const btnSaveAssistantKey = document.getElementById("btn-save-assistant-key");
