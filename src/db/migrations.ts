@@ -941,8 +941,24 @@ export async function runMigrations(): Promise<void> {
 		{ name: "discord_application_id", ddl: "discord_application_id TEXT" },
 		// 機能モジュール化（function_modularization.md §4.1）: 有効モジュールIDのJSON配列。
 		// NULL = 全モジュール有効（既存行・後方互換）。selectable=false のモジュールは常に有効。
+		// これはBot単位の既定値（フォールバック）。ユーザー個別は bot_user_modules で上書きする。
 		{ name: "enabled_modules", ddl: "enabled_modules TEXT" },
 	]);
+
+	// ユーザー×Bot単位の有効モジュール上書き（function_modularization.md §4 改訂）。
+	// データ分離の正式な例外パターン（bot_id × user_id 複合スコープ。bot_context_notes と同様）。
+	// 行が存在 = そのユーザーの上書き設定（JSON配列）。行が無い = Bot既定(bots.enabled_modules)へフォールバック。
+	// user_id はWebアカウント未登録のDiscordユーザーIDも可のため users へのFKは張らない。
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_user_modules (
+      bot_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      enabled_modules TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (bot_id, user_id),
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+    );
+  `);
 
 	// ─── Bot属性 関連テーブル（bot_attributes_requirements.md §5） ──────────────
 	// 注意: bot_mcp_links テーブルは v4 で廃止。MCPサーバーは (user_id, bot_id) 複合スコープへ移行。

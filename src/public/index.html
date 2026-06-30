@@ -1383,17 +1383,17 @@
             <span class="field-sub">※「汎用モード」はサーバー常駐の簡易Bot（MCP接続 + ペルソナ + メモリ）です。タスク・家計などの秘書機能は無効になります。</span>
           </details>
 
-          <!-- 有効な機能（モジュール選択）: owner / Admin のみ表示 -->
+          <!-- 有効な機能（モジュール選択）: ユーザー個別。アクセス権のある全ユーザーに表示 -->
           <details id="config-bot-modules-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
             <summary class="column-header badge-right">
-              <h3><span class="material-symbols-outlined header-icon-symbol">tune</span>有効な機能</h3>
+              <h3><span class="material-symbols-outlined header-icon-symbol">tune</span>有効な機能（あなた専用）</h3>
               <span class="badge badge-accent" id="bot-modules-count-badge"></span>
             </summary>
-            <p class="description-text">このBotで使う機能だけを選べます。オフにした機能はAIに渡されず、左メニューの該当タブも非表示になります。変更は次のメッセージ処理から反映されます。</p>
+            <p class="description-text">あなたがこのBotで使う機能だけを選べます（この設定はあなた個人にのみ適用されます）。オフにした機能はAIに渡されず、左メニューの該当タブも非表示になります。変更は次のメッセージ処理から反映されます。</p>
             <div id="bot-modules-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px;"></div>
             <div style="display: flex; gap: 12px; margin-top: 16px; align-items: center;">
               <button type="button" id="btn-save-bot-modules" class="btn btn-primary" style="white-space: nowrap;">機能を保存</button>
-              <button type="button" id="btn-bot-modules-all" class="btn btn-secondary" style="white-space: nowrap;">すべて有効に戻す</button>
+              <button type="button" id="btn-bot-modules-all" class="btn btn-secondary" style="white-space: nowrap;">既定に戻す</button>
               <span class="field-sub" id="bot-modules-feedback" style="display:none;"></span>
             </div>
           </details>
