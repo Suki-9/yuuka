@@ -20,7 +20,6 @@ import {
 	type BotRecord,
 	getBotById,
 	hasBotAccess,
-	setBotEnabledModules,
 	setBotPersona,
 	updateBotGeminiKey,
 } from "../../db/botRepo.js";
@@ -51,7 +50,11 @@ import {
 	setPresetDisplayName,
 } from "../../services/botCapabilities.js";
 import {
-	invalidateBotEnabledModulesCache,
+	getUserModulesJson,
+	setUserModules,
+} from "../../db/botUserModulesRepo.js";
+import {
+	invalidateUserModulesCache,
 	parseEnabledModules,
 } from "../../services/botModules.js";
 import {
@@ -193,17 +196,33 @@ export const botAttributeRoutes: RouteDef[] = [
 		},
 	},
 
-	// ── 有効モジュール: 取得（function_modularization.md §5.1。閲覧は owner / Admin のみ） ──
-	// 当該Botの capability 配下の selectable モジュールと、その有効/無効状態を返す。
+	// ── 有効モジュール: 取得（function_modularization.md §4改訂。ユーザー個別。アクセス権のある全ユーザー） ──
+	// 当該Botの capability 配下の selectable モジュールと、発話ユーザー視点の有効/無効状態を返す。
+	// 解決: ユーザー上書き(bot_user_modules) → Bot既定(bots.enabled_modules) → 全有効。
 	{
 		method: "GET",
 		path: "/api/bots/modules",
 		auth: "user",
 		async handler(ctx) {
-			const bot = requireOwnedBot(ctx);
-			if (!bot) return;
-			const caps = resolveBotCapabilities(bot.id);
-			const enabled = parseEnabledModules(bot.enabled_modules); // null = 全有効
+			const userId = ctx.user!.discordId;
+			const botId =
+				(typeof ctx.body.botId === "string" && ctx.body.botId) ||
+				ctx.url.searchParams.get("botId") ||
+				"";
+			if (!botId || !hasBotAccess(userId, botId)) {
+				return sendJson(ctx.res, 404, {
+					success: false,
+					message: "Botが見つかりません。",
+				});
+			}
+			const bot = getBotById(botId);
+			const caps = resolveBotCapabilities(botId);
+			const overrideJson = getUserModulesJson(botId, userId);
+			const hasOverride = overrideJson != null;
+			// override があればそれを、無ければ Bot既定を採用（どちらも null = 全有効）。
+			const enabled = hasOverride
+				? (parseEnabledModules(overrideJson) ?? new Set<string>())
+				: parseEnabledModules(bot?.enabled_modules);
 			const modules = listSelectableModules()
 				.filter((m) => m.cap === "core" || caps.has(m.cap))
 				.map((m) => ({
@@ -212,36 +231,37 @@ export const botAttributeRoutes: RouteDef[] = [
 				}));
 			sendJson(ctx.res, 200, {
 				success: true,
-				// 未設定(NULL)＝全有効。UIの「初期状態」表示に使う。
+				// 個別上書きの有無。false = Bot既定に従っている（UIの「既定に従う」表示用）。
+				has_override: hasOverride,
 				all_enabled: enabled == null,
 				modules,
 			});
 		},
 	},
 
-	// ── 有効モジュール: 更新（owner / Admin のみ。即時反映＝次メッセージから §5.1） ──
+	// ── 有効モジュール: 更新（ユーザー個別。アクセス権のある全ユーザー。即時反映＝次メッセージから） ──
 	{
 		method: "POST",
 		path: "/api/bots/modules",
 		auth: "user",
 		async handler(ctx) {
-			const bot = requireOwnedBot(ctx);
-			if (!bot) return;
+			const userId = ctx.user!.discordId;
+			const botId =
+				(typeof ctx.body.botId === "string" && ctx.body.botId) || "";
+			if (!botId || !hasBotAccess(userId, botId)) {
+				return sendJson(ctx.res, 404, {
+					success: false,
+					message: "Botが見つかりません。",
+				});
+			}
 			const raw = ctx.body.enabledModules;
-			// null（または明示の "all"）= 全モジュール有効へ戻す
+			// null（または明示の "all"）= 個別上書きを解除し Bot既定へフォールバック。
 			if (raw === null || raw === "all") {
-				setBotEnabledModules(bot.id, null);
-				invalidateBotEnabledModulesCache(bot.id);
-				addAuditLog(
-					ctx.user!.discordId,
-					"bot.modules_change",
-					bot.id,
-					"all",
-				);
+				setUserModules(botId, userId, null);
+				invalidateUserModulesCache(botId, userId);
 				return sendJson(ctx.res, 200, {
 					success: true,
-					message:
-						"全機能を有効にしました（次のメッセージ処理から反映されます）。",
+					message: "個別設定を解除し、既定に戻しました（次のメッセージ処理から反映されます）。",
 				});
 			}
 			if (!Array.isArray(raw)) {
@@ -250,7 +270,8 @@ export const botAttributeRoutes: RouteDef[] = [
 					message: "enabledModules は配列または null が必要です。",
 				});
 			}
-			const caps = resolveBotCapabilities(bot.id);
+			const caps = resolveBotCapabilities(botId);
+			const selectable = listSelectableModules();
 			// 既知の selectable かつ当該Botの capability 配下のIDのみ採用（重複排除）。
 			const accepted = [
 				...new Set(
@@ -258,19 +279,13 @@ export const botAttributeRoutes: RouteDef[] = [
 						.map(String)
 						.filter((id) => isKnownSelectableModule(id))
 						.filter((id) => {
-							const meta = listSelectableModules().find((m) => m.id === id);
+							const meta = selectable.find((m) => m.id === id);
 							return meta != null && (meta.cap === "core" || caps.has(meta.cap));
 						}),
 				),
 			];
-			setBotEnabledModules(bot.id, accepted);
-			invalidateBotEnabledModulesCache(bot.id);
-			addAuditLog(
-				ctx.user!.discordId,
-				"bot.modules_change",
-				bot.id,
-				accepted.join(","),
-			);
+			setUserModules(botId, userId, accepted);
+			invalidateUserModulesCache(botId, userId);
 			sendJson(ctx.res, 200, {
 				success: true,
 				enabledModules: accepted,

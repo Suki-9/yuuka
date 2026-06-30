@@ -44,7 +44,7 @@ import { getMcpFunctionModuleForBot } from "./functions/mcpDynamic.js";
 import { buildFunctionRegistry } from "./functions/registry.js";
 import { recordFunctionCall } from "./services/actionRecorder.js";
 import { resolveBotCapabilities } from "./services/botCapabilities.js";
-import { resolveBotEnabledModules } from "./services/botModules.js";
+import { resolveEnabledModulesForUser } from "./services/botModules.js";
 import {
 	getCachedCalendars,
 	getResolvedCalendarId,
@@ -1060,9 +1060,9 @@ export async function processMessage(
 	// 6. Function レジストリの構築（属性ゲート §4.2: 保持ケーパビリティのモジュールのみ + MCP動的 §4.4）
 	//    秘書プリセット（既存Bot・system_default 含む）では従来のフルセットと完全に一致する。
 	const caps = resolveBotCapabilities(botId);
-	// 機能モジュール化（function_modularization.md §3.1）: capability で絞った後、
-	// ユーザーが有効化したモジュールのみへさらに絞る（null=全有効で既存Bot不変）。
-	const enabledModules = resolveBotEnabledModules(botId);
+	// 機能モジュール化（function_modularization.md §3.1 / §4改訂）: capability で絞った後、
+	// 発話ユーザー視点の有効モジュール（override → Bot既定 → 全有効）へさらに絞る。
+	const enabledModules = resolveEnabledModulesForUser(botId, userId);
 	let mcpModule: FunctionModule = { declarations: [], handlers: {} };
 	if (caps.has("mcp")) {
 		try {

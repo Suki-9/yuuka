@@ -1,6 +1,6 @@
 # 機能モジュール化 設計書（Function Modularization）
 
-- ステータス: P1〜P5 実装済み（秘書モード）。P6 / 汎用モード・MCP は次フェーズ
+- ステータス: P1〜P6 実装済み（秘書モード・ユーザー×Bot単位）。汎用モード・MCP は次フェーズ
 - ブランチ: `feature/function-modularization`
 - 作成日: 2026-06-30
 - 関連: `src/functions/index.ts`, `src/services/botCapabilities.ts`, `src/server/routes/botAttributeRoutes.ts`
@@ -86,6 +86,24 @@ export const MODULE_CATALOG: ModuleCatalogEntry[] = [ /* … */ ];
 | richContent | リッチ返信 | core | ✗（常時有効） |
 
 ※ `mcp` 系（動的）と汎用モード（`getGuildAssistantFunctionModules`）の扱いは §6 で別途検討。
+
+## 3.5 改訂: ユーザー×Bot 上書き層（P6）
+
+当初は「Botごと」スコープだったが、共有のデフォルトBot（`system_default`: Discordトークンを
+持たないユーザーへの提供 + システム通知）でも**ユーザーごと**に機能を切り替えたいという
+要件により、**ユーザー×Bot単位の上書き層**を追加した。
+
+解決順（発話ユーザー視点）:
+
+```
+1. ユーザー上書き  bot_user_modules(bot_id, user_id)  … 行があればこれを採用（[]=全OFFも尊重）
+2. Bot既定        bots.enabled_modules               … 上書きが無ければフォールバック（ベースライン）
+3. 全有効         （どちらも未設定なら）              … 後方互換
+```
+
+- 適用範囲: **全Bot**でユーザー個別（デフォルトBot含む）。
+- 編集権限: アクセス権のある各ユーザーが**自分の上書きのみ**変更（owner限定を撤廃）。
+- `bots.enabled_modules`（Bot既定）はベースラインとして残置（owner/admin用の編集UIは次フェーズ）。
 
 ## 4. データモデル
 

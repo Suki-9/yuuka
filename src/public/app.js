@@ -4147,6 +4147,9 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (assistantPersonaCard) assistantPersonaCard.classList.add("hidden");
 
 		const botId = window.currentBotId;
+		// 「有効な機能」はユーザー個別設定のため、デフォルトBotを含むアクセス可能な全Botで表示する
+		// （他の属性系カードは owner/Admin・非デフォルトのみ。下のガードはそれらにのみ適用）。
+		if (botId) await loadBotModules(botId);
 		if (
 			!botId ||
 			botId === "system_default" ||
@@ -4213,9 +4216,6 @@ document.addEventListener("DOMContentLoaded", () => {
 					select.value = bot.preset || "secretary";
 				}
 			}
-
-			// ── 有効な機能（モジュール選択）カード ──
-			await loadBotModules(botId);
 
 			// ── 汎用モード設定カード（本体は「Bot設定」、ギルド/メンバー/ノートは「Discord連携」、
 			//     Bot単位ペルソナは「ペルソナ」タブに分割配置。loadAssistantConfig が ID 単位で全カードを描画する） ──
