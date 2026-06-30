@@ -939,6 +939,9 @@ export async function runMigrations(): Promise<void> {
 		{ name: "gemini_api_key_iv", ddl: "gemini_api_key_iv TEXT" },
 		{ name: "gemini_api_key_tag", ddl: "gemini_api_key_tag TEXT" },
 		{ name: "discord_application_id", ddl: "discord_application_id TEXT" },
+		// 機能モジュール化（function_modularization.md §4.1）: 有効モジュールIDのJSON配列。
+		// NULL = 全モジュール有効（既存行・後方互換）。selectable=false のモジュールは常に有効。
+		{ name: "enabled_modules", ddl: "enabled_modules TEXT" },
 	]);
 
 	// ─── Bot属性 関連テーブル（bot_attributes_requirements.md §5） ──────────────
