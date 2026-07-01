@@ -298,14 +298,20 @@ export interface ContactView {
 }
 export type ContactsResponse = ApiResponse<{ contacts: ContactView[] }>;
 
-export interface ClipboardItem {
+export interface ClipboardEntry {
 	id: number;
 	content: string;
+	expires_at: string | null;
 	created_at: string;
 }
-export type ClipboardResponse = ApiResponse<{ items: ClipboardItem[] }>;
+export type ClipboardResponse = ApiResponse<{ entries: ClipboardEntry[] }>;
 
-export type ContextNoteResponse = ApiResponse<{ note: string }>;
+/** GET /api/context-note（content + max_length を返す。updated_at も同梱） */
+export type ContextNoteResponse = ApiResponse<{
+	content: string;
+	max_length: number;
+	updated_at?: string | null;
+}>;
 
 // ─── personas（personaRepo） ─────────────────────────────────────────────────
 
@@ -328,30 +334,45 @@ export interface PublicPersonaView {
 	updated_at: string;
 }
 
-export type PersonasResponse = ApiResponse<{ personas: PersonaRecord[] }>;
+/** GET /api/personas — personas + 適用中ID + 最大文字数。 */
+export type PersonasResponse = ApiResponse<{
+	personas: PersonaRecord[];
+	active_persona_id: number | null;
+	max_length: number;
+}>;
 export type PersonaMarketplaceResponse = ApiResponse<{ personas: PublicPersonaView[] }>;
+/** GET /api/personas/marketplace/:id — 公開ペルソナの全文（インポート判断用）。 */
+export type PersonaMarketplaceDetailResponse = ApiResponse<{
+	persona: { id: number; name: string; prompt: string };
+}>;
 
 // ─── playbooks（playbookRepo） ───────────────────────────────────────────────
 
+/** playbookService.Playbook（name が識別子。id 列は持たない）。 */
 export interface PlaybookRecord {
-	id: number;
 	name: string;
-	content?: string;
-	created_at?: string;
-	updated_at?: string;
+	title: string;
+	keywords: string[];
+	description: string;
+	steps: string;
 }
+/** playbookScheduleService.PlaybookSchedule。 */
 export interface PlaybookScheduleRecord {
 	id: number;
-	playbook_id: number;
-	cron: string;
-	enabled: number;
+	playbook_name: string;
+	cron_expression: string;
+	description?: string;
+	enabled: boolean;
+	last_run_at: string | null;
 }
+/** playbookScheduleService.PlaybookRun。 */
 export interface PlaybookRunRecord {
 	id: number;
-	playbook_id: number;
-	status: string;
-	started_at?: string;
-	finished_at?: string | null;
+	playbook_name: string;
+	status: "running" | "success" | "failed";
+	output: string;
+	started_at: string;
+	finished_at: string | null;
 }
 export type PlaybooksResponse = ApiResponse<{ playbooks: PlaybookRecord[] }>;
 export type PlaybookSchedulesResponse = ApiResponse<{ schedules: PlaybookScheduleRecord[] }>;
@@ -372,14 +393,20 @@ export interface WebhookEndpointView {
 	create_reminder: boolean;
 	enabled: boolean;
 	created_at: string;
+	/** buildHookUrl で付与される完全な受信URL（一覧・作成・更新応答に同梱）。 */
+	url: string;
 }
 export interface WebhookDeliveryRecord {
 	id: number;
 	endpoint_id: number;
-	status: string;
+	payload: string;
+	status: "received" | "notified" | "filtered" | "failed";
+	detail: string | null;
 	created_at: string;
 }
-export type WebhooksResponse = ApiResponse<{ webhooks: WebhookEndpointView[] }>;
+/** GET /api/webhooks — サーバは `endpoints` キーで返す。 */
+export type WebhooksResponse = ApiResponse<{ endpoints: WebhookEndpointView[] }>;
+export type WebhookCreateResponse = ApiResponse<{ endpoint: WebhookEndpointView }>;
 export type WebhookDeliveriesResponse = ApiResponse<{ deliveries: WebhookDeliveryRecord[] }>;
 
 // ─── mcp（mcpRepo） ──────────────────────────────────────────────────────────

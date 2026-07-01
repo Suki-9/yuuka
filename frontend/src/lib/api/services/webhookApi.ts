@@ -2,15 +2,20 @@
 // ハンドラは botId を読まない（ユーザースコープ）。/hook/:token は外部 Webhook 受信ルート
 // で SPA 経路ではないため提供しない。
 import { api } from "../client";
-import type { WebhooksResponse, WebhookDeliveriesResponse, ApiResponse } from "../types";
+import type {
+	WebhooksResponse,
+	WebhookCreateResponse,
+	WebhookDeliveriesResponse,
+	ApiResponse,
+} from "../types";
 
 const USER = { scope: "user" } as const;
 
 export const webhookApi = {
-	/** GET /api/webhooks — Webhook エンドポイント一覧 */
+	/** GET /api/webhooks → { endpoints } */
 	list: () => api.get<WebhooksResponse>("/api/webhooks", USER),
 
-	/** POST /api/webhooks/create */
+	/** POST /api/webhooks/create（secret は16文字以上必須） */
 	create: (body: {
 		name: string;
 		secret?: string;
@@ -20,19 +25,19 @@ export const webhookApi = {
 		filterKeyword?: string;
 		createTodo?: boolean;
 		createReminder?: boolean;
-	}) => api.post<ApiResponse>("/api/webhooks/create", body, USER),
+	}) => api.post<WebhookCreateResponse>("/api/webhooks/create", body, USER),
 
-	/** POST /api/webhooks/update */
+	/** POST /api/webhooks/update（部分更新。enabled トグル等） */
 	update: (body: { id: number; [k: string]: unknown }) =>
-		api.post<ApiResponse>("/api/webhooks/update", body, USER),
+		api.post<WebhookCreateResponse>("/api/webhooks/update", body, USER),
 
 	/** POST /api/webhooks/delete */
 	delete: (id: number) => api.post<ApiResponse>("/api/webhooks/delete", { id }, USER),
 
-	/** GET /api/webhooks/deliveries?endpoint_id= — 配信履歴 */
+	/** GET /api/webhooks/deliveries?endpointId= — 受信履歴（直近50件） */
 	deliveries: (endpointId?: number) =>
 		api.get<WebhookDeliveriesResponse>("/api/webhooks/deliveries", {
 			...USER,
-			query: endpointId ? { endpoint_id: endpointId } : undefined,
+			query: endpointId ? { endpointId } : undefined,
 		}),
 };
