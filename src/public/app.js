@@ -2296,15 +2296,20 @@ document.addEventListener("DOMContentLoaded", () => {
 		return span;
 	}
 
-	/** サブタスク行を生成 */
-	function buildSubtaskRow(sub) {
+	/** サブタスク行を再帰的に生成（depth=0 が直接の子） */
+	function buildSubtaskRow(sub, depth = 0) {
+		const wrap = document.createElement("div");
+		wrap.className = "subtask-group";
+
 		const row = document.createElement("div");
 		row.className = `subtask-row ${sub.status === "done" ? "done" : ""}`;
+		row.style.paddingLeft = `${depth * 16}px`;
 
 		const checkbox = document.createElement("input");
 		checkbox.type = "checkbox";
 		checkbox.className = "checkbox-custom";
 		checkbox.checked = sub.status === "done";
+		checkbox.disabled = (sub.subtasks || []).length > 0 && (sub.effective_progress ?? 0) < 100;
 		checkbox.addEventListener("change", () =>
 			toggleTaskCompletion(sub.id, checkbox.checked),
 		);
@@ -2323,6 +2328,30 @@ document.addEventListener("DOMContentLoaded", () => {
 			row.appendChild(due);
 		}
 
+		// 編集ボタン
+		const editBtn = document.createElement("button");
+		editBtn.type = "button";
+		editBtn.className = "btn-icon-sm";
+		editBtn.title = "編集";
+		const editIcon = document.createElement("span");
+		editIcon.className = "material-symbols-outlined";
+		editIcon.textContent = "edit";
+		editBtn.appendChild(editIcon);
+		editBtn.addEventListener("click", () => openEditTaskModal(sub));
+		row.appendChild(editBtn);
+
+		// サブタスクを追加するボタン（無制限ネスト）
+		const addBtn = document.createElement("button");
+		addBtn.type = "button";
+		addBtn.className = "btn-icon-sm";
+		addBtn.title = "サブタスクを追加";
+		const addIcon = document.createElement("span");
+		addIcon.className = "material-symbols-outlined";
+		addIcon.textContent = "add";
+		addBtn.appendChild(addIcon);
+		addBtn.addEventListener("click", () => openSubtaskModal(sub));
+		row.appendChild(addBtn);
+
 		const del = document.createElement("button");
 		del.type = "button";
 		del.className = "btn-trash";
@@ -2333,7 +2362,17 @@ document.addEventListener("DOMContentLoaded", () => {
 		del.addEventListener("click", () => handleDeleteTask(sub.id));
 		row.appendChild(del);
 
-		return row;
+		wrap.appendChild(row);
+
+		// 子サブタスクを再帰描画
+		if ((sub.subtasks || []).length > 0) {
+			const childList = document.createElement("div");
+			childList.className = "subtask-list";
+			sub.subtasks.forEach((c) => childList.appendChild(buildSubtaskRow(c, depth + 1)));
+			wrap.appendChild(childList);
+		}
+
+		return wrap;
 	}
 
 	/** 親タスク1件のカードを生成（サブタスク・進捗・操作ボタン込み） */
@@ -2365,8 +2404,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		checkbox.type = "checkbox";
 		checkbox.className = "checkbox-custom";
 		checkbox.checked = task.status === "done";
-		checkbox.disabled = hasSubtasks; // 親はサブタスクから算出のため直接完了は子に委ねる
-		checkbox.title = hasSubtasks
+		checkbox.disabled = hasSubtasks && percent < 100;
+		checkbox.title = hasSubtasks && percent < 100
 			? "サブタスクを全て完了すると進捗100%になります"
 			: "";
 		checkbox.addEventListener("change", () =>
@@ -2471,8 +2510,9 @@ document.addEventListener("DOMContentLoaded", () => {
 			tIcon.className = "material-symbols-outlined";
 			tIcon.textContent = "expand_more";
 			toggle.appendChild(tIcon);
+			const countDescendants = (nodes) => nodes.reduce((n, c) => n + 1 + countDescendants(c.subtasks || []), 0);
 			toggle.appendChild(
-				document.createTextNode(` サブタスク ${subtasks.length}件`),
+				document.createTextNode(` サブタスク ${countDescendants(subtasks)}件`),
 			);
 			toggle.style.marginTop = "6px";
 
@@ -2608,7 +2648,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const startDate = document.getElementById("task-start").value;
 		const dueDate = document.getElementById("task-due").value;
 		const priority =
-			document.getElementById("task-priority").value || undefined;
+			document.getElementById("task-priority").value || null;
 		if (!title) return;
 
 		const isEdit = editingTaskId != null;

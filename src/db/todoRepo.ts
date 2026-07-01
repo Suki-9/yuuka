@@ -26,7 +26,7 @@ export interface TodoRecord {
 	status: "open" | "done";
 	/** v12: 手動進捗 0-100（葉タスク用。子を持つ親は completeEffectiveProgress で算出する） */
 	progress: number;
-	/** v12: 自己参照。NULL=親タスク / 値=サブタスクの親ID（1階層のみ） */
+	/** v12: 自己参照。NULL=ルートタスク / 値=親タスクのID（深さ無制限） */
 	parent_id: number | null;
 	linked_payment_id: number | null;
 	due_reminded: number;
@@ -42,8 +42,8 @@ export interface TodoRecord {
 
 /** 親タスク＋サブタスク＋算出進捗を束ねた読み取り専用ビュー（一覧・ガント用） */
 export interface TodoWithSubtasks extends TodoRecord {
-	subtasks: TodoRecord[];
-	/** 算出進捗 0-100（子があれば「完了子数/全体」、無ければ葉の progress または done→100） */
+	subtasks: TodoWithSubtasks[];
+	/** 算出進捗 0-100（葉ノードの完了率を再帰集計。葉のみの場合は progress または done→100） */
 	effective_progress: number;
 }
 
@@ -67,7 +67,7 @@ export interface TodoInput {
 	startDate?: string;
 	priority?: TodoPriority;
 	tags?: string[];
-	/** v12: サブタスクにする場合の親ToDoのID（1階層のみ。2階層目以降は親へ平坦化される） */
+	/** v12: サブタスクにする場合の親ToDoのID（深さ無制限） */
 	parentId?: number;
 	/** v16: ルーチンの周期（cron式）。指定するとルーチンタスクになる */
 	repeatRule?: string;
@@ -84,7 +84,7 @@ export interface TodoUpdateInput {
 	dueDate?: string;
 	/** v12: 開始日（空文字でクリア） */
 	startDate?: string;
-	priority?: TodoPriority;
+	priority?: TodoPriority | null;
 	status?: "open" | "done";
 }
 
@@ -125,7 +125,6 @@ export function parseTodoTags(todo: Pick<TodoRecord, "tags">): string[] {
 /** 一覧の共通並び順: 優先度（high→medium→low→未設定）→ 期限近い順（期限なしは後ろ）→ 新しい順 */
 const ORDER_CLAUSE = `
   ORDER BY
-    CASE status WHEN 'open' THEN 0 ELSE 1 END,
     CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,
     CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
     datetime(due_date) ASC,
@@ -135,9 +134,9 @@ const ORDER_CLAUSE = `
 // ─── 追加・取得 ──────────────────────────────────────────────────────────────
 
 /**
- * サブタスクの親IDを1階層に正規化する。
- * - 親が存在しない／本人のものでない → null（トップレベル化）
- * - 親自身がサブタスク（parent_id あり）→ その親（祖父）に付け替え、常に深さ1を保証する
+ * 親IDを検証する（深さ無制限）。
+ * - 親が存在しない／本人のものでない → null（ルートへ昇格）
+ * - 親が存在する → その ID をそのまま返す
  */
 function normalizeParentId(
 	userId: string,
@@ -146,8 +145,7 @@ function normalizeParentId(
 ): number | null {
 	if (parentId == null) return null;
 	const parent = getTodoById(userId, botId, parentId);
-	if (!parent) return null;
-	return parent.parent_id != null ? parent.parent_id : parent.id;
+	return parent ? parent.id : null;
 }
 
 /** ToDo を追加する（タグは省略時は空配列。LLMによる自動付与は autoTagService が後追いで行う） */
@@ -358,24 +356,30 @@ export function completeTodo(
 }
 
 /**
- * ToDo を削除する。親を削除した場合はサブタスクも一緒に削除する。
+ * ToDo を削除する。全子孫も再帰的に削除する（深さ無制限）。
  * ※ 既存DBは parent_id を ALTER ADD COLUMN で後付けするため FK ON DELETE CASCADE が効かない。
- *    新規DB・既存DBの双方で確実に連鎖削除するため、ここで明示的に子も削除する（深さ1前提）。
+ *    WITH RECURSIVE CTE で全子孫IDを収集してから一括 DELETE する。
  *    進捗ログ(task_progress_logs)は常に FK 付きで新規作成されるため、各行削除でカスケード除去される。
  */
 export function deleteTodo(userId: string, botId: string, id: number): boolean {
 	const db = getDb();
 	const result = db
 		.prepare(
-			"DELETE FROM todos WHERE user_id = ? AND bot_id = ? AND (id = ? OR parent_id = ?)",
+			`WITH RECURSIVE descendants(id) AS (
+			   SELECT id FROM todos WHERE user_id = ? AND bot_id = ? AND id = ?
+			   UNION ALL
+			   SELECT t.id FROM todos t
+			   JOIN descendants d ON t.parent_id = d.id
+			 )
+			 DELETE FROM todos WHERE id IN (SELECT id FROM descendants)`,
 		)
-		.run(userId, botId, id, id);
+		.run(userId, botId, id);
 	return result.changes > 0;
 }
 
 // ─── 進捗・サブタスク・ガント（§3.2 v12） ────────────────────────────────────
 
-/** サブタスク一覧（指定親の子を全件。ステータス問わず） */
+/** サブタスク一覧（指定親の直接の子を全件。ステータス問わず） */
 export function listSubtasks(
 	userId: string,
 	botId: string,
@@ -384,35 +388,79 @@ export function listSubtasks(
 	return listTodos(userId, botId, { status: "all", parentId });
 }
 
+/** 指定タスクの全子孫をツリー形式で返す（深さ無制限） */
+export function listSubtasksTree(
+	userId: string,
+	botId: string,
+	parentId: number,
+): TodoWithSubtasks[] {
+	return attachSubtasks(userId, botId, [
+		getTodoById(userId, botId, parentId),
+	].filter(Boolean) as TodoRecord[]).flatMap((n) => n.subtasks);
+}
+
 /**
- * 算出進捗（0-100）を求める。
- * - サブタスクあり: 完了サブタスク数 / 全サブタスク数 ×100（ユーザー選択の算出方式）
- * - サブタスクなし: status=done なら100、それ以外は手動 progress
+ * 算出進捗（0-100）を求める（再帰）。
+ * - 子あり: 全子孫の葉ノードの完了率（done 数 / 葉の総数 × 100）
+ * - 葉ノード: status=done なら100、それ以外は手動 progress
  */
 export function computeEffectiveProgress(
 	todo: TodoRecord,
-	subtasks: TodoRecord[],
+	subtasks: TodoWithSubtasks[],
 ): number {
-	if (subtasks.length > 0) {
-		const done = subtasks.filter((s) => s.status === "done").length;
-		return Math.round((done / subtasks.length) * 100);
+	if (subtasks.length === 0) {
+		return todo.status === "done" ? 100 : (todo.progress ?? 0);
 	}
-	return todo.status === "done" ? 100 : (todo.progress ?? 0);
+	function countLeaves(nodes: TodoWithSubtasks[]): { done: number; total: number } {
+		let done = 0;
+		let total = 0;
+		for (const n of nodes) {
+			if (n.subtasks.length === 0) {
+				total++;
+				if (n.status === "done") done++;
+			} else {
+				const sub = countLeaves(n.subtasks);
+				done += sub.done;
+				total += sub.total;
+			}
+		}
+		return { done, total };
+	}
+	const { done, total } = countLeaves(subtasks);
+	return total === 0 ? 0 : Math.round((done / total) * 100);
 }
 
-/** 子レコードを親IDでグルーピングする（深さ1前提） */
-function groupChildren(rows: TodoRecord[]): Map<number, TodoRecord[]> {
-	const map = new Map<number, TodoRecord[]>();
+/**
+ * フラットな TodoRecord 配列からツリーを構築し、進捗を下から上へ算出する。
+ * ルートノード（parent_id IS NULL）のみを返す。孤立ノードはルートへ昇格する。
+ */
+function buildTodoTree(rows: TodoRecord[]): TodoWithSubtasks[] {
+	const map = new Map<number, TodoWithSubtasks>();
 	for (const r of rows) {
-		if (r.parent_id == null) continue;
-		const arr = map.get(r.parent_id);
-		if (arr) arr.push(r);
-		else map.set(r.parent_id, [r]);
+		map.set(r.id, { ...r, subtasks: [], effective_progress: 0 });
 	}
-	return map;
+	const roots: TodoWithSubtasks[] = [];
+	for (const node of map.values()) {
+		if (node.parent_id == null) {
+			roots.push(node);
+		} else {
+			const parent = map.get(node.parent_id);
+			if (parent) parent.subtasks.push(node);
+			else roots.push(node); // 孤立ノードはルートへ
+		}
+	}
+	function computeProgress(node: TodoWithSubtasks): void {
+		for (const child of node.subtasks) computeProgress(child);
+		node.effective_progress = computeEffectiveProgress(node, node.subtasks);
+	}
+	for (const root of roots) computeProgress(root);
+	return roots;
 }
 
-/** 親ToDoの配列へサブタスクと算出進捗を束ねる（子は1クエリでまとめて取得） */
+/**
+ * 指定した親ノード群とその全子孫を取得してツリーを構築する。
+ * WITH RECURSIVE CTE で全子孫を1クエリで収集し、buildTodoTree でネスト化する。
+ */
 function attachSubtasks(
 	userId: string,
 	botId: string,
@@ -422,22 +470,22 @@ function attachSubtasks(
 	const db = getDb();
 	const ids = parents.map((p) => p.id);
 	const placeholders = ids.map(() => "?").join(", ");
-	const children = db
+	// ルートノード群とその全子孫を再帰CTE で一括取得
+	const allRows = db
 		.prepare(
-			`SELECT * FROM todos
-       WHERE user_id = ? AND bot_id = ? AND parent_id IN (${placeholders})
-       ${ORDER_CLAUSE}`,
+			`WITH RECURSIVE tree(id) AS (
+			   SELECT id FROM todos WHERE user_id = ? AND bot_id = ? AND id IN (${placeholders})
+			   UNION ALL
+			   SELECT t.id FROM todos t JOIN tree ON t.parent_id = tree.id
+			 )
+			 SELECT todos.* FROM todos JOIN tree ON todos.id = tree.id
+			 ${ORDER_CLAUSE}`,
 		)
 		.all(userId, botId, ...ids) as TodoRecord[];
-	const byParent = groupChildren(children);
-	return parents.map((p) => {
-		const subtasks = byParent.get(p.id) ?? [];
-		return {
-			...p,
-			subtasks,
-			effective_progress: computeEffectiveProgress(p, subtasks),
-		};
-	});
+	// 全件ツリーを構築したうえで、指定ルートのみ返す
+	const fullTree = buildTodoTree(allRows);
+	const rootSet = new Set(ids);
+	return fullTree.filter((n) => rootSet.has(n.id));
 }
 
 /**

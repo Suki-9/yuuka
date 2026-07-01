@@ -828,7 +828,7 @@ const handlers: FunctionModule["handlers"] = {
 			? todoRepo.getTodoById(ctx.userId, ctx.botId, todoId)
 			: undefined;
 		if (!todo) return fail(`タスク #${args.todo_id} が見つかりません。`);
-		const subtasks = todoRepo.listSubtasks(ctx.userId, ctx.botId, todoId);
+		const subtasks = todoRepo.listSubtasksTree(ctx.userId, ctx.botId, todoId);
 		const logs = todoRepo.listProgressLogs(ctx.userId, ctx.botId, todoId);
 		const effectiveProgress = todoRepo.computeEffectiveProgress(todo, subtasks);
 
