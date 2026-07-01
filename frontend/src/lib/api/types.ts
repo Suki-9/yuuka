@@ -460,17 +460,22 @@ export type CredentialsResponse = ApiResponse<{ credentials: CredentialView[] }>
 
 export interface BriefingConfig {
 	enabled?: boolean;
-	time?: string;
-	[k: string]: unknown;
+	schedule_cron?: string;
+	target_type?: "dm" | "channel";
+	target_id?: string;
+	location_name?: string;
+	weather_lat?: number | null;
+	weather_lng?: number | null;
+	news_keywords?: string[];
+	news_feeds?: string[];
 }
 export type BriefingConfigResponse = ApiResponse<{ config: BriefingConfig }>;
 
 export interface ReportConfig {
-	id: number;
-	type?: string;
-	cron?: string;
+	id?: number;
+	type?: "daily" | "weekly";
+	schedule_cron?: string;
 	enabled?: boolean;
-	[k: string]: unknown;
 }
 export type ReportConfigsResponse = ApiResponse<{ configs: ReportConfig[] }>;
 
