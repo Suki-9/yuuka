@@ -18,6 +18,7 @@ import { playbookFunctions } from "./playbookFunctions.js";
 import { reminderFunctions } from "./reminderFunctions.js";
 import { richContentModule } from "./richContentModule.js";
 import { scheduleFunctions } from "./scheduleFunctions.js";
+import { timelineFunctions } from "./timelineFunctions.js";
 import { todoFunctions } from "./todoFunctions.js";
 
 // ─── 機能モジュールカタログ（function_modularization.md §3.2） ───────────────
@@ -65,6 +66,15 @@ const MODULE_CATALOG: ModuleCatalogEntry[] = [
 		description: "予定の管理（Googleカレンダー連携）",
 		selectable: true,
 		settingsKey: "schedules",
+	},
+	{
+		id: "timeline",
+		module: timelineFunctions,
+		cap: "secretary",
+		label: "デイリータイムライン",
+		description: "1日の行動計画・移動・記録（写真・支出・タスク完了）",
+		selectable: true,
+		settingsKey: "timeline",
 	},
 	{
 		id: "reminder",

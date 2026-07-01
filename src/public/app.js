@@ -156,6 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
 	// 秘書プリセット専用のタブ（汎用モードBotの文脈では非表示にする）
 	const SECRETARY_ONLY_TABS = [
 		"tasks",
+		"timeline",
 		"schedules",
 		"expenses",
 		"reminders",
@@ -337,6 +338,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const titles = {
 			dashboard: "ダッシュボード",
 			tasks: "タスク管理",
+			timeline: "デイリータイムライン",
 			schedules: "予定スケジュール",
 			expenses: "家計管理",
 			reminders: "リマインダー",
@@ -705,6 +707,8 @@ document.addEventListener("DOMContentLoaded", () => {
 				"modal-int-calendars",
 				"modal-subtask",
 				"modal-task-progress",
+				"modal-plan-block",
+				"modal-timeline-record",
 			].forEach((id) => {
 				const m = document.getElementById(id);
 				if (m) closeModal(m);
@@ -737,6 +741,8 @@ document.addEventListener("DOMContentLoaded", () => {
 			fetchDashboardStats();
 		} else if (activeTab === "tasks") {
 			fetchTasksList();
+		} else if (activeTab === "timeline") {
+			fetchTimelineDay();
 		} else if (activeTab === "schedules") {
 			fetchSchedulesList();
 		} else if (activeTab === "expenses") {
@@ -2800,6 +2806,383 @@ document.addEventListener("DOMContentLoaded", () => {
 			console.error(e);
 		}
 	}
+
+	// ── デイリータイムライン ──────────────────────────────────────────────────
+
+	let tlCurrentDate = new Date().toISOString().slice(0, 10);
+
+	const tlDateDisplay = document.getElementById("tl-date-display");
+	const tlPlanList = document.getElementById("tl-plan-list");
+	const tlRecordList = document.getElementById("tl-record-list");
+	const modalPlanBlock = document.getElementById("modal-plan-block");
+	const modalTimelineRecord = document.getElementById("modal-timeline-record");
+
+	const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
+
+	function tlFmtDate(iso) {
+		const d = new Date(iso + "T00:00:00");
+		return `${iso} (${DAY_NAMES[d.getDay()]})`;
+	}
+
+	function tlUpdateDateDisplay() {
+		if (tlDateDisplay) tlDateDisplay.textContent = tlFmtDate(tlCurrentDate);
+	}
+
+	function tlShiftDay(delta) {
+		const d = new Date(tlCurrentDate + "T00:00:00");
+		d.setDate(d.getDate() + delta);
+		tlCurrentDate = d.toISOString().slice(0, 10);
+		tlUpdateDateDisplay();
+		fetchTimelineDay();
+	}
+
+	document.getElementById("tl-prev-day")?.addEventListener("click", () => tlShiftDay(-1));
+	document.getElementById("tl-next-day")?.addEventListener("click", () => tlShiftDay(1));
+	document.getElementById("tl-today")?.addEventListener("click", () => {
+		tlCurrentDate = new Date().toISOString().slice(0, 10);
+		tlUpdateDateDisplay();
+		fetchTimelineDay();
+	});
+
+	tlUpdateDateDisplay();
+
+	// タイプアイコン
+	const PLAN_TYPE_ICON = { task: "checklist", transit: "train", event: "event", free: "self_improvement" };
+	const PLAN_TYPE_LABEL = { task: "タスク", transit: "移動", event: "イベント", free: "フリー" };
+	const RECORD_TYPE_ICON = { memo: "edit_note", expense: "payments", task_done: "check_circle", media: "photo_camera", location: "place" };
+	const RECORD_TYPE_LABEL = { memo: "メモ", expense: "支出", task_done: "完了", media: "メディア", location: "場所" };
+
+	function buildPlanCard(block) {
+		const card = document.createElement("div");
+		card.className = "tl-plan-card";
+		card.dataset.type = block.type;
+
+		const timeStr = [block.start_time, block.end_time].filter(Boolean).join(" 〜 ");
+		if (timeStr) {
+			const t = document.createElement("div");
+			t.className = "tl-plan-time";
+			t.textContent = timeStr;
+			card.appendChild(t);
+		}
+
+		const row = document.createElement("div");
+		row.style.cssText = "display:flex;align-items:center;gap:6px;";
+		const icon = document.createElement("span");
+		icon.className = "material-symbols-outlined";
+		icon.style.cssText = "font-size:1rem;flex-shrink:0;";
+		icon.textContent = PLAN_TYPE_ICON[block.type] ?? "event";
+		row.appendChild(icon);
+		const titleEl = document.createElement("div");
+		titleEl.className = "tl-plan-title";
+		titleEl.textContent = block.title;
+		row.appendChild(titleEl);
+		card.appendChild(row);
+
+		if (block.transit_from || block.transit_to) {
+			const sub = document.createElement("div");
+			sub.className = "tl-plan-sub";
+			sub.textContent = [block.transit_from, block.transit_to].filter(Boolean).join(" → ") + (block.transit_line ? ` (${block.transit_line})` : "");
+			card.appendChild(sub);
+		}
+		if (block.description) {
+			const sub = document.createElement("div");
+			sub.className = "tl-plan-sub";
+			sub.textContent = block.description;
+			card.appendChild(sub);
+		}
+
+		const actions = document.createElement("div");
+		actions.className = "tl-plan-actions";
+		const editBtn = document.createElement("button");
+		editBtn.className = "btn-icon-sm";
+		editBtn.title = "編集";
+		editBtn.innerHTML = `<span class="material-symbols-outlined">edit</span>`;
+		editBtn.addEventListener("click", () => openPlanBlockModal(block));
+		const delBtn = document.createElement("button");
+		delBtn.className = "btn-icon-sm";
+		delBtn.title = "削除";
+		delBtn.style.color = "var(--color-red)";
+		delBtn.innerHTML = `<span class="material-symbols-outlined">delete</span>`;
+		delBtn.addEventListener("click", () => handleDeletePlanBlock(block.id));
+		actions.appendChild(editBtn);
+		actions.appendChild(delBtn);
+		card.appendChild(actions);
+
+		return card;
+	}
+
+	function buildRecordCard(record) {
+		const card = document.createElement("div");
+		card.className = "tl-record-card";
+		card.dataset.type = record.type;
+
+		const timeStr = record.recorded_at ? record.recorded_at.slice(11, 16) : "";
+		const topRow = document.createElement("div");
+		topRow.style.cssText = "display:flex;align-items:center;gap:6px;";
+		const icon = document.createElement("span");
+		icon.className = "material-symbols-outlined";
+		icon.style.cssText = "font-size:0.9rem;flex-shrink:0;";
+		icon.textContent = RECORD_TYPE_ICON[record.type] ?? "edit_note";
+		topRow.appendChild(icon);
+		const metaEl = document.createElement("span");
+		metaEl.className = "tl-record-time";
+		const label = RECORD_TYPE_LABEL[record.type] ?? record.type;
+		metaEl.textContent = timeStr ? `${timeStr} · ${label}` : label;
+		topRow.appendChild(metaEl);
+		card.appendChild(topRow);
+
+		if (record.title) {
+			const t = document.createElement("div");
+			t.className = "tl-record-title";
+			t.textContent = record.title;
+			card.appendChild(t);
+		}
+		if (record.content) {
+			const c = document.createElement("div");
+			c.className = "tl-record-content";
+			c.textContent = record.content;
+			card.appendChild(c);
+		}
+		if (record.type === "expense" && record.amount != null) {
+			const amt = document.createElement("div");
+			amt.className = "tl-record-title";
+			amt.textContent = `¥${Number(record.amount).toLocaleString()} · ${record.expense_category ?? ""}`;
+			card.appendChild(amt);
+		}
+		if (record.media_path) {
+			const isVideo = record.media_type === "video";
+			const mediaEl = document.createElement(isVideo ? "video" : "img");
+			mediaEl.className = "tl-record-media";
+			mediaEl.src = `/api/timeline/media/${encodeURIComponent(record.media_path)}`;
+			if (isVideo) { mediaEl.controls = true; mediaEl.muted = true; }
+			card.appendChild(mediaEl);
+		}
+		if (record.location) {
+			const loc = document.createElement("div");
+			loc.className = "tl-plan-sub";
+			loc.textContent = `📍 ${record.location}`;
+			card.appendChild(loc);
+		}
+
+		const actions = document.createElement("div");
+		actions.className = "tl-record-actions";
+		const delBtn = document.createElement("button");
+		delBtn.className = "btn-icon-sm";
+		delBtn.title = "削除";
+		delBtn.style.color = "var(--color-red)";
+		delBtn.innerHTML = `<span class="material-symbols-outlined">delete</span>`;
+		delBtn.addEventListener("click", () => handleDeleteRecord(record.id));
+		actions.appendChild(delBtn);
+		card.appendChild(actions);
+
+		return card;
+	}
+
+	async function fetchTimelineDay() {
+		if (!tlPlanList || !tlRecordList) return;
+		try {
+			const res = await fetch(`/api/timeline/day?date=${tlCurrentDate}`);
+			const data = await res.json();
+			if (!data.success) return;
+
+			tlPlanList.replaceChildren();
+			if (data.blocks.length === 0) {
+				const empty = document.createElement("div");
+				empty.className = "tl-empty";
+				empty.textContent = "計画はまだありません";
+				tlPlanList.appendChild(empty);
+			} else {
+				data.blocks.forEach((b) => tlPlanList.appendChild(buildPlanCard(b)));
+			}
+
+			tlRecordList.replaceChildren();
+			if (data.records.length === 0) {
+				const empty = document.createElement("div");
+				empty.className = "tl-empty";
+				empty.textContent = "記録はまだありません";
+				tlRecordList.appendChild(empty);
+			} else {
+				data.records.forEach((r) => tlRecordList.appendChild(buildRecordCard(r)));
+			}
+		} catch (e) {
+			console.error(e);
+		}
+	}
+
+	// ── 計画ブロック モーダル ──
+
+	let editingPlanBlockId = null;
+
+	function openPlanBlockModal(block = null) {
+		editingPlanBlockId = block?.id ?? null;
+		document.getElementById("plan-block-modal-title").textContent =
+			block ? "計画ブロックを編集" : "計画ブロックを追加";
+		document.getElementById("plan-block-id").value = block?.id ?? "";
+		document.getElementById("plan-block-title").value = block?.title ?? "";
+		document.getElementById("plan-block-start").value = block?.start_time ?? "";
+		document.getElementById("plan-block-end").value = block?.end_time ?? "";
+		document.getElementById("plan-block-desc").value = block?.description ?? "";
+		document.getElementById("plan-transit-from").value = block?.transit_from ?? "";
+		document.getElementById("plan-transit-to").value = block?.transit_to ?? "";
+		document.getElementById("plan-transit-line").value = block?.transit_line ?? "";
+		const activeType = block?.type ?? "event";
+		document.getElementById("plan-block-type").value = activeType;
+		document.querySelectorAll("#plan-type-pills .tl-type-pill").forEach((p) => {
+			p.classList.toggle("active", p.dataset.type === activeType);
+		});
+		document.getElementById("plan-transit-fields").style.display =
+			activeType === "transit" ? "" : "none";
+		openModal(modalPlanBlock);
+	}
+
+	document.querySelectorAll("#plan-type-pills .tl-type-pill").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			document.querySelectorAll("#plan-type-pills .tl-type-pill").forEach((b) => b.classList.remove("active"));
+			btn.classList.add("active");
+			document.getElementById("plan-block-type").value = btn.dataset.type;
+			document.getElementById("plan-transit-fields").style.display =
+				btn.dataset.type === "transit" ? "" : "none";
+		});
+	});
+
+	document.getElementById("plan-block-form")?.addEventListener("submit", async (e) => {
+		e.preventDefault();
+		const title = document.getElementById("plan-block-title").value.trim();
+		if (!title) return;
+		const type = document.getElementById("plan-block-type").value;
+		const body = {
+			date: tlCurrentDate,
+			type,
+			title,
+			startTime: document.getElementById("plan-block-start").value || undefined,
+			endTime: document.getElementById("plan-block-end").value || undefined,
+			description: document.getElementById("plan-block-desc").value || undefined,
+			transitFrom: document.getElementById("plan-transit-from").value || undefined,
+			transitTo: document.getElementById("plan-transit-to").value || undefined,
+			transitLine: document.getElementById("plan-transit-line").value || undefined,
+		};
+		try {
+			const isEdit = editingPlanBlockId != null;
+			const url = isEdit ? "/api/timeline/plan/update" : "/api/timeline/plan";
+			if (isEdit) body.id = editingPlanBlockId;
+			const res = await fetch(url, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			const data = await res.json();
+			if (data.success) {
+				closeModal(modalPlanBlock);
+				fetchTimelineDay();
+			}
+		} catch (e) {
+			console.error(e);
+		}
+	});
+
+	async function handleDeletePlanBlock(id) {
+		if (!confirm("この計画ブロックを削除しますか？")) return;
+		await fetch("/api/timeline/plan/delete", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ id }),
+		});
+		fetchTimelineDay();
+	}
+
+	document.getElementById("btn-add-plan")?.addEventListener("click", () => openPlanBlockModal());
+
+	// ── 記録 モーダル ──
+
+	document.querySelectorAll("#record-type-pills .tl-type-pill").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			document.querySelectorAll("#record-type-pills .tl-type-pill").forEach((b) => b.classList.remove("active"));
+			btn.classList.add("active");
+			const t = btn.dataset.type;
+			document.getElementById("record-type").value = t;
+			document.getElementById("record-expense-group").style.display = t === "expense" ? "" : "none";
+			document.getElementById("record-media-group").style.display = t === "media" ? "" : "none";
+			document.getElementById("record-content-group").style.display =
+				t === "expense" || t === "media" ? "none" : "";
+		});
+	});
+
+	document.getElementById("timeline-record-form")?.addEventListener("submit", async (e) => {
+		e.preventDefault();
+		const type = document.getElementById("record-type").value;
+		const title = document.getElementById("record-title").value.trim();
+		const location = document.getElementById("record-location").value.trim();
+
+		try {
+			if (type === "media") {
+				const file = document.getElementById("record-media-file").files[0];
+				if (!file) return;
+				const reader = new FileReader();
+				reader.onload = async () => {
+					const base64 = reader.result.split(",")[1];
+					const res = await fetch("/api/timeline/media", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							date: tlCurrentDate,
+							base64,
+							mimeType: file.type,
+							title: title || undefined,
+							location: location || undefined,
+						}),
+					});
+					const data = await res.json();
+					if (data.success) { closeModal(modalTimelineRecord); fetchTimelineDay(); }
+				};
+				reader.readAsDataURL(file);
+				return;
+			}
+
+			const body = {
+				date: tlCurrentDate,
+				type,
+				title: title || undefined,
+				content: document.getElementById("record-content").value.trim() || undefined,
+				location: location || undefined,
+			};
+			if (type === "expense") {
+				body.amount = Number(document.getElementById("record-amount").value);
+				body.category = document.getElementById("record-category").value;
+			}
+			const res = await fetch("/api/timeline/record", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			const data = await res.json();
+			if (data.success) { closeModal(modalTimelineRecord); fetchTimelineDay(); }
+		} catch (e) {
+			console.error(e);
+		}
+	});
+
+	async function handleDeleteRecord(id) {
+		if (!confirm("この記録を削除しますか？")) return;
+		await fetch("/api/timeline/record/delete", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ id }),
+		});
+		fetchTimelineDay();
+	}
+
+	document.getElementById("btn-add-record")?.addEventListener("click", () => {
+		document.getElementById("record-title").value = "";
+		document.getElementById("record-content").value = "";
+		document.getElementById("record-location").value = "";
+		document.getElementById("record-amount").value = "";
+		document.querySelectorAll("#record-type-pills .tl-type-pill").forEach((b, i) => b.classList.toggle("active", i === 0));
+		document.getElementById("record-type").value = "memo";
+		document.getElementById("record-expense-group").style.display = "none";
+		document.getElementById("record-media-group").style.display = "none";
+		document.getElementById("record-content-group").style.display = "";
+		openModal(modalTimelineRecord);
+	});
 
 	// ── ガントチャート（chart.js 水平フローティングバー） ──
 
