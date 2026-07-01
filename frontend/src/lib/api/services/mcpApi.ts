@@ -3,21 +3,24 @@
 //
 // 注意: /proxy/mcp/:id/mcp と /api/mcp-servers/:id/dashboard は sandboxed iframe 経由で
 //   呼ばれ、SPA 本体の fetch 経路ではない（§5.6）。ここでは iframe URL のヘルパのみ提供。
+//
+// ★add の body は camelCase（ctx.body.endpointUrl / authCredential / requiresConfirmation / scope）。
 import { api } from "../client";
 import type { McpServersResponse, ApiResponse } from "../types";
 
 const USER = { scope: "user" } as const;
 
 export const mcpApi = {
-	/** GET /api/mcp-servers — 登録済み MCP サーバ一覧 */
+	/** GET /api/mcp-servers — 登録済み MCP サーバ一覧（owner + system） */
 	list: () => api.get<McpServersResponse>("/api/mcp-servers", USER),
 
-	/** POST /api/mcp-servers/add */
+	/** POST /api/mcp-servers/add（scope:"system" は Admin のみ） */
 	add: (body: {
 		name: string;
-		endpoint_url: string;
-		auth_credential?: string;
-		requires_confirmation?: boolean;
+		endpointUrl: string;
+		authCredential?: string;
+		requiresConfirmation?: boolean;
+		scope?: "user" | "system";
 	}) => api.post<ApiResponse>("/api/mcp-servers/add", body, USER),
 
 	/** POST /api/mcp-servers/refresh — ツールキャッシュ更新 */
@@ -30,9 +33,12 @@ export const mcpApi = {
 	/** POST /api/mcp-servers/delete */
 	delete: (id: number) => api.post<ApiResponse>("/api/mcp-servers/delete", { id }, USER),
 
-	/** GET /api/mcp-servers/:id/dashboard/status — ダッシュボード稼働状態 */
+	/** GET /api/mcp-servers/:id/dashboard/status — ダッシュボード提供の有無 */
 	dashboardStatus: (id: number) =>
-		api.get<ApiResponse>(`/api/mcp-servers/${id}/dashboard/status`, USER),
+		api.get<ApiResponse & { available?: boolean }>(
+			`/api/mcp-servers/${id}/dashboard/status`,
+			USER,
+		),
 
 	/** iframe src 用の URL ヘルパ（/api/mcp-servers/:id/dashboard は独自 CSP で返る） */
 	dashboardUrl: (id: number) => `/api/mcp-servers/${id}/dashboard`,

@@ -3,8 +3,14 @@
 // overview は非スコープ（全 Bot 横断）だが、bot 操作系（start/stop/restart/clear-history）
 // と grants 系は body.botId を読む。ただし呼び出し側が対象 botId を明示的に渡す設計のため、
 // activeBot への自動フォールバックは望ましくない → scope:'user' で botId を body に明示。
+//
+// ★フィールド名はハンドラの ctx.body.* 読み取りに厳密一致させる（granted / serviceName / mode）。
 import { api } from "../client";
-import type { IntegratedOverviewResponse, ApiResponse } from "../types";
+import type {
+	IntegratedOverviewResponse,
+	GoogleCalendarsResponse,
+	ApiResponse,
+} from "../types";
 
 const USER = { scope: "user" } as const;
 
@@ -26,28 +32,37 @@ export const integratedApi = {
 	clearHistory: (botId: string) =>
 		api.post<ApiResponse>("/api/integrated/bots/clear-history", { botId }, USER),
 
-	// ── 許可付与（grants） ──
+	// ── 許可付与（grants）。ハンドラは ctx.body.granted / serviceName を読む ──
 	/** POST /api/integrated/grants/mcp */
-	grantMcp: (body: { botId: string; serverId: number; grant: boolean }) =>
+	grantMcp: (body: { botId: string; serverId: number; granted: boolean }) =>
 		api.post<ApiResponse>("/api/integrated/grants/mcp", body, USER),
 	/** POST /api/integrated/grants/credential */
-	grantCredential: (body: { botId: string; name: string; grant: boolean }) =>
-		api.post<ApiResponse>("/api/integrated/grants/credential", body, USER),
-	/** POST /api/integrated/grants/google */
-	grantGoogle: (body: { botId: string; accountId: string; grant: boolean }) =>
-		api.post<ApiResponse>("/api/integrated/grants/google", body, USER),
+	grantCredential: (body: {
+		botId: string;
+		serviceName: string;
+		granted: boolean;
+	}) => api.post<ApiResponse>("/api/integrated/grants/credential", body, USER),
+	/** POST /api/integrated/grants/google — mode: "primary" | "none" | "account"(+accountId) */
+	grantGoogle: (body: {
+		botId: string;
+		mode: "primary" | "none" | "account";
+		accountId?: number;
+	}) => api.post<ApiResponse>("/api/integrated/grants/google", body, USER),
 
 	// ── Google アカウント管理 ──
 	/** POST /api/integrated/google/accounts/primary */
-	setPrimaryGoogleAccount: (accountId: string) =>
+	setPrimaryGoogleAccount: (accountId: number) =>
 		api.post<ApiResponse>("/api/integrated/google/accounts/primary", { accountId }, USER),
 	/** POST /api/integrated/google/accounts/delete */
-	deleteGoogleAccount: (accountId: string) =>
+	deleteGoogleAccount: (accountId: number) =>
 		api.post<ApiResponse>("/api/integrated/google/accounts/delete", { accountId }, USER),
 	/** POST /api/integrated/google/accounts/calendars — 同期カレンダー設定 */
-	setGoogleCalendars: (body: { accountId: string; calendars: string[] }) =>
+	setGoogleCalendars: (body: { accountId: number; calendars: string[] }) =>
 		api.post<ApiResponse>("/api/integrated/google/accounts/calendars", body, USER),
 	/** GET /api/integrated/google/accounts/:id/calendars — カレンダー一覧取得 */
-	googleAccountCalendars: (accountId: string) =>
-		api.get<ApiResponse>(`/api/integrated/google/accounts/${accountId}/calendars`, USER),
+	googleAccountCalendars: (accountId: number) =>
+		api.get<GoogleCalendarsResponse>(
+			`/api/integrated/google/accounts/${accountId}/calendars`,
+			USER,
+		),
 };
