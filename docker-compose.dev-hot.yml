@@ -31,8 +31,8 @@ services:
       - "${DATA_DIR:?set DATA_DIR in instance.env}:/app/data"
       - "${CONFIG_FILE:?set CONFIG_FILE in instance.env}:/app/config.yaml:ro"
       # ホットリロード: TypeScript ソースをマウント（API のホットリロード用）。
-      # フロントは Vite(ホスト 5173) が担当するためここではマウントしない。
-      # src/public マウントは P5 まで残置可（STATIC_DIR=src/public ロールバック検証用）。
+      # フロントは Vite(ホスト 5173) が担当するためここではマウントしない
+      # （P5 完了: 旧 src/public は撤去済。フロントは dist/public 一本化＝このコンテナでは配信しない）。
       # Rust バイナリはイメージに焼き込み済みのため dist/bin/ マウント不要
       - ./src:/app/src
       # ただし src/rust_*/target はマウントから除外（anonymous volume でマスク）。

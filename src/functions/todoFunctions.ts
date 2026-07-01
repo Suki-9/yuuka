@@ -23,7 +23,7 @@ import { formatDateTime } from "../utils/formatters.js";
 // ─── タスクの使い方ガイド（§3.2: 公開ガイドページ /tasks/guide と同一内容のMD版） ──
 //
 // LLMが「タスクの使い方」を聞かれた時に getTaskUsageGuide で取得して案内する。
-// 内容は src/public/index.html の #task-guide-overlay と対応させる（更新時は両方を直す）。
+// 内容は frontend/src/overlays/TasksGuide.svelte（公開ルート /tasks/guide）と対応させる（更新時は両方を直す）。
 
 /** 使い方ガイドページのURL（BASE_URL 未設定時は相対パス） */
 function taskGuideUrl(): string {

@@ -83,11 +83,8 @@ health_check() {
   echo "── 判定 ──"
   echo "   HTTP: $code / Botログイン: ${logins}件 / エラー疑い: ${errs}件"
   if [ "$code" = "200" ]; then
-    # ── 追加検証（新配信 STATIC_DIR=dist/public 前提。§15.x）──────────────────
-    # 旧 vanilla 配信（STATIC_DIR=src/public, /app.js）では hashed/immutable が無いため、
-    # その場合は (b)/(d) を警告に降格して false negative を避ける（Docker §7 未反映のロールバック中）。
+    # ── 追加検証（フロントは dist/public 一本化。§15.x / P5 完了後は旧 vanilla 配信の分岐なし）──
     local base="http://127.0.0.1:$port"
-    local static_mode="${STATIC_DIR:-dist/public}"
     # (a) CSP に script-src 'self'（curl -sI=HEAD。server.ts は method 非依存で writeHead:
     #     :198/:222 でヘッダを書くため HEAD でも CSP が返る）
     if ! curl -sI "$base/" | grep -qi "content-security-policy:.*script-src 'self'"; then
@@ -97,23 +94,18 @@ health_check() {
     # index.html 本体を1回だけ取得（curl は Accept-Encoding を送らないため非圧縮 = 生 HTML）
     local html
     html="$(curl -s "$base/")"
-    if [ "$static_mode" = "src/public" ]; then
-      # 旧 vanilla 配信中: hashed module / immutable は存在しないため警告に降格
-      echo "⚠️  [$INST] STATIC_DIR=src/public（旧配信）: hashed/immutable 検証を skip"
-    else
-      # (b) index.html が hashed module を参照（Vite 既定ハッシュ=8字ちょうど。
-      #     server.ts:157 の immutable 正規表現と同一閾値で連動。hash 長を変えるなら両所同時更新）
-      if ! echo "$html" | grep -qE 'src="/assets/[^"]+-[A-Za-z0-9_-]{8,}\.js"'; then
-        echo "❌ [$INST] hashed module 参照が無い" >&2
-        return 1
-      fi
-      # (d) /assets/*.js が immutable（curl -sI=HEAD。server.ts:158-159 の Cache-Control 分岐）
-      local asset
-      asset="$(echo "$html" | grep -oE '/assets/[^"]+\.js' | head -1)"
-      if ! curl -sI "$base$asset" | grep -qi "cache-control:.*immutable"; then
-        echo "❌ [$INST] /assets/*.js が immutable でない" >&2
-        return 1
-      fi
+    # (b) index.html が hashed module を参照（Vite 既定ハッシュ=8字ちょうど。
+    #     server.ts:157 の immutable 正規表現と同一閾値で連動。hash 長を変えるなら両所同時更新）
+    if ! echo "$html" | grep -qE 'src="/assets/[^"]+-[A-Za-z0-9_-]{8,}\.js"'; then
+      echo "❌ [$INST] hashed module 参照が無い" >&2
+      return 1
+    fi
+    # (d) /assets/*.js が immutable（curl -sI=HEAD。server.ts:158-159 の Cache-Control 分岐）
+    local asset
+    asset="$(echo "$html" | grep -oE '/assets/[^"]+\.js' | head -1)"
+    if ! curl -sI "$base$asset" | grep -qi "cache-control:.*immutable"; then
+      echo "❌ [$INST] /assets/*.js が immutable でない" >&2
+      return 1
     fi
     # (c) GSV meta（config 設定時のみ・警告に留める）
     echo "$html" | grep -q 'google-site-verification' || echo "⚠️  [$INST] GSV 未注入（config 次第）"

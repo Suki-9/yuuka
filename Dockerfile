@@ -106,11 +106,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 # アプリ本体（runtime に必要なものだけ builder から取得）
 COPY --from=node-builder /app/node_modules ./node_modules
-# dist は tsgo 出力(dist/index.js)・Vite 出力(dist/public)・サーバー資産(dist/assets) を一括で拾う
+# dist は tsgo 出力(dist/index.js)・Vite 出力(dist/public=フロント配信元)・サーバー資産(dist/assets) を一括で拾う
 COPY --from=node-builder /app/dist ./dist
-# src/public は P5 まで残す（STATIC_DIR=src/public への旧 vanilla 配信ロールバック用）
-COPY --from=node-builder /app/src/public ./src/public
 # src/assets は Vite の /assets/ とは別物のサーバー実行時資産（@napi-rs/canvas 等）。常に残す（不可侵）
+# （P5 完了: 旧 vanilla の src/public は撤去。フロントは dist/public 一本化。ロールバックは deploy rollback）
 COPY --from=node-builder /app/src/assets ./src/assets
 COPY --from=node-builder /app/docs ./docs
 COPY package.json ./
