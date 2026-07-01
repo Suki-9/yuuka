@@ -8,8 +8,8 @@
 #               既定はレイヤキャッシュ有効で高速。`update --no-cache` でフル再構築。
 #     rollback  退避イメージへ戻して再作成
 #     verify    ヘルスチェックのみ（HTTP/Botログイン/エラー件数）
-#     hot       ホットリロードモード（tsx watch + src/ マウント。Rust ビルド不要）
-#               `hot --build` で dev-hot イメージを強制再ビルド
+#     hot       ホットリロードモード（tsx watch + src/ マウント。Rust はイメージに内蔵）
+#               `hot --build` で dev-hot イメージを強制再ビルド（Cargo.toml 変更時）
 #     hot-logs  ホットリロードコンテナのログを tail -f
 #     hot-down  ホットリロードコンテナを停止
 #   それ以外は docker compose のサブコマンドへそのまま委譲:
@@ -119,15 +119,7 @@ case "$CMD" in
     health_check
     ;;
   hot)
-    # ホットリロードモード（tsx watch + src/ マウント。Rust バイナリは事前ビルド済み前提）
-    if [ ! -d "$ROOT/dist/bin" ] || [ -z "$(ls -A "$ROOT/dist/bin" 2>/dev/null)" ]; then
-      echo "⚠️  dist/bin/ が空です。先に Rust バイナリをビルドしてください:" >&2
-      echo "   cargo build --release --manifest-path src/rust_crawler/Cargo.toml" >&2
-      echo "   cargo build --release --manifest-path src/rust_synapse/Cargo.toml" >&2
-      echo "   mkdir -p dist/bin && cp src/rust_crawler/target/release/yuuka-crawler dist/bin/" >&2
-      echo "   cp src/rust_synapse/target/release/yuuka-synapse dist/bin/" >&2
-      exit 1
-    fi
+    # ホットリロードモード（tsx watch + src/ マウント。Rust バイナリはイメージに焼き込み済み）
     if [ "${2:-}" = "--build" ]; then
       echo "🔨 [$INST] dev-hot イメージをビルド..."
       dc_hot build

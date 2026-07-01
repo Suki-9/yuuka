@@ -2,10 +2,26 @@
 # ==============================================================================
 # Yuuka - ホットリロード開発イメージ
 # TypeScript は tsx watch でリアルタイム再起動。src/ はホストからマウントする。
-# Rust バイナリは事前ビルド済みの dist/bin/ をマウント（コンテナ内では不要）。
+# Rust バイナリはイメージ内にビルド済み（dist/bin/ マウント不要）。
 #
 # 起動: deploy/instance.sh dev hot
 # ==============================================================================
+
+# ---- stage 1: Rust バイナリ ------------------------------------------------
+FROM rust:1-bookworm AS rust-builder
+WORKDIR /build/crawler
+COPY src/rust_crawler/Cargo.toml src/rust_crawler/Cargo.lock ./
+COPY src/rust_crawler/src ./src
+RUN cargo build --release \
+ && cp target/release/yuuka-crawler /yuuka-crawler
+
+WORKDIR /build/synapse
+COPY src/rust_synapse/Cargo.toml src/rust_synapse/Cargo.lock ./
+COPY src/rust_synapse/src ./src
+RUN cargo build --release \
+ && cp target/release/yuuka-synapse /yuuka-synapse
+
+# ---- stage 2: Node 開発環境 ------------------------------------------------
 FROM node:24-bookworm
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
@@ -32,10 +48,13 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# エントリポイント: 未セットアップなら pnpm install → tsx watch
+# Rust バイナリをイメージに焼き込む（src/ はホストマウントで上書きされるが dist/bin/ は残る）
+RUN mkdir -p dist/bin
+COPY --from=rust-builder /yuuka-crawler dist/bin/yuuka-crawler
+COPY --from=rust-builder /yuuka-synapse dist/bin/yuuka-synapse
+
+# エントリポイント: 未セットアップなら pnpm install → pnpm run dev
 COPY docker/entrypoint.dev.sh /entrypoint.dev.sh
 
-# src/ と dist/bin/ はホストからマウント（Dockerfile.dev では COPY しない）
-# data/ は instance.env の DATA_DIR からマウント
-
+# src/ はホストからマウント（tsx watch でホットリロード）
 ENTRYPOINT ["/entrypoint.dev.sh"]
