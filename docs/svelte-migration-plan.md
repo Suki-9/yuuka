@@ -1,6 +1,6 @@
 # Svelte + 現Node.jsサーバー 移行手順書
 
-対象: `/home/suki/web/kawaii-music.moe/apps/yuuka`（Discord AI秘書Bot + Web管理ダッシュボード）
+対象: `リポジトリルート`（Discord AI秘書Bot + Web管理ダッシュボード）
 方針: フロントエンドを素の vanilla JS SPA から **Svelte(単体) + Vite** へ移行する。バックエンド（`src/server.ts` の素 http サーバー + route registry + API）は原則不変。
 
 ---
@@ -685,9 +685,9 @@ curl -sI "$BASE$ASSET" | grep -qi "cache-control:.*immutable" || { echo "immutab
 ---
 
 主要な変更対象ファイル（すべて絶対パス）:
-- 最小変更: `/home/suki/web/kawaii-music.moe/apps/yuuka/src/server.ts`（`PUBLIC_DIR` §6.1 / Cache-Control §6.2）
-- ビルド統合: `/home/suki/web/kawaii-music.moe/apps/yuuka/Dockerfile`（§7）, `/home/suki/web/kawaii-music.moe/apps/yuuka/package.json`（scripts §5.3, build §5.4）
-- lockfile: `/home/suki/web/kawaii-music.moe/apps/yuuka/pnpm-lock.yaml`（§5.1 更新・コミット必須）
-- dev: `/home/suki/web/kawaii-music.moe/apps/yuuka/docker-compose.dev-hot.yml`, `/home/suki/web/kawaii-music.moe/apps/yuuka/deploy/instance.sh`（コメント同期 §5.7 / verify 強化 §15.x）
-- 新設: `/home/suki/web/kawaii-music.moe/apps/yuuka/frontend/`（§4）
-- 撤去（P5・1行のみ / `src/assets` COPY は残す）: `/home/suki/web/kawaii-music.moe/apps/yuuka/src/public/{app.js,styles.css,index.html,vendor/chart.umd.min.js}`
+- 最小変更: `src/server.ts`（`PUBLIC_DIR` §6.1 / Cache-Control §6.2）
+- ビルド統合: `Dockerfile`（§7）, `package.json`（scripts §5.3, build §5.4）
+- lockfile: `pnpm-lock.yaml`（§5.1 更新・コミット必須）
+- dev: `docker-compose.dev-hot.yml`, `deploy/instance.sh`（コメント同期 §5.7 / verify 強化 §15.x）
+- 新設: `frontend/`（§4）
+- 撤去（P5・1行のみ / `src/assets` COPY は残す）: `src/public/{app.js,styles.css,index.html,vendor/chart.umd.min.js}`

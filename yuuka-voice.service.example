@@ -5,9 +5,10 @@ Wants=yuuka.service
 
 [Service]
 Type=simple
-User=suki
+# ↓ 実行ユーザーとインストール先パスをお使いの環境に合わせて変更してください
+User=youruser
 SupplementaryGroups=audio
-WorkingDirectory=/home/suki/app/yuuka/voice-client
+WorkingDirectory=/path/to/voice-client
 ExecStart=/usr/local/bin/node dist/index.js
 Restart=always
 RestartSec=10

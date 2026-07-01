@@ -469,7 +469,7 @@ mod tests {
     fn server_ready_parse() {
         let json = r#"{
             "type":"ready",
-            "user":{"discordId":"u1","username":"komorida","role":"admin"},
+            "user":{"discordId":"u1","username":"testuser","role":"admin"},
             "bot":{"id":"b1","name":"ユウカ","discord_avatar_url":"https://x/a.png","primary":true},
             "bots":[{"id":"b1","name":"ユウカ","discord_avatar_url":"https://x/a.png","primary":true},
                     {"id":"b2","name":"カヨコ","primary":false}],
