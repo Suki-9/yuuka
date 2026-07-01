@@ -20,15 +20,14 @@ export const isAuthed = derived(currentUser, (u) => u !== null);
  */
 export async function bootstrapSession(): Promise<SessionUser> {
 	try {
+		// サーバは { success, user: { discordId, username, role }, ...legalUrls } を返す（ネスト）
 		const me = await api.get<{
-			discordId: string;
-			username: string;
-			role: "user" | "admin";
+			user: { discordId: string; username: string; role: "user" | "admin" };
 		}>("/api/me", { scope: "user", isBootstrap: true });
 		const user: SessionUser = {
-			discordId: me.discordId,
-			username: me.username,
-			role: me.role ?? "user",
+			discordId: me.user.discordId,
+			username: me.user.username,
+			role: me.user.role ?? "user",
 		};
 		currentUser.set(user);
 		return user;
