@@ -9,6 +9,7 @@ import type {
 	AdminInviteCodesResponse,
 	AdminAuditLogsResponse,
 	AdminSystemSettingsResponse,
+	AdminBotAttributeSettingsResponse,
 	ApiResponse,
 } from "../types";
 
@@ -27,26 +28,27 @@ export const adminApi = {
 	systemSettings: () =>
 		api.get<AdminSystemSettingsResponse>("/api/admin/system-settings", USER),
 	/** POST /api/admin/system-settings */
-	saveSystemSettings: (body: Record<string, unknown>) =>
+	saveSystemSettings: (body: { privacyPolicyUrl: string; termsUrl: string }) =>
 		api.post<ApiResponse>("/api/admin/system-settings", body, USER),
 
-	// ── ユーザー管理 ──
+	// ── ユーザー管理（ハンドラは ctx.body.targetUserId を読む） ──
 	/** GET /api/admin/users */
 	users: () => api.get<AdminUsersResponse>("/api/admin/users", USER),
 	/** POST /api/admin/users/role */
-	setUserRole: (body: { discordId: string; role: "user" | "admin" }) =>
+	setUserRole: (body: { targetUserId: string; role: "user" | "admin" }) =>
 		api.post<ApiResponse>("/api/admin/users/role", body, USER),
 	/** POST /api/admin/users/delete */
-	deleteUser: (discordId: string) =>
-		api.post<ApiResponse>("/api/admin/users/delete", { discordId }, USER),
+	deleteUser: (targetUserId: string) =>
+		api.post<ApiResponse>("/api/admin/users/delete", { targetUserId }, USER),
 
-	/** GET /api/admin/audit-logs */
-	auditLogs: (query?: { limit?: number; offset?: number }) =>
+	/** GET /api/admin/audit-logs（action フィルタ・ページング対応） */
+	auditLogs: (query?: { limit?: number; offset?: number; action?: string }) =>
 		api.get<AdminAuditLogsResponse>("/api/admin/audit-logs", {
 			...USER,
 			query: {
 				limit: query?.limit,
 				offset: query?.offset,
+				action: query?.action,
 			},
 		}),
 
@@ -63,9 +65,9 @@ export const adminApi = {
 	// ── 招待コード ──
 	/** GET /api/admin/invite-codes */
 	inviteCodes: () => api.get<AdminInviteCodesResponse>("/api/admin/invite-codes", USER),
-	/** POST /api/admin/invite-codes — 発行 */
-	createInviteCode: (body?: Record<string, unknown>) =>
-		api.post<ApiResponse>("/api/admin/invite-codes", body ?? {}, USER),
+	/** POST /api/admin/invite-codes — 発行（ハンドラは ctx.body.code を読む） */
+	createInviteCode: (code: string) =>
+		api.post<ApiResponse>("/api/admin/invite-codes", { code }, USER),
 	/** POST /api/admin/invite-codes/:code/revoke */
 	revokeInviteCode: (code: string) =>
 		api.post<ApiResponse>(
@@ -80,10 +82,19 @@ export const adminApi = {
 	// ── Bot 属性のグローバル既定（botAttributeRoutes: admin） ──
 	/** GET /api/admin/bot-attribute-settings */
 	botAttributeSettings: () =>
-		api.get<ApiResponse>("/api/admin/bot-attribute-settings", USER),
+		api.get<AdminBotAttributeSettingsResponse>(
+			"/api/admin/bot-attribute-settings",
+			USER,
+		),
 	/** POST /api/admin/bot-attribute-settings */
-	saveBotAttributeSettings: (body: Record<string, unknown>) =>
-		api.post<ApiResponse>("/api/admin/bot-attribute-settings", body, USER),
+	saveBotAttributeSettings: (body: {
+		displayNames?: Record<string, string>;
+		rateLimits?: {
+			userPerMinute?: number;
+			userPerDay?: number;
+			guildPerDay?: number;
+		};
+	}) => api.post<ApiResponse>("/api/admin/bot-attribute-settings", body, USER),
 
 	// ── ペルソナ管理（personaRoutes: admin） ──
 	/** POST /api/admin/personas/unpublish */

@@ -402,14 +402,20 @@ export interface McpToolDef {
 	description?: string;
 	inputSchema?: unknown;
 }
+/** GET /api/mcp-servers の toSafeView 出力（mcpRoutes.ts）。 */
 export interface McpServerView {
 	id: number;
+	scope: "system" | "user";
 	name: string;
 	endpoint_url: string;
-	requires_confirmation: number;
-	enabled: number;
+	has_auth: boolean;
+	tools: { name: string; description: string }[];
 	tools_cache_updated: string | null;
+	requires_confirmation: boolean;
+	enabled: boolean;
 	created_at: string;
+	/** 許可済み Bot（一覧ハンドラで付与） */
+	granted_bot_ids?: string[];
 }
 export type McpServersResponse = ApiResponse<{ servers: McpServerView[] }>;
 
@@ -447,9 +453,67 @@ export type StatusResponse = ApiResponse<{ [k: string]: unknown }>;
 export type DiscordSettingsResponse = ApiResponse<{ [k: string]: unknown }>;
 export type GoogleOAuthUrlResponse = ApiResponse<{ url: string }>;
 
-// ─── integrated ──────────────────────────────────────────────────────────────
+// ─── integrated（integratedRoutes: /api/integrated/overview） ─────────────────
 
-export type IntegratedOverviewResponse = ApiResponse<{ [k: string]: unknown }>;
+/** 統合オーバービューの Bot 行（overview handler の bots[] を写す） */
+export interface IntegratedBotView {
+	id: string;
+	name: string;
+	is_system_default: boolean;
+	preset: string;
+	suspended: boolean;
+	stopped: boolean;
+	has_token: boolean;
+	running: boolean;
+	connected: boolean;
+	discord_username: string | null;
+	discord_avatar_url: string | null;
+	/** owner 本人が許可した MCP サーバ ID */
+	granted_mcp_ids: number[];
+	/** owner 本人が許可した認証情報サービス名 */
+	granted_credentials: string[];
+	/** "primary" | "none" | account id (number) */
+	google_setting: string | number;
+}
+/** 統合オーバービューの MCP サーバ行 */
+export interface IntegratedMcpServerView {
+	id: number;
+	name: string;
+	endpoint_url: string;
+	enabled: boolean;
+	has_auth: boolean;
+	tools: number;
+}
+/** 統合オーバービューの認証情報行 */
+export interface IntegratedCredentialView {
+	service_name: string;
+	username: string;
+	url: string | null;
+	updated_at: string | null;
+}
+/** 統合オーバービューの Google アカウント行 */
+export interface IntegratedGoogleAccountView {
+	id: number;
+	email: string | null;
+	is_primary: boolean;
+	calendars: string[];
+	[k: string]: unknown;
+}
+export type IntegratedOverviewResponse = ApiResponse<{
+	bots: IntegratedBotView[];
+	mcpServers: IntegratedMcpServerView[];
+	credentials: IntegratedCredentialView[];
+	googleAccounts: IntegratedGoogleAccountView[];
+}>;
+/** カレンダー一覧（GET /api/integrated/google/accounts/:id/calendars） */
+export interface GoogleCalendarView {
+	id: string;
+	summary?: string;
+	[k: string]: unknown;
+}
+export type GoogleCalendarsResponse = ApiResponse<{
+	calendars: GoogleCalendarView[];
+}>;
 
 // ─── admin（adminRoutes） ────────────────────────────────────────────────────
 
@@ -460,29 +524,75 @@ export interface AdminUserView {
 	created_at: string;
 	updated_at: string;
 }
+/** GET /api/admin/stats の stats フィールド */
 export interface AdminStats {
-	[k: string]: unknown;
+	totalUsers: number;
+	totalBots: number;
+	suspendedBots: number;
+	totalInviteCodes: number;
+	usedInviteCodes: number;
+	availableInviteCodes: number;
 }
-export type AdminBotView = BotView;
+/** GET /api/admin/bots が返す Bot 行（BotView とは別形状） */
+export interface AdminBotView {
+	id: string;
+	name: string;
+	user_id: string;
+	owner_username: string;
+	discord_username: string | null;
+	discord_avatar_url: string | null;
+	suspended: number;
+	hasCustomToken: boolean;
+	isRunning: boolean;
+	created_at: string;
+	updated_at: string;
+}
 export interface InviteCode {
 	code: string;
 	created_at: string;
 	used_by?: string | null;
-	revoked?: boolean;
+	revoked_at?: string | null;
+	[k: string]: unknown;
 }
 export interface AuditLogEntry {
 	id: number;
-	actor?: string;
+	user_id?: string;
 	action: string;
+	target?: string | null;
+	detail?: string | null;
 	created_at: string;
 	[k: string]: unknown;
 }
+/** GET /api/admin/bot-attribute-settings */
+export interface AdminPresetSetting {
+	id: string;
+	displayName: string;
+	[k: string]: unknown;
+}
+export interface AdminRateLimits {
+	userPerMinute?: number;
+	userPerDay?: number;
+	guildPerDay?: number;
+	[k: string]: unknown;
+}
+export type AdminBotAttributeSettingsResponse = ApiResponse<{
+	presets: AdminPresetSetting[];
+	rate_limits: AdminRateLimits;
+}>;
+// Admin のペルソナ管理一覧は GET /api/personas/marketplace（personaApi.marketplace）を
+// 流用し、非公開化・削除のみ adminApi を叩く。専用の一覧型は設けない（PublicPersonaView 再利用）。
 export type AdminStatsResponse = ApiResponse<{ stats: AdminStats }>;
 export type AdminUsersResponse = ApiResponse<{ users: AdminUserView[] }>;
 export type AdminBotsResponse = ApiResponse<{ bots: AdminBotView[] }>;
 export type AdminInviteCodesResponse = ApiResponse<{ codes: InviteCode[] }>;
-export type AdminAuditLogsResponse = ApiResponse<{ logs: AuditLogEntry[] }>;
-export type AdminSystemSettingsResponse = ApiResponse<{ settings: Record<string, unknown> }>;
+export type AdminAuditLogsResponse = ApiResponse<{
+	logs: AuditLogEntry[];
+	total: number;
+}>;
+export type AdminSystemSettingsResponse = ApiResponse<{
+	privacyPolicyUrl: string;
+	termsUrl: string;
+}>;
 
 // ─── devices（deviceMgmtRoutes） ─────────────────────────────────────────────
 
