@@ -2309,7 +2309,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		checkbox.type = "checkbox";
 		checkbox.className = "checkbox-custom";
 		checkbox.checked = sub.status === "done";
-		checkbox.disabled = (sub.subtasks || []).length > 0;
+		checkbox.disabled = (sub.subtasks || []).length > 0 && (sub.effective_progress ?? 0) < 100;
 		checkbox.addEventListener("change", () =>
 			toggleTaskCompletion(sub.id, checkbox.checked),
 		);
@@ -2327,6 +2327,18 @@ document.addEventListener("DOMContentLoaded", () => {
 			due.textContent = `〜${fmtTaskDate(sub.due_date)}`;
 			row.appendChild(due);
 		}
+
+		// 編集ボタン
+		const editBtn = document.createElement("button");
+		editBtn.type = "button";
+		editBtn.className = "btn-icon-sm";
+		editBtn.title = "編集";
+		const editIcon = document.createElement("span");
+		editIcon.className = "material-symbols-outlined";
+		editIcon.textContent = "edit";
+		editBtn.appendChild(editIcon);
+		editBtn.addEventListener("click", () => openEditTaskModal(sub));
+		row.appendChild(editBtn);
 
 		// サブタスクを追加するボタン（無制限ネスト）
 		const addBtn = document.createElement("button");
@@ -2392,8 +2404,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		checkbox.type = "checkbox";
 		checkbox.className = "checkbox-custom";
 		checkbox.checked = task.status === "done";
-		checkbox.disabled = hasSubtasks; // 親はサブタスクから算出のため直接完了は子に委ねる
-		checkbox.title = hasSubtasks
+		checkbox.disabled = hasSubtasks && percent < 100;
+		checkbox.title = hasSubtasks && percent < 100
 			? "サブタスクを全て完了すると進捗100%になります"
 			: "";
 		checkbox.addEventListener("change", () =>
@@ -2636,7 +2648,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const startDate = document.getElementById("task-start").value;
 		const dueDate = document.getElementById("task-due").value;
 		const priority =
-			document.getElementById("task-priority").value || undefined;
+			document.getElementById("task-priority").value || null;
 		if (!title) return;
 
 		const isEdit = editingTaskId != null;

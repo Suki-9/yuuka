@@ -22,7 +22,8 @@ import { sendJson } from "../../types/contracts.js";
 /** 旧UI互換: 数値優先度(0/1/2) → low/medium/high */
 function normalizePriority(
 	priority: unknown,
-): "high" | "medium" | "low" | undefined {
+): "high" | "medium" | "low" | null | undefined {
+	if (priority === "" || priority === null) return null;
 	if (priority === 2 || priority === "high") return "high";
 	if (priority === 1 || priority === "medium") return "medium";
 	if (priority === 0 || priority === "low") return "low";
@@ -151,7 +152,7 @@ export const todoRoutes: RouteDef[] = [
 				description: optString(body.description),
 				dueDate: optString(body.dueDate),
 				startDate: optString(body.startDate),
-				priority: normalizePriority(body.priority),
+				priority: normalizePriority(body.priority) ?? undefined,
 				parentId,
 			});
 			sendJson(ctx.res, 200, { success: true, task: todo });

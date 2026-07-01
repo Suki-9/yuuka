@@ -84,7 +84,7 @@ export interface TodoUpdateInput {
 	dueDate?: string;
 	/** v12: 開始日（空文字でクリア） */
 	startDate?: string;
-	priority?: TodoPriority;
+	priority?: TodoPriority | null;
 	status?: "open" | "done";
 }
 
@@ -125,7 +125,6 @@ export function parseTodoTags(todo: Pick<TodoRecord, "tags">): string[] {
 /** 一覧の共通並び順: 優先度（high→medium→low→未設定）→ 期限近い順（期限なしは後ろ）→ 新しい順 */
 const ORDER_CLAUSE = `
   ORDER BY
-    CASE status WHEN 'open' THEN 0 ELSE 1 END,
     CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,
     CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
     datetime(due_date) ASC,
