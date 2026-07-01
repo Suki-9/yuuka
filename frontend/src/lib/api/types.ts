@@ -278,8 +278,9 @@ export interface TimelineRecord {
 	created_at: string;
 }
 
+// 注: サーバ（timelineRoutes.ts /api/timeline/day）は `blocks` キーで返す（`plan` ではない）。
 export type TimelineDayResponse = ApiResponse<{
-	plan: DayPlanBlock[];
+	blocks: DayPlanBlock[];
 	records: TimelineRecord[];
 }>;
 
