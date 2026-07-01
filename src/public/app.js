@@ -544,6 +544,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			const BOT_TABS = [
 				"dashboard",
 				"tasks",
+				"timeline",
 				"schedules",
 				"expenses",
 				"reminders",
