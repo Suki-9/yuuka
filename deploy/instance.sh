@@ -9,7 +9,10 @@
 #     rollback  退避イメージへ戻して再作成
 #     verify    ヘルスチェックのみ（HTTP/Botログイン/エラー件数）
 #     hot       ホットリロードモード（tsx watch + src/ マウント。Rust はイメージに内蔵）
-#               `hot --build` で dev-hot イメージを強制再ビルド（Cargo.toml 変更時）
+#               既定はフォアグラウンド起動（Ctrl+C で停止）。`pnpm dev` から呼ばれる。
+#               `hot -d` でバックグラウンド起動。`hot --build` で dev-hot イメージを
+#               強制再ビルド（Cargo.toml / package.json / Dockerfile.dev 変更時）。
+#               同ポート/同DBを掴む通常インスタンスの app は自動停止する（競合回避）。
 #     hot-logs  ホットリロードコンテナのログを tail -f
 #     hot-down  ホットリロードコンテナを停止
 #   それ以外は docker compose のサブコマンドへそのまま委譲:
@@ -119,17 +122,36 @@ case "$CMD" in
     health_check
     ;;
   hot)
-    # ホットリロードモード（tsx watch + src/ マウント。Rust バイナリはイメージに焼き込み済み）
-    if [ "${2:-}" = "--build" ]; then
-      echo "🔨 [$INST] dev-hot イメージをビルド..."
+    # ホットリロードモード（tsx watch + src/ マウント。Rust バイナリはイメージに焼き込み済み）。
+    # 既定はフォアグラウンド起動（`pnpm dev`）。-d でバックグラウンド、--build で強制再ビルド。
+    hot_detach="" hot_build=""
+    shift  # "hot" を除去し、残りをフラグとして解釈
+    for arg in "$@"; do
+      case "$arg" in
+        -d|--detach) hot_detach="1" ;;
+        --build)     hot_build="1" ;;
+      esac
+    done
+    if [ -n "$hot_build" ]; then
+      echo "🔨 [$INST] dev-hot イメージを再ビルド..."
       dc_hot build
     elif ! docker image inspect yuuka:dev-hot >/dev/null 2>&1; then
       echo "🔨 [$INST] dev-hot イメージが存在しないためビルドします..."
       dc_hot build
     fi
-    echo "🔥 [$INST] ホットリロードモードで起動 (tsx watch)..."
-    dc_hot up -d
-    echo "📋 ログ: deploy/instance.sh $INST hot-logs"
+    # 通常インスタンスの app が起動中なら停止（同じ HOST_PORT / 同じ SQLite を掴み競合するため排他）。
+    if [ -n "$(dc ps --status running -q app 2>/dev/null)" ]; then
+      echo "⏸  通常 [$INST] app を停止（hot と同ポート/同DBのため排他）..."
+      dc stop app
+    fi
+    if [ -n "$hot_detach" ]; then
+      echo "🔥 [$INST] ホットリロード起動（バックグラウンド / tsx watch）..."
+      dc_hot up -d
+      echo "📋 ログ: deploy/instance.sh $INST hot-logs"
+    else
+      echo "🔥 [$INST] ホットリロード起動（tsx watch / Ctrl+C で停止）..."
+      dc_hot up
+    fi
     ;;
   hot-logs)
     dc_hot logs -f app

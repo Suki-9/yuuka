@@ -30,6 +30,12 @@ services:
       # ホットリロード: TypeScript ソース + フロントエンド (src/public/) をマウント
       # Rust バイナリはイメージに焼き込み済みのため dist/bin/ マウント不要
       - ./src:/app/src
+      # ただし src/rust_*/target はマウントから除外（anonymous volume でマスク）。
+      # ホスト側に残った古い target/release/yuuka-* が browserService/synapseEngine の
+      # 探索候補で優先され、イメージ内蔵の dist/bin/（事前ビルド版）より先に使われて
+      # しまうのを防ぐ。これで Rust は常にイメージ内蔵バイナリで動く。
+      - /app/src/rust_crawler/target
+      - /app/src/rust_synapse/target
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:?set HOST_PORT in instance.env}:7854"
     depends_on:

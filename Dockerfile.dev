@@ -53,5 +53,18 @@ RUN mkdir -p dist/bin
 COPY --from=rust-builder /yuuka-crawler dist/bin/yuuka-crawler
 COPY --from=rust-builder /yuuka-synapse dist/bin/yuuka-synapse
 
-# src/ はホストからマウント（tsx watch でホットリロード）
-CMD ["pnpm", "run", "dev"]
+# 実行ユーザ（compose の user=既定 uid1000=node）が書き込む先を用意する。
+# data/ は compose のバインドマウント、scratch/ はバックアップ一時作業用。
+# /app 直下に新規ディレクトリを作れるよう /app 自体も node 所有にしておく
+# （node_modules/dist は root 所有のままで可＝読み取り/実行だけできればよい）。
+RUN mkdir -p /app/data /app/scratch \
+ && chown node:node /app /app/data /app/scratch
+
+# tsx を直接起動する（pnpm / corepack を経由しない）。
+#   理由: 実行ユーザ(uid1000=node)は、build 時(root)に activate した corepack の
+#   pnpm 9 を引き継げない。その結果 corepack が最新 pnpm(11) を毎起動 DL し、
+#   ① pnpm.overrides を無視 ② 実行前の依存チェックが read-only な /app へ書こうとして
+#   EACCES → コンテナが無限再起動する。依存はビルド時に焼き込み済みで、実行時に
+#   パッケージマネージャは不要（本番 runtime も node を直接起動している）。
+# src/ はホストからマウント（tsx watch でホットリロード）。
+CMD ["node_modules/.bin/tsx", "watch", "src/index.ts"]

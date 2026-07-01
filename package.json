@@ -10,7 +10,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "deploy/instance.sh dev hot",
+    "dev:build": "deploy/instance.sh dev hot --build",
+    "dev:host": "tsx watch src/index.ts",
     "build": "cargo build --release --manifest-path src/rust_crawler/Cargo.toml && cargo build --release --manifest-path src/rust_synapse/Cargo.toml && mkdir -p dist/bin dist/assets && cp src/rust_crawler/target/release/yuuka-crawler dist/bin/ && cp src/rust_synapse/target/release/yuuka-synapse dist/bin/ && cp -r src/assets/. dist/assets/ && tsgo",
     "start": "node dist/index.js",
     "lint": "biome check src/",
