@@ -39,8 +39,11 @@ export interface SetupStatusResponse {
 /** POST /api/login */
 export type LoginResponse = ApiResponse<{ user?: SessionUser }>;
 
-/** POST /api/register（DM チャレンジ発行 → /api/register/verify で確定） */
-export type RegisterResponse = ApiResponse<{ challengeId?: string }>;
+/**
+ * POST /api/register（DM チャレンジ発行 → /api/register/verify で確定）。
+ * サーバは本人確認のため常に pending:true を返す（authRoutes.ts:282）。
+ */
+export type RegisterResponse = ApiResponse<{ pending?: boolean }>;
 
 // ─── bots ────────────────────────────────────────────────────────────────────
 
