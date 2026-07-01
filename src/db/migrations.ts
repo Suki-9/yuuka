@@ -9,7 +9,7 @@ import { getDb } from "./database.js";
  *
  * v3→v4: MCPサーバーを (user_id, bot_id) 複合スコープへ移行。bot_mcp_links テーブルを廃止。
  */
-const SCHEMA_VERSION = "16";
+const SCHEMA_VERSION = "17";
 
 /** 旧スキーマ（v1）のテーブル群。v2移行時に破棄する */
 const LEGACY_TABLES = [
@@ -790,6 +790,56 @@ function migrateToAllowedRoles(db: ReturnType<typeof getDb>): void {
   `);
 }
 
+/**
+ * v16→v17: デイリータイムライン。
+ * - day_plan_blocks: 1日の計画ブロック（タスク/移動/イベント/フリー）
+ * - timeline_records: 汎用記録層（メモ/支出/タスク完了/メディア/場所）
+ */
+function migrateToTimeline(db: ReturnType<typeof getDb>): void {
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS day_plan_blocks (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      TEXT NOT NULL,
+      bot_id       TEXT NOT NULL,
+      date         TEXT NOT NULL,                       -- 'YYYY-MM-DD'
+      start_time   TEXT,                                -- 'HH:MM'（null=時間未定）
+      end_time     TEXT,                                -- 'HH:MM'（null=終了未定）
+      type         TEXT NOT NULL DEFAULT 'event',       -- 'task'|'transit'|'event'|'free'
+      title        TEXT NOT NULL,
+      description  TEXT,
+      todo_id      INTEGER,                             -- → todos.id（ON DELETE SET NULL）
+      transit_from TEXT,
+      transit_to   TEXT,
+      transit_line TEXT,
+      position     INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_day_plan_blocks_user_date
+      ON day_plan_blocks(user_id, bot_id, date);
+    CREATE TABLE IF NOT EXISTS timeline_records (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id          TEXT NOT NULL,
+      bot_id           TEXT NOT NULL,
+      date             TEXT NOT NULL,                   -- 'YYYY-MM-DD'
+      recorded_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      type             TEXT NOT NULL DEFAULT 'memo',    -- 'memo'|'expense'|'task_done'|'media'|'location'
+      title            TEXT,
+      content          TEXT,
+      todo_id          INTEGER,                         -- → todos.id
+      expense_id       INTEGER,                         -- → expenses.id
+      amount           REAL,
+      expense_category TEXT,
+      media_path       TEXT,                            -- ファイル名のみ（data/media/ 以下）
+      media_type       TEXT,                            -- 'photo'|'video'
+      location         TEXT,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_timeline_records_user_date
+      ON timeline_records(user_id, bot_id, date);
+  `);
+}
+
 export async function runMigrations(): Promise<void> {
 	const db = getDb();
 
@@ -1517,6 +1567,9 @@ export async function runMigrations(): Promise<void> {
 	migrateToMemberRequests(db);
 	migrateToAllowedRoles(db);
 	migrateToRoutineTasks(db);
+
+	// ─── v17: デイリータイムライン（day_plan_blocks + timeline_records） ──
+	migrateToTimeline(db);
 
 	// スキーマバージョンを記録
 	db.prepare(

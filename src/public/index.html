@@ -650,6 +650,10 @@
         <a href="/bot/tasks" class="menu-item" data-tab="tasks">
           <span class="material-symbols-outlined menu-icon-symbol">checklist</span> <span class="menu-text">タスク管理</span>
         </a>
+        <a href="/bot/timeline" class="menu-item" data-tab="timeline">
+          <span class="material-symbols-outlined menu-icon-symbol">timeline</span> <span
+            class="menu-text">タイムライン</span>
+        </a>
         <a href="/bot/schedules" class="menu-item" data-tab="schedules">
           <span class="material-symbols-outlined menu-icon-symbol">calendar_today</span> <span
             class="menu-text">予定スケジュール</span>
@@ -1041,6 +1045,162 @@
               <div id="tasks-gantt-scroll" style="overflow-x: auto;">
                 <canvas id="tasks-gantt-canvas"></canvas>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             2.5 TIMELINE VIEW
+             ========================================== -->
+        <section id="tab-timeline" class="tab-view">
+          <!-- 日付ナビゲーション -->
+          <div class="tl-header card">
+            <div class="tl-date-nav">
+              <button id="tl-prev-day" class="btn-icon" title="前の日">
+                <span class="material-symbols-outlined">chevron_left</span>
+              </button>
+              <span id="tl-date-display" class="tl-date-label"></span>
+              <button id="tl-next-day" class="btn-icon" title="次の日">
+                <span class="material-symbols-outlined">chevron_right</span>
+              </button>
+              <button id="tl-today" class="btn btn-secondary btn-sm">今日</button>
+            </div>
+            <div class="tl-header-actions">
+              <button id="btn-add-plan" class="btn btn-secondary">
+                <span class="material-symbols-outlined">add_box</span> 計画追加
+              </button>
+              <button id="btn-add-record" class="btn btn-primary">
+                <span class="material-symbols-outlined">edit_note</span> 記録追加
+              </button>
+            </div>
+          </div>
+
+          <!-- 2カラム: 計画 / 記録 -->
+          <div class="tl-body">
+            <div class="tl-col">
+              <div class="tl-col-header">
+                <span class="material-symbols-outlined">event_available</span> 計画
+              </div>
+              <div id="tl-plan-list" class="tl-list"></div>
+            </div>
+            <div class="tl-col">
+              <div class="tl-col-header">
+                <span class="material-symbols-outlined">history</span> 記録
+              </div>
+              <div id="tl-record-list" class="tl-list"></div>
+            </div>
+          </div>
+
+          <!-- 計画ブロック追加モーダル -->
+          <div id="modal-plan-block" class="modal">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h3 id="plan-block-modal-title">計画ブロックを追加</h3>
+                <button class="btn-close"><span class="material-symbols-outlined">close</span></button>
+              </div>
+              <form id="plan-block-form">
+                <div class="form-group">
+                  <label>タイプ</label>
+                  <div class="tl-type-pills" id="plan-type-pills">
+                    <button type="button" class="tl-type-pill active" data-type="event">イベント</button>
+                    <button type="button" class="tl-type-pill" data-type="task">タスク</button>
+                    <button type="button" class="tl-type-pill" data-type="transit">移動</button>
+                    <button type="button" class="tl-type-pill" data-type="free">フリー</button>
+                  </div>
+                  <input type="hidden" id="plan-block-type" value="event">
+                  <input type="hidden" id="plan-block-id" value="">
+                </div>
+                <div class="form-group">
+                  <label for="plan-block-title">タイトル *</label>
+                  <input type="text" id="plan-block-title" required placeholder="例: 打ち合わせ">
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="plan-block-start">開始時刻</label>
+                    <input type="time" id="plan-block-start">
+                  </div>
+                  <div class="form-group">
+                    <label for="plan-block-end">終了時刻</label>
+                    <input type="time" id="plan-block-end">
+                  </div>
+                </div>
+                <div class="form-group" id="plan-transit-fields" style="display:none">
+                  <label>移動情報</label>
+                  <div class="form-row">
+                    <input type="text" id="plan-transit-from" placeholder="出発地">
+                    <input type="text" id="plan-transit-to" placeholder="到着地">
+                  </div>
+                  <input type="text" id="plan-transit-line" placeholder="路線・交通機関名" style="margin-top:6px">
+                </div>
+                <div class="form-group">
+                  <label for="plan-block-desc">メモ</label>
+                  <textarea id="plan-block-desc" rows="2" placeholder="補足など"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">保存</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- 記録追加モーダル -->
+          <div id="modal-timeline-record" class="modal">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h3>記録を追加</h3>
+                <button class="btn-close"><span class="material-symbols-outlined">close</span></button>
+              </div>
+              <form id="timeline-record-form">
+                <div class="form-group">
+                  <label>タイプ</label>
+                  <div class="tl-type-pills" id="record-type-pills">
+                    <button type="button" class="tl-type-pill active" data-type="memo">メモ</button>
+                    <button type="button" class="tl-type-pill" data-type="expense">支出</button>
+                    <button type="button" class="tl-type-pill" data-type="task_done">タスク完了</button>
+                    <button type="button" class="tl-type-pill" data-type="media">写真・動画</button>
+                    <button type="button" class="tl-type-pill" data-type="location">場所</button>
+                  </div>
+                  <input type="hidden" id="record-type" value="memo">
+                </div>
+                <div class="form-group">
+                  <label for="record-title">見出し</label>
+                  <input type="text" id="record-title" placeholder="見出し（任意）">
+                </div>
+                <div class="form-group" id="record-content-group">
+                  <label for="record-content">内容</label>
+                  <textarea id="record-content" rows="3" placeholder="メモ内容"></textarea>
+                </div>
+                <div class="form-group" id="record-expense-group" style="display:none">
+                  <label>支出</label>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="record-amount">金額 (円) *</label>
+                      <input type="number" id="record-amount" min="1" placeholder="1000">
+                    </div>
+                    <div class="form-group">
+                      <label for="record-category">カテゴリ</label>
+                      <select id="record-category">
+                        <option value="食費">食費</option>
+                        <option value="交通費">交通費</option>
+                        <option value="日用品">日用品</option>
+                        <option value="娯楽">娯楽</option>
+                        <option value="医療費">医療費</option>
+                        <option value="衣服">衣服</option>
+                        <option value="通信費">通信費</option>
+                        <option value="光熱費">光熱費</option>
+                        <option value="その他">その他</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group" id="record-media-group" style="display:none">
+                  <label for="record-media-file">ファイル選択</label>
+                  <input type="file" id="record-media-file" accept="image/*,video/*">
+                </div>
+                <div class="form-group">
+                  <label for="record-location">場所（任意）</label>
+                  <input type="text" id="record-location" placeholder="渋谷、カフェ名など">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">記録する</button>
+              </form>
             </div>
           </div>
         </section>

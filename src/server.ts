@@ -31,6 +31,7 @@ import { playbookRoutes } from "./server/routes/playbookRoutes.js";
 import { reminderRoutes } from "./server/routes/reminderRoutes.js";
 import { scheduleRoutes } from "./server/routes/scheduleRoutes.js";
 import { settingsRoutes } from "./server/routes/settingsRoutes.js";
+import { timelineRoutes } from "./server/routes/timelineRoutes.js";
 import { todoRoutes } from "./server/routes/todoRoutes.js";
 import { webhookRoutes } from "./server/routes/webhookRoutes.js";
 
@@ -41,6 +42,7 @@ registerRoutes(botAttributeRoutes); // Bot属性・汎用モード設定（bot_a
 registerRoutes(memberRequestRoutes); // ギルド利用メンバーの利用申請・承認
 registerRoutes(todoRoutes); // ToDo（§3.2）
 registerRoutes(scheduleRoutes); // 予定（§3.2）
+registerRoutes(timelineRoutes); // デイリータイムライン（§3.X）
 registerRoutes(financeRoutes); // 家計・予算・支払い予定（§3.4）
 registerRoutes(playbookRoutes); // マクロ/Playbook（§3.6）
 registerRoutes(credentialRoutes); // パスワードマネージャ（§6）
