@@ -10,46 +10,63 @@ import type {
 const BOT = { scope: "bot" } as const;
 
 export const financeApi = {
-	/** GET /api/expenses — 収支一覧（月フィルタ等は query） */
-	list: (query?: { month?: string; type?: string }) =>
+	/**
+	 * GET /api/expenses — 収支一覧＋集計（total/incomeTotal/breakdown/trend）。
+	 * 月フィルタは year/month（数値）。未指定ならサーバが当月を採用。
+	 */
+	list: (query?: { year?: number; month?: number }) =>
 		api.get<ExpensesResponse>("/api/expenses", { ...BOT, query }),
 
-	/** POST /api/expenses/add */
+	/** POST /api/expenses/add — サーバは description を memo として保存する。 */
 	add: (body: {
 		type: "income" | "expense";
 		amount: number;
 		category: string;
-		memo?: string;
+		description?: string;
 		date?: string;
 		time?: string;
 	}) => api.post<ApiResponse>("/api/expenses/add", body, BOT),
 
 	/**
-	 * POST /api/expenses/upload-receipt — レシートOCR（multipart）。
-	 * FormData を渡すと botId は query へ回る。
+	 * POST /api/expenses/upload-receipt — レシートOCR。
+	 * サーバは JSON { imageBase64, mimeType, additionalText } を読む（multipart 非対応）。
+	 * botId は client が JSON body へ自動注入する（scope:'bot'）。
 	 */
-	uploadReceipt: (form: FormData) =>
-		api.post<ApiResponse>("/api/expenses/upload-receipt", form, BOT),
+	uploadReceipt: (body: {
+		imageBase64: string;
+		mimeType: string;
+		additionalText?: string;
+	}) =>
+		api.post<ApiResponse<{ response: string }>>(
+			"/api/expenses/upload-receipt",
+			body,
+			BOT,
+		),
 
 	// ── 予算上限 ──
 	/** GET /api/expenses/budget-limits */
 	budgetLimits: () => api.get<BudgetLimitsResponse>("/api/expenses/budget-limits", BOT),
-	/** POST /api/expenses/budget-limits */
-	saveBudgetLimit: (body: { category: string; monthly_limit: number }) =>
+	/** POST /api/expenses/budget-limits — サーバは limitAmount（camelCase）を読む。 */
+	saveBudgetLimit: (body: { category: string; limitAmount: number }) =>
 		api.post<ApiResponse>("/api/expenses/budget-limits", body, BOT),
 	/** POST /api/expenses/budget-limits/delete */
 	deleteBudgetLimit: (category: string) =>
 		api.post<ApiResponse>("/api/expenses/budget-limits/delete", { category }, BOT),
 
 	// ── 予定支払（plannedPayment） ──
-	/** GET /api/expenses/plans */
-	plans: () => api.get<PlannedPaymentsResponse>("/api/expenses/plans", BOT),
-	/** POST /api/expenses/plans/add */
+	/** GET /api/expenses/plans（既定 pending のみ。includePaid=true で全件） */
+	plans: (includePaid = false) =>
+		api.get<PlannedPaymentsResponse>("/api/expenses/plans", {
+			...BOT,
+			query: includePaid ? { includePaid: "true" } : undefined,
+		}),
+	/** POST /api/expenses/plans/add — サーバは plannedDate/description を読む。 */
 	addPlan: (body: {
 		title: string;
 		amount: number;
-		due_date: string;
-		category?: string;
+		category: string;
+		plannedDate: string;
+		description?: string;
 	}) => api.post<ApiResponse>("/api/expenses/plans/add", body, BOT),
 	/** POST /api/expenses/plans/pay */
 	payPlan: (id: number) => api.post<ApiResponse>("/api/expenses/plans/pay", { id }, BOT),

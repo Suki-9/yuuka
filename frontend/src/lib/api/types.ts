@@ -176,20 +176,29 @@ export interface MonthlyTrendPoint {
 export interface BudgetLimit {
 	id?: number;
 	category: string;
-	monthly_limit: number;
+	/** 月間上限（budget_limits.limit_amount 列） */
+	limit_amount: number;
 }
+
+export type PlannedPaymentStatus = "pending" | "settled" | "cancelled";
 
 export interface PlannedPayment {
 	id: number;
 	title: string;
 	amount: number;
+	category: string;
+	memo?: string | null;
 	due_date: string;
-	category?: string | null;
-	paid?: number;
+	repeat_rule?: string | null;
+	status: PlannedPaymentStatus;
 }
 
 export type ExpensesResponse = ApiResponse<{
 	expenses: ExpenseRecord[];
+	/** 当月支出合計 */
+	total: number;
+	/** 当月収入合計 */
+	incomeTotal: number;
 	breakdown?: CategoryTotal[];
 	trend?: MonthlyTrendPoint[];
 }>;

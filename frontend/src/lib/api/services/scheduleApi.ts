@@ -5,17 +5,21 @@ import type { SchedulesResponse, ApiResponse } from "../types";
 const BOT = { scope: "bot" } as const;
 
 export const scheduleApi = {
-	/** GET /api/schedules — 予定一覧 */
-	list: (query?: { from?: string; to?: string }) =>
-		api.get<SchedulesResponse>("/api/schedules", { ...BOT, query }),
+	/** GET /api/schedules?days=N — 直近 N 日間の予定一覧（既定7日） */
+	list: (days = 7) =>
+		api.get<SchedulesResponse>("/api/schedules", { ...BOT, query: { days } }),
 
-	/** POST /api/schedules/add */
+	/**
+	 * POST /api/schedules/add
+	 * サーバは camelCase（startAt/endAt/remindBeforeMinutes）を読む。
+	 * start_at/end_at は 'YYYY-MM-DD HH:mm:ss' 形式（旧 app.js 互換）。
+	 */
 	add: (body: {
 		title: string;
 		description?: string;
-		start_at: string;
-		end_at?: string;
-		remind_before_minutes?: number;
+		startAt: string;
+		endAt?: string;
+		remindBeforeMinutes?: number;
 	}) => api.post<ApiResponse>("/api/schedules/add", body, BOT),
 
 	/** POST /api/schedules/delete */
