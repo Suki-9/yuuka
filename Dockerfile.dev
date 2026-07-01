@@ -53,8 +53,5 @@ RUN mkdir -p dist/bin
 COPY --from=rust-builder /yuuka-crawler dist/bin/yuuka-crawler
 COPY --from=rust-builder /yuuka-synapse dist/bin/yuuka-synapse
 
-# エントリポイント: 未セットアップなら pnpm install → pnpm run dev
-COPY docker/entrypoint.dev.sh /entrypoint.dev.sh
-
 # src/ はホストからマウント（tsx watch でホットリロード）
-ENTRYPOINT ["/entrypoint.dev.sh"]
+CMD ["pnpm", "run", "dev"]
