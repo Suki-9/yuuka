@@ -1,0 +1,20 @@
+// 領域別サービスの re-export（§10.3）。
+export { authApi } from "./authApi";
+export { botApi } from "./botApi";
+export { botAttributeApi } from "./botAttributeApi";
+export { taskApi } from "./taskApi";
+export { timelineApi } from "./timelineApi";
+export { financeApi } from "./financeApi";
+export { scheduleApi } from "./scheduleApi";
+export { reminderApi } from "./reminderApi";
+export { personalApi } from "./personalApi";
+export { playbookApi } from "./playbookApi";
+export { deliveryApi } from "./deliveryApi";
+export { settingsApi } from "./settingsApi";
+export { personaApi } from "./personaApi";
+export { integratedApi } from "./integratedApi";
+export { mcpApi } from "./mcpApi";
+export { credentialApi } from "./credentialApi";
+export { webhookApi } from "./webhookApi";
+export { adminApi } from "./adminApi";
+export { deviceApi } from "./deviceApi";
