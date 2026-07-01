@@ -1070,7 +1070,7 @@ textarea:focus {
 .header-title h2 {
 	font-size: 1.6rem;
 	font-weight: 800;
-	margin-bottom: 4px;
+	margin-bottom: 6px;
 }
 
 .header-title p {
@@ -1845,6 +1845,7 @@ input[type="checkbox"]:disabled,
 	font-size: 0.75rem;
 	color: var(--color-zinc-muted);
 	line-height: 1.4;
+	margin-top: 8px;
 	margin-bottom: 12px;
 }
 
@@ -3292,6 +3293,19 @@ summary.column-header.badge-right > .badge {
 summary.column-header.badge-right > h3 {
 	margin: 0;
 }
+/* バッジをヘッダ右端へ寄せるバリアント（div.column-header でも有効） */
+.column-header.badge-right {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+.column-header.badge-right > .badge {
+	margin-left: auto;
+}
+.column-header.badge-right > h3 {
+	margin: 0;
+}
 /* 追加ボタンをヘッダ右端（タイトルの反対側）へ寄せるバリアント */
 .column-header.action-right {
 	display: flex;
@@ -3676,7 +3690,7 @@ summary.column-header.badge-right > h3 {
 	font-size: 0.95rem;
 	font-weight: 700;
 	color: var(--color-white);
-	margin-bottom: 4px;
+	margin-bottom: 8px;
 }
 
 .feature-text p {
