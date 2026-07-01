@@ -403,6 +403,12 @@ textarea {
 	border-color: transparent;
 }
 
+/* 各タブの最後のセクション（カード）は下ボーダー不要 */
+.tab-view > .card:last-child,
+.tab-view > .full-width-urgent-row:last-child {
+	border-bottom: none;
+}
+
 /* Tab Views management */
 .tab-view {
 	display: none;
