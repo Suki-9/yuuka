@@ -3,8 +3,10 @@
 	// BotShell — /bot/<tab> の骨格シェル（旧 index.html #app-container +
 	// app.js の switchTab / サイドバー配線 / ヘッダ操作を移植）。
 	//
-	// 重要（統合契約）: 「タブ名 → Bot*.svelte の対応・<svelte:component> スイッチ」は
-	//   完全に維持する。後続タブ担当は routes/Bot*.svelte だけ差し替えればよい。
+	// 重要（統合契約）: 「タブ名 → Bot*.svelte の対応・動的コンポーネントスイッチ」は
+	//   完全に維持する（§P1b で静的 import を遅延 loader マップに変換したが、
+	//   タブ名の対応関係とスイッチの外部契約は不変）。後続タブ担当は
+	//   routes/Bot*.svelte だけ差し替えればよい。
 	//
 	// 実装するもの:
 	//   - サイドバー（Bot一覧へ戻る / Bot ブランディング / プリセット別メニュー・active）
@@ -22,44 +24,33 @@
 	import { navigateTo, type BotTab } from "$lib/router";
 	import { Icon } from "$lib/components/ui";
 
-	import BotDashboard from "./BotDashboard.svelte";
-	import BotTasks from "./BotTasks.svelte";
-	import BotTimeline from "./BotTimeline.svelte";
-	import BotSchedules from "./BotSchedules.svelte";
-	import BotExpenses from "./BotExpenses.svelte";
-	import BotReminders from "./BotReminders.svelte";
-	import BotPersonal from "./BotPersonal.svelte";
-	import BotPersonas from "./BotPersonas.svelte";
-	import BotDelivery from "./BotDelivery.svelte";
-	import BotWebhooks from "./BotWebhooks.svelte";
-	import BotMcp from "./BotMcp.svelte";
-	import BotPlaybooks from "./BotPlaybooks.svelte";
-	import BotDiscord from "./BotDiscord.svelte";
-	import BotConfig from "./BotConfig.svelte";
-	import BotDevices from "./BotDevices.svelte";
+	// §P1b ルート遅延ロード: 15タブの静的 import を loader マップに変換する。
+	// Vite は各 import() を個別チャンク（BotDashboard-*.js 等）に分割するため、
+	// 初期 entry（index-*.js）からタブ実体が外れ初期JSが軽くなる。
+	// 各タブは props 形状が異なり得るため Component<Record<string, never>> で受ける。
+	type Loader = () => Promise<{ default: Component<Record<string, never>> }>;
+
+	// §8 タブ → loader 完全網羅マップ（統合契約: キー集合は不変に保つ）。
+	const TAB_LOADERS: Record<BotTab, Loader> = {
+		dashboard: () => import("./BotDashboard.svelte"),
+		tasks: () => import("./BotTasks.svelte"),
+		timeline: () => import("./BotTimeline.svelte"),
+		schedules: () => import("./BotSchedules.svelte"),
+		expenses: () => import("./BotExpenses.svelte"),
+		reminders: () => import("./BotReminders.svelte"),
+		personal: () => import("./BotPersonal.svelte"),
+		personas: () => import("./BotPersonas.svelte"),
+		delivery: () => import("./BotDelivery.svelte"),
+		webhooks: () => import("./BotWebhooks.svelte"),
+		mcp: () => import("./BotMcp.svelte"),
+		playbooks: () => import("./BotPlaybooks.svelte"),
+		discord: () => import("./BotDiscord.svelte"),
+		config: () => import("./BotConfig.svelte"),
+		devices: () => import("./BotDevices.svelte"),
+	};
 
 	// 現在表示中のタブ（App/router から渡される。未指定は既定 config）。
 	let { tab = "config" as BotTab }: { tab?: BotTab } = $props();
-
-	// §8 タブ → コンポーネント 完全網羅マップ（統合契約: 不変に保つ）。
-	// 各タブは props 形状が異なり得るため Component<Record<string, never>> で受ける。
-	const TAB_COMPONENTS: Record<BotTab, Component<Record<string, never>>> = {
-		dashboard: BotDashboard,
-		tasks: BotTasks,
-		timeline: BotTimeline,
-		schedules: BotSchedules,
-		expenses: BotExpenses,
-		reminders: BotReminders,
-		personal: BotPersonal,
-		personas: BotPersonas,
-		delivery: BotDelivery,
-		webhooks: BotWebhooks,
-		mcp: BotMcp,
-		playbooks: BotPlaybooks,
-		discord: BotDiscord,
-		config: BotConfig,
-		devices: BotDevices,
-	};
 
 	// §8 プリセット別タブフィルタ（旧 app.js:157-170）。
 	const SECRETARY_ONLY_TABS: BotTab[] = [
@@ -144,8 +135,11 @@
 		navigateTo("/login");
 	}
 
-	// 現タブに対応するコンポーネント（未知は config フォールバック）。
-	const Current = $derived(TAB_COMPONENTS[tab] ?? BotConfig);
+	// 現タブに対応するチャンクの Promise（未知タブは config フォールバック）。
+	// tab をキーに $derived で一度だけ Promise を生成することで、tab 変更時のみ
+	// import() が再評価される。同一タブ内の他の再レンダリングでは同じ Promise 参照の
+	// ままなので無駄なフェッチが起きない（Vite の module cache で実 fetch も1回）。
+	const modulePromise = $derived((TAB_LOADERS[tab] ?? TAB_LOADERS.config)());
 	const title = $derived(TAB_TITLES[tab] ?? "ダッシュボード");
 
 	// Bot ブランディング（旧 updateSidebarBotBranding）。
@@ -249,7 +243,16 @@
 		</header>
 
 		<div class="content-view-container">
-			<Current />
+			{#await modulePromise}
+				<div class="tab-loading" aria-busy="true"></div>
+			{:then module}
+				{@const TabView = module.default}
+				<TabView />
+			{:catch}
+				<div class="tab-error" role="alert">
+					タブの読み込みに失敗しました。再読込してください。
+				</div>
+			{/await}
 		</div>
 	</main>
 </div>
@@ -283,5 +286,14 @@
 	}
 	.content-view-container {
 		flex: 1;
+	}
+	.tab-loading {
+		flex: 1;
+		min-height: 60vh;
+	}
+	.tab-error {
+		flex: 1;
+		padding: 2rem;
+		text-align: center;
 	}
 </style>
