@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import zlib from "node:zlib";
 import { config } from "./config.js";
 import { hasBotAccess } from "./db/botRepo.js";
 import { chatWss, handleChatConnection } from "./server/chatWebSocket.js";
@@ -95,6 +96,13 @@ const MIME_TYPES: Record<string, string> = {
 	".ico": "image/x-icon",
 };
 
+const COMPRESSIBLE_EXTS = new Set([".html", ".css", ".js", ".json", ".svg"]);
+
+function acceptsGzip(req: http.IncomingMessage): boolean {
+	const ae = req.headers["accept-encoding"];
+	return typeof ae === "string" && ae.includes("gzip");
+}
+
 /**
  * セキュリティヘッダーを設定した静的ファイル配信
  */
@@ -135,17 +143,22 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
 
 		const ext = path.extname(finalPath).toLowerCase();
 		const contentType = MIME_TYPES[ext] || "application/octet-stream";
+		const useGzip = acceptsGzip(req) && COMPRESSIBLE_EXTS.has(ext);
 
-		res.writeHead(200, {
+		const responseHeaders: Record<string, string> = {
 			"Content-Type": contentType,
 			"Cache-Control": "no-cache, no-store, must-revalidate",
 			...SECURITY_HEADERS,
-		});
+			...(useGzip
+				? { "Content-Encoding": "gzip", Vary: "Accept-Encoding" }
+				: {}),
+		};
 
 		if (ext === ".html" && path.basename(finalPath) === "index.html") {
 			fs.readFile(finalPath, "utf-8", (err2, content) => {
 				if (err2) {
 					console.error("Failed to read index.html:", err2);
+					res.writeHead(500, { "Content-Type": "text/plain" });
 					res.end("Internal Server Error");
 					return;
 				}
@@ -156,7 +169,25 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
 				} else {
 					html = html.replace("<!-- GOOGLE_SITE_VERIFICATION -->", "");
 				}
-				res.end(html);
+				if (useGzip) {
+					zlib.gzip(html, (zlibErr, compressed) => {
+						if (zlibErr) {
+							// 圧縮失敗時は素のHTMLにフォールバック
+							res.writeHead(200, {
+								"Content-Type": contentType,
+								"Cache-Control": "no-cache, no-store, must-revalidate",
+								...SECURITY_HEADERS,
+							});
+							res.end(html);
+							return;
+						}
+						res.writeHead(200, responseHeaders);
+						res.end(compressed);
+					});
+				} else {
+					res.writeHead(200, responseHeaders);
+					res.end(html);
+				}
 			});
 			return;
 		}
@@ -174,7 +205,17 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
 		res.on("close", () => {
 			stream.destroy(); // クライアント切断時に読み取りを確実に打ち切る
 		});
-		stream.pipe(res);
+		res.writeHead(200, responseHeaders);
+		if (useGzip) {
+			const gz = zlib.createGzip();
+			gz.on("error", (gzErr) => {
+				console.error("gzip圧縮エラー:", gzErr);
+				res.destroy();
+			});
+			stream.pipe(gz).pipe(res);
+		} else {
+			stream.pipe(res);
+		}
 	});
 }
 
