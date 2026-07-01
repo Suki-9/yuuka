@@ -29,20 +29,27 @@
 	// effectiveView は RouteView に「認証保留中」の "loading" を足した表示状態。
 	type EffectiveView = RouteView | "loading";
 
-	import { Toast, ConfirmDialog } from "$lib/components/ui";
+	import { Toast, ConfirmDialog, LazyView } from "$lib/components/ui";
 
 	// ルート系オーバーレイ/ページ
+	// 初期表示で頻繁に踏む Login / BotSelection / BotShell は静的 import で据え置き
+	// （初回描画の往復を増やさない）。
 	import Login from "./overlays/Login.svelte";
 	import BotSelection from "./overlays/BotSelection.svelte";
-	import IntegratedOverlay from "./overlays/IntegratedOverlay.svelte";
-	import AdminOverlay from "./overlays/AdminOverlay.svelte";
-	import AccountOverlay from "./overlays/AccountOverlay.svelte";
-	import DeviceOverlay from "./overlays/DeviceOverlay.svelte";
-	import Usage from "./overlays/Usage.svelte";
-	import Terms from "./overlays/Terms.svelte";
-	import Privacy from "./overlays/Privacy.svelte";
-	import TasksGuide from "./overlays/TasksGuide.svelte";
 	import BotShell from "./routes/BotShell.svelte";
+
+	// §P1b: 重い/低頻度のオーバーレイは遅延ロード（loader を LazyView に渡す）。
+	// Vite が各 import() を個別チャンク（AdminOverlay-*.js 等）に分割し、初期
+	// entry（index-*.js）から実体が外れる。Promise 安定化は LazyView 内部の
+	// $derived(loader()) に集約する。
+	const loadIntegrated = () => import("./overlays/IntegratedOverlay.svelte");
+	const loadAdmin = () => import("./overlays/AdminOverlay.svelte");
+	const loadAccount = () => import("./overlays/AccountOverlay.svelte");
+	const loadDevice = () => import("./overlays/DeviceOverlay.svelte");
+	const loadUsage = () => import("./overlays/Usage.svelte");
+	const loadTerms = () => import("./overlays/Terms.svelte");
+	const loadPrivacy = () => import("./overlays/Privacy.svelte");
+	const loadTasksGuide = () => import("./overlays/TasksGuide.svelte");
 
 	// ── 状態購読 ─────────────────────────────────────────────────────────────
 	// currentRoute（cleanPath）と page（URL）は両方 router が更新する。
@@ -126,21 +133,21 @@
 {:else if effectiveView === "bot"}
 	<BotShell tab={resolved.tab ?? "config"} />
 {:else if effectiveView === "integrated"}
-	<IntegratedOverlay />
+	<LazyView loader={loadIntegrated} />
 {:else if effectiveView === "admin"}
-	<AdminOverlay />
+	<LazyView loader={loadAdmin} />
 {:else if effectiveView === "account"}
-	<AccountOverlay />
+	<LazyView loader={loadAccount} />
 {:else if effectiveView === "device"}
-	<DeviceOverlay />
+	<LazyView loader={loadDevice} />
 {:else if effectiveView === "usage"}
-	<Usage />
+	<LazyView loader={loadUsage} />
 {:else if effectiveView === "terms"}
-	<Terms />
+	<LazyView loader={loadTerms} />
 {:else if effectiveView === "privacy"}
-	<Privacy />
+	<LazyView loader={loadPrivacy} />
 {:else if effectiveView === "tasks-guide"}
-	<TasksGuide />
+	<LazyView loader={loadTasksGuide} />
 {/if}
 
 <!-- ルート直下に一度だけ常設（alert()/confirm() 置換） -->

@@ -18,3 +18,4 @@ export {
 	type ConfirmOptions,
 } from "./ConfirmDialog.svelte";
 export { default as Toast } from "./Toast.svelte";
+export { default as LazyView } from "./LazyView.svelte";
