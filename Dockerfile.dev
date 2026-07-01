@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+# ==============================================================================
+# Yuuka - ホットリロード開発イメージ
+# TypeScript は tsx watch でリアルタイム再起動。src/ はホストからマウントする。
+# Rust バイナリは事前ビルド済みの dist/bin/ をマウント（コンテナ内では不要）。
+#
+# 起動: deploy/instance.sh dev hot
+# ==============================================================================
+FROM node:24-bookworm
+
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    TZ=Asia/Tokyo \
+    NODE_ENV=development
+
+WORKDIR /app
+
+# Puppeteer 用 chromium + 日本語/絵文字フォント + TLS + tzdata
+# + better-sqlite3 等のネイティブモジュールビルド用ツールチェーン
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      chromium \
+      fonts-noto-cjk fonts-noto-color-emoji \
+      ca-certificates libssl3 \
+      tzdata \
+      python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+# 依存インストール（layer キャッシュのため package.json 変更時のみ再ビルド）
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# エントリポイント: 未セットアップなら pnpm install → tsx watch
+COPY docker/entrypoint.dev.sh /entrypoint.dev.sh
+
+# src/ と dist/bin/ はホストからマウント（Dockerfile.dev では COPY しない）
+# data/ は instance.env の DATA_DIR からマウント
+
+ENTRYPOINT ["/entrypoint.dev.sh"]
