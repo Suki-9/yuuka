@@ -5,9 +5,15 @@ import type { RemindersResponse, ApiResponse } from "../types";
 const BOT = { scope: "bot" } as const;
 
 export const reminderApi = {
-	/** GET /api/reminders — リマインダー一覧 */
-	list: (query?: { status?: string }) =>
-		api.get<RemindersResponse>("/api/reminders", { ...BOT, query }),
+	/**
+	 * GET /api/reminders — リマインダー一覧。
+	 * all=true で送信済み・キャンセル済みも含める（サーバは ?all=1 を読む）。
+	 */
+	list: (opts?: { all?: boolean }) =>
+		api.get<RemindersResponse>("/api/reminders", {
+			...BOT,
+			query: opts?.all ? { all: 1 } : undefined,
+		}),
 
 	/** POST /api/reminders/add */
 	add: (body: {
@@ -18,6 +24,7 @@ export const reminderApi = {
 		target_id?: string;
 	}) => api.post<ApiResponse>("/api/reminders/add", body, BOT),
 
-	/** POST /api/reminders/cancel */
-	cancel: (id: number) => api.post<ApiResponse>("/api/reminders/cancel", { id }, BOT),
+	/** POST /api/reminders/cancel（サーバは reminder_id を受ける） */
+	cancel: (id: number) =>
+		api.post<ApiResponse>("/api/reminders/cancel", { reminder_id: id }, BOT),
 };
