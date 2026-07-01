@@ -31,20 +31,35 @@ export const authApi = {
 		geminiApiKey: string;
 	}) => api.post<ApiResponse>("/api/setup", body, USER),
 
-	/** POST /api/login */
-	login: (body: { username: string; password: string }) =>
+	/**
+	 * POST /api/admin/default-bot/token — 初期セットアップ Step2:
+	 * system_default Bot のトークン登録（管理者登録直後の bot-setup フォーム）。
+	 */
+	setDefaultBotToken: (body: { token: string }) =>
+		api.post<ApiResponse>("/api/admin/default-bot/token", body, USER),
+
+	/** POST /api/login — 認証は Discord ID + パスワード（authRoutes.ts:367） */
+	login: (body: { discordId: string; password: string }) =>
 		api.post<LoginResponse>("/api/login", body, USER),
 
-	/** POST /api/register — DM チャレンジ発行 */
+	/**
+	 * POST /api/register — DM チャレンジ発行。
+	 * 成功時は { success, pending:true }（authRoutes.ts:282）。pending:true なら
+	 * /api/register/verify で確認コードを確定する。
+	 */
 	register: (body: {
 		discordId: string;
 		username: string;
 		password: string;
 		inviteCode?: string;
+		geminiApiKey?: string;
 	}) => api.post<RegisterResponse>("/api/register", body, USER),
 
-	/** POST /api/register/verify — DM チャレンジ確定 */
-	registerVerify: (body: { challengeId: string; code: string }) =>
+	/**
+	 * POST /api/register/verify — DM チャレンジ確定。
+	 * サーバは { discordId, code } を受ける（authRoutes.ts:297）。
+	 */
+	registerVerify: (body: { discordId: string; code: string }) =>
 		api.post<ApiResponse>("/api/register/verify", body, USER),
 
 	/** POST /api/logout */
