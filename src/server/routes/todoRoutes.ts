@@ -8,7 +8,7 @@ import {
 	listGanttTasks,
 	listProgressLogs,
 	listSomedayTasks,
-	listSubtasks,
+	listSubtasksTree,
 	listTodoTree,
 	updateProgress,
 	updateTodo,
@@ -116,7 +116,7 @@ export const todoRoutes: RouteDef[] = [
 					success: false,
 					message: "タスクが見つかりません。",
 				});
-			const subtasks = listSubtasks(userId, botId, id);
+			const subtasks = listSubtasksTree(userId, botId, id);
 			const progressLogs = listProgressLogs(userId, botId, id);
 			sendJson(ctx.res, 200, {
 				success: true,
@@ -205,7 +205,7 @@ export const todoRoutes: RouteDef[] = [
 					success: false,
 					message: "id と progress（0〜100）が必要です。",
 				});
-			const subtasks = listSubtasks(userId, botId, id);
+			const subtasks = listSubtasksTree(userId, botId, id);
 			if (subtasks.length > 0)
 				return sendJson(ctx.res, 409, {
 					success: false,
