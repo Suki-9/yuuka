@@ -122,8 +122,11 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
 			if (!ext) {
 				finalPath = path.join(PUBLIC_DIR, "index.html");
 			} else {
-				res.writeHead(404, { "Content-Type": "text/plain" });
-				res.end("404 Not Found");
+				const notFoundPage = path.join(PUBLIC_DIR, "404.html");
+				fs.readFile(notFoundPage, (readErr, html) => {
+					res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+					res.end(readErr ? "404 Not Found" : html);
+				});
 				return;
 			}
 		}
