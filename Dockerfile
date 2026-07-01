@@ -64,11 +64,16 @@ RUN apt-get update \
 # 依存導入（ロックファイル厳守）
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
-# ソース・ドキュメントを取り込み TypeScript をビルド
+# ソース・ドキュメント・フロントエンドを取り込み TypeScript(tsgo) + Vite をビルド
 COPY tsconfig.json ./
 COPY src ./src
 COPY docs ./docs
+COPY frontend ./frontend
+# ビルド順序は install → tsgo → vite build → prune を厳守（prune=:82 より前で vite build）。
+# prune 後は vite/svelte(devDeps) が消え vite build が失敗するため、必ず prune の前に実行する。
+# vite build の outDir は frontend/vite.config.ts の outDir=../dist/public に従い /app/dist/public へ出力。
 RUN pnpm exec tsgo \
+ && pnpm exec vite build --config frontend/vite.config.ts \
  && mkdir -p dist/bin dist/assets \
  && cp -r src/assets/. dist/assets/
 # Rust バイナリを dist/bin へ配置（browserService / synapseEngine が参照）
@@ -101,8 +106,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 # アプリ本体（runtime に必要なものだけ builder から取得）
 COPY --from=node-builder /app/node_modules ./node_modules
+# dist は tsgo 出力(dist/index.js)・Vite 出力(dist/public=フロント配信元)・サーバー資産(dist/assets) を一括で拾う
 COPY --from=node-builder /app/dist ./dist
-COPY --from=node-builder /app/src/public ./src/public
+# src/assets は Vite の /assets/ とは別物のサーバー実行時資産（@napi-rs/canvas 等）。常に残す（不可侵）
+# （P5 完了: 旧 vanilla の src/public は撤去。フロントは dist/public 一本化。ロールバックは deploy rollback）
 COPY --from=node-builder /app/src/assets ./src/assets
 COPY --from=node-builder /app/docs ./docs
 COPY package.json ./

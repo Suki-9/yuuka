@@ -20,3 +20,4 @@ deploy/*/instance.env
 deploy/*/secret.key
 deploy/*/secret.key.new
 deploy/*/data/
+node_modules
