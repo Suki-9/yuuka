@@ -165,6 +165,9 @@ document.addEventListener("DOMContentLoaded", () => {
 		"playbooks",
 	];
 
+	// 汎用モード(mcp_assistant)専用のタブ（秘書モードでは非表示にする）
+	const ASSISTANT_ONLY_TABS = ["discord"];
+
 	function currentBotPreset() {
 		return localStorage.getItem("currentBotPreset") || "secretary";
 	}
@@ -203,6 +206,8 @@ document.addEventListener("DOMContentLoaded", () => {
 			const tab = item.getAttribute("data-tab");
 			if (SECRETARY_ONLY_TABS.includes(tab)) {
 				item.style.display = isAssistant ? "none" : "";
+			} else if (ASSISTANT_ONLY_TABS.includes(tab)) {
+				item.style.display = isAssistant ? "" : "none";
 			}
 		});
 
@@ -298,6 +303,13 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (
 			currentBotPreset() === "mcp_assistant" &&
 			SECRETARY_ONLY_TABS.includes(tabId)
+		) {
+			tabId = "config";
+		}
+		// 秘書モードBotでは汎用モード専用タブへ遷移させない（Bot設定へフォールバック）
+		if (
+			currentBotPreset() !== "mcp_assistant" &&
+			ASSISTANT_ONLY_TABS.includes(tabId)
 		) {
 			tabId = "config";
 		}
@@ -743,6 +755,9 @@ document.addEventListener("DOMContentLoaded", () => {
 			fetchBotShares();
 		} else if (activeTab === "discord") {
 			fetchDiscordSettings();
+		} else if (activeTab === "config") {
+			fetchConfigSettings();
+			fetchDiscordSettings(); // Discord Bot Token カードが Bot設定タブに移設されたため
 		} else if (activeTab === "delivery") {
 			fetchBriefingConfig();
 			fetchReportConfigs();
@@ -755,8 +770,6 @@ document.addEventListener("DOMContentLoaded", () => {
 			fetchPlaybooksList();
 			fetchPlaybookSchedulesList();
 			fetchPlaybookRunsList();
-		} else if (activeTab === "config") {
-			fetchConfigSettings();
 		} else if (activeTab === "devices") {
 			fetchDevices();
 			fetchDesktopDownload();

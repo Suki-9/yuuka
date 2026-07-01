@@ -250,7 +250,7 @@
   <div id="usage-overlay" class="overlay">
     <div class="usage-card">
       <div class="login-header">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px;">
           <div class="logo-icon-container"
             style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
             <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">help</span>
@@ -327,7 +327,7 @@
   <div id="terms-overlay" class="overlay">
     <div class="usage-card">
       <div class="login-header">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px;">
           <div class="logo-icon-container"
             style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
             <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">gavel</span>
@@ -400,7 +400,7 @@
   <div id="task-guide-overlay" class="overlay">
     <div class="usage-card">
       <div class="login-header">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px;">
           <div class="logo-icon-container"
             style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
             <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">checklist</span>
@@ -470,7 +470,7 @@
   <div id="privacy-overlay" class="overlay">
     <div class="usage-card">
       <div class="login-header">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px;">
           <div class="logo-icon-container"
             style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
             <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">security</span>
@@ -1370,6 +1370,57 @@
             <span id="bot-name-feedback" class="field-sub" style="display:none; margin-top: 8px;"></span>
           </details>
 
+          <!-- Discord Bot Token（Bot設定から移設）-->
+          <details id="config-discord-card" class="config-card card" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header badge-right">
+              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
+              <span class="badge badge-accent">任意設定</span>
+            </summary>
+            <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
+            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label for="discord-token">Discord Bot Token (任意)</label>
+                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
+                  autocomplete="new-password">
+                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
+              </div>
+              <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
+            </form>
+          </details>
+
+          <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
+          <details id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
+            <summary class="column-header">
+              <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
+            </summary>
+            <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
+
+            <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-invite-url">導入リンク（サーバーに追加）</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-invite-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-invite" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-invite-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+                <span class="field-sub">※チャンネル表示・メッセージ送信／履歴閲覧・埋め込みリンク・ファイル添付の権限を付与した状態で開きます。</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="bot-profile-url">プロフィールURL</label>
+                <div style="display: flex; gap: 12px;">
+                  <input type="text" id="bot-profile-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
+                  <button type="button" id="btn-copy-bot-profile" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
+                  <a id="bot-profile-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
+                </div>
+              </div>
+            </div>
+
+            <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+              <span class="field-sub">導入リンクを生成するには、Discord Bot Token を設定してください。トークンを設定すると、Botを起動していなくても導入リンク・プロフィールURLを表示できます。</span>
+              <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
+            </div>
+          </details>
+
           <details id="config-bot-attribute-card" class="config-card card hidden" style="margin-top: 24px;" name="config-acc">
             <summary class="column-header badge-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">category</span>Bot属性（プリセット）</h3>
@@ -1598,57 +1649,6 @@
              ========================================== -->
         <section id="tab-discord" class="tab-view">
 
-          <!-- Discord Bot Token Settings -->
-          <details id="config-discord-card" class="config-card card" style="margin-top: 24px;" name="discord-acc">
-            <summary class="column-header badge-right">
-              <h3><span class="material-symbols-outlined header-icon-symbol">robot_2</span>Discord 独自Bot 設定</h3>
-              <span class="badge badge-accent">任意設定</span>
-            </summary>
-            <p class="description-text">独自の Discord Bot Token を設定できます。未設定の場合はシステムデフォルトのボットが適用されます。</p>
-            <form id="discord-config-form" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-              <div class="form-group" style="margin-bottom: 12px;">
-                <label for="discord-token">Discord Bot Token (任意)</label>
-                <input type="password" id="discord-token" placeholder="トークンを変更・登録する場合は入力してください (マスク表示中)"
-                  autocomplete="new-password">
-                <span class="field-sub">※独自Botを使用しない場合は空欄にしてください。</span>
-              </div>
-              <button type="submit" class="btn btn-primary">Discord 設定を保存</button>
-            </form>
-          </details>
-
-          <!-- Bot 招待リンク・プロフィール: discord_application_id が判明している場合のみ表示 -->
-          <details id="config-bot-invite-card" class="config-card card hidden" style="margin-top: 24px;" name="discord-acc">
-            <summary class="column-header">
-              <h3><span class="material-symbols-outlined header-icon-symbol">link</span>Bot 招待リンク・プロフィール</h3>
-            </summary>
-            <p class="description-text">このBotをサーバーへ追加するための導入リンクと、Discordプロフィールへのリンクです。</p>
-
-            <div id="bot-invite-fields" class="hidden" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="bot-invite-url">導入リンク（サーバーに追加）</label>
-                <div style="display: flex; gap: 12px;">
-                  <input type="text" id="bot-invite-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
-                  <button type="button" id="btn-copy-bot-invite" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
-                  <a id="bot-invite-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
-                </div>
-                <span class="field-sub">※チャンネル表示・メッセージ送信／履歴閲覧・埋め込みリンク・ファイル添付の権限を付与した状態で開きます。</span>
-              </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="bot-profile-url">プロフィールURL</label>
-                <div style="display: flex; gap: 12px;">
-                  <input type="text" id="bot-profile-url" readonly style="flex-grow: 1; font-family: var(--font-family-mono);">
-                  <button type="button" id="btn-copy-bot-profile" class="btn btn-secondary" style="white-space: nowrap;">コピー</button>
-                  <a id="bot-profile-open" class="btn btn-primary" target="_blank" rel="noopener" style="white-space: nowrap;">開く</a>
-                </div>
-              </div>
-            </div>
-
-            <div id="bot-invite-empty" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
-              <span class="field-sub">導入リンクを生成するには、このBotのDiscordトークンを設定してください（上の「Discord 独自Bot設定」カード）。トークンを設定すると、Botを起動していなくても導入リンク・プロフィールURLを表示できます。</span>
-              <button type="button" id="btn-invite-sync" class="btn btn-secondary">今すぐ同期</button>
-            </div>
-          </details>
-
           <!-- 汎用モード（MCPアシスタント）の Discord 関連設定: owner かつ mcp_assistant のみ表示 -->
           <details id="config-assistant-discord-card" class="config-card card hidden" style="margin-top: 24px;" name="discord-acc">
             <summary class="column-header badge-right">
@@ -1733,7 +1733,7 @@
           </div>
 
           <div class="card" style="margin-top: 24px;">
-            <div class="column-header">
+            <div class="column-header badge-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">storefront</span>ペルソナ マーケットプレイス</h3>
               <span class="badge badge-accent">公開ペルソナ</span>
             </div>
@@ -1894,7 +1894,7 @@
         <section id="tab-delivery" class="tab-view">
           <!-- 朝報 -->
           <div class="card">
-            <div class="column-header">
+            <div class="column-header action-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">wb_sunny</span>朝報 (モーニングブリーフィング)</h3>
               <button id="btn-briefing-test" class="btn btn-secondary btn-sm">テスト配信</button>
             </div>
@@ -2019,7 +2019,7 @@
           </div>
 
           <div class="card" style="margin-top: 24px;">
-            <div class="column-header">
+            <div class="column-header action-right">
               <h3><span class="material-symbols-outlined header-icon-symbol">history</span>受信履歴 (直近50件)</h3>
               <button id="btn-refresh-deliveries" class="btn btn-secondary btn-sm">更新</button>
             </div>
@@ -2340,7 +2340,7 @@
   <div id="device-overlay" class="overlay">
     <div class="usage-card">
       <div class="login-header">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px;">
           <div class="logo-icon-container"
             style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background-color: var(--surface-1dp); border: 1px solid var(--border-matte); border-radius: 50%;">
             <span class="material-symbols-outlined" style="font-size: 24px; color: var(--color-primary);">devices</span>
